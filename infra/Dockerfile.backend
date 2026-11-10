@@ -8,6 +8,8 @@ COPY web ./
 RUN pnpm build
 
 FROM python:3.14.10-slim-bookworm@sha256:516b51cb9db2ef061e465c803e50f64361b82cefd91e525b889b967b83e83527 AS base
+COPY infra/apt-security.sh /tmp/apt-security.sh
+RUN sh /tmp/apt-security.sh && rm /tmp/apt-security.sh
 COPY --from=uv /uv /uvx /usr/local/bin/
 ENV UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never UV_EXCLUDE_NEWER=2026-10-29T00:00:00Z PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 PATH="/app/.venv/bin:$PATH"
@@ -25,12 +27,14 @@ CMD ["uv", "run", "--no-sync", "pytest"]
 
 FROM base AS runtime
 COPY backend/pyproject.toml backend/uv.lock ./
-RUN uv sync --frozen --no-dev --no-install-project
+RUN uv sync --no-cache --frozen --no-dev --no-install-project
 COPY backend/src ./src
 COPY infra/rules /rules
 COPY infra/import-legacy.py /app/operations/import-legacy.py
 COPY --from=web /web/dist /app/web/dist
-RUN uv sync --frozen --no-dev && \
+RUN uv sync --no-cache --frozen --no-dev && \
+    /usr/local/bin/python -m pip uninstall --yes pip && \
+    rm -rf /usr/local/lib/python3.14/ensurepip && \
     groupadd --gid 10001 sabre && useradd --uid 10001 --gid sabre --no-create-home sabre && \
     mkdir -p /var/lib/sabre /workspaces && chown -R sabre:sabre /var/lib/sabre && chmod 0700 /workspaces
 USER 10001:10001

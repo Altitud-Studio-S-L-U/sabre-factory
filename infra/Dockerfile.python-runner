@@ -1,5 +1,7 @@
 FROM ghcr.io/astral-sh/uv:0.13.4@sha256:9f130421e930bfbdc563c00740466603f8723158e90297d07957c2294640262b AS uv
 FROM python:3.14.10-bookworm@sha256:a8cf203c684b61fd2676ec5a17159cf68ed38ad471481e1f4ebc4679825250bd
+COPY infra/apt-security.sh /tmp/apt-security.sh
+RUN sh /tmp/apt-security.sh && rm /tmp/apt-security.sh
 COPY --from=uv /uv /uvx /usr/local/bin/
 ENV UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never PYTHONDONTWRITEBYTECODE=1 \
     UV_CACHE_DIR=/tmp/uv-cache HOME=/tmp

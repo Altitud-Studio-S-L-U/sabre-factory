@@ -218,6 +218,9 @@ services:
     tmpfs: ["/tmp:size=32m,mode=1777"]
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]
+    # Squid sizes descriptor tables from this limit; a host's million-FD default exhausts 128 MiB.
+    ulimits:
+      nofile: {soft: 4096, hard: 4096}
     healthcheck:
       test: [CMD, /usr/sbin/squid, -k, check, -f, /etc/squid/squid.conf]
       interval: 5s
@@ -252,6 +255,8 @@ services:
     tmpfs: ["/tmp:size=32m,mode=1777"]
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]
+    ulimits:
+      nofile: {soft: 4096, hard: 4096}
     healthcheck:
       test: [CMD, /usr/sbin/squid, -k, check, -f, /etc/squid/squid.conf]
       interval: 5s
