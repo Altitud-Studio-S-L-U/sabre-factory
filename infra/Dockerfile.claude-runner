@@ -1,0 +1,24 @@
+ARG TARGETARCH
+ARG SABRE_CONTROL_IMAGE
+FROM python:3.14.10-slim-bookworm@sha256:516b51cb9db2ef061e465c803e50f64361b82cefd91e525b889b967b83e83527 AS claude
+FROM claude AS claude-amd64
+ADD --checksum=sha256:fd13c70000fec3f2116dfbcbb6121210b4a29328bf0e46210a59dd594a67d824 \
+    https://downloads.claude.ai/claude-code-releases/2.1.316/linux-x64/claude /opt/claude/bin/claude
+FROM claude AS claude-arm64
+ADD --checksum=sha256:55cdb8e162d190432696ea54010e0fca2e18d06fa7a7127fd563b9ffd4f22624 \
+    https://downloads.claude.ai/claude-code-releases/2.1.316/linux-arm64/claude /opt/claude/bin/claude
+FROM claude-${TARGETARCH} AS claude-selected
+RUN --network=none chmod 0555 /opt/claude/bin/claude
+
+FROM ${SABRE_CONTROL_IMAGE}
+USER 0:0
+COPY --from=claude-selected /opt/claude/ /opt/claude/
+COPY infra/licenses/claude.NOTICE /usr/share/licenses/sabre-claude/NOTICE
+COPY infra/claude-managed-settings.json /etc/claude-code/managed-settings.json
+COPY infra/claude-managed-mcp.json /etc/claude-code/managed-mcp.json
+RUN --network=none mkdir -p /var/lib/sabre-claude && chown 10001:10001 /var/lib/sabre-claude && chmod 0700 /var/lib/sabre-claude && \
+    chmod 0444 /etc/claude-code/managed-settings.json /etc/claude-code/managed-mcp.json && chmod 0555 /etc/claude-code
+ENV HOME=/var/lib/sabre-claude CLAUDE_CONFIG_DIR=/var/lib/sabre-claude
+USER 10001:10001
+EXPOSE 8092
+CMD ["uvicorn", "sabre.claude_runner:create_app", "--factory", "--host", "0.0.0.0", "--port", "8092", "--no-access-log"]

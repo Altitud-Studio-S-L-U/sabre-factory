@@ -1,0 +1,736 @@
+"""Application metadata, command admission and effect receipts; graph state lives in LangGraph."""
+
+import hashlib
+import json
+from contextlib import asynccontextmanager
+from datetime import timedelta
+from typing import Any, Literal, TypedDict
+
+import psycopg
+from psycopg import sql
+from psycopg.rows import dict_row
+from psycopg.types.json import Jsonb
+from psycopg_pool import AsyncConnectionPool
+
+from sabre.context_receipts import ContextReceipt, ContextUsageSummary, aggregate_receipts, checked_receipt
+from sabre.events import EventPage, ExecutionEvent, SequencedEvent
+from sabre.integrations import INTEGRATIONS_SCHEMA
+from sabre.mcp_connections import MCP_CONNECTIONS_SCHEMA
+from sabre.migrations import migrate
+from sabre.model_configuration import MODEL_CONFIGURATION_SCHEMA
+from sabre.models import (
+    Budget,
+    CallBudgetIncrease,
+    CliProgressLimitsChange,
+    DomainError,
+    MemoryItem,
+    Project,
+    ScopeChange,
+    SecurityException,
+    SecurityExceptionCreate,
+    Status,
+    TokenBudgetIncrease,
+    WorkOrder,
+    WorkOrderCreate,
+    new_id,
+    now,
+)
+from sabre.notifications import WebhookDestination
+from sabre.project_tools import PROJECT_TOOLS_SCHEMA
+from sabre.repo_creation import REPO_CREATION_SCHEMA
+
+PANEL_SESSION_LOCK = 813784
+
+
+class CheckpointInventory(TypedDict):
+    count: int
+    threads: int
+    child_threads: list[str]
+    truncated: bool
+
+
+class UsageSummary(TypedDict):
+    calls: int
+    settled_calls: int
+    unsettled_calls: int
+    tokens: int
+    measured_tokens: int
+    unknown_reserved_tokens: int
+    cost_usd: float
+
+
+class KnowledgeInventory(TypedDict):
+    memories: dict[str, int]
+    checkpoints: dict[str, int]
+    work_ids: list[str]
+    truncated: bool
+
+SCHEMA = """
+CREATE EXTENSION IF NOT EXISTS vector;
+CREATE TABLE IF NOT EXISTS sabre_schema(version integer PRIMARY KEY);
+INSERT INTO sabre_schema VALUES(1) ON CONFLICT DO NOTHING;
+CREATE TABLE IF NOT EXISTS projects(id text PRIMARY KEY, data jsonb NOT NULL);
+CREATE UNIQUE INDEX IF NOT EXISTS project_repository ON projects(lower(data->>'repository'));
+CREATE TABLE IF NOT EXISTS work_orders(
+ id text PRIMARY KEY, project_id text NOT NULL REFERENCES projects(id),
+ idem text NOT NULL UNIQUE, request_hash text NOT NULL, data jsonb NOT NULL,
+ control text, scope jsonb, accepted_answer jsonb, updated_at timestamptz NOT NULL DEFAULT now());
+CREATE TABLE IF NOT EXISTS work_events(
+ seq bigserial PRIMARY KEY, id text UNIQUE NOT NULL, work_id text NOT NULL REFERENCES work_orders(id),
+ kind text NOT NULL, message text NOT NULL, created_at timestamptz NOT NULL DEFAULT now());
+CREATE TABLE IF NOT EXISTS effects(
+ operation_key text PRIMARY KEY, request_hash text NOT NULL, state text NOT NULL, result jsonb);
+CREATE TABLE IF NOT EXISTS model_usage(
+ id text PRIMARY KEY, work_id text REFERENCES work_orders(id), reserved_tokens bigint NOT NULL,
+ reserved_usd numeric NOT NULL, actual_tokens bigint, actual_usd numeric,
+ created_at timestamptz NOT NULL DEFAULT now(), context_key text);
+ALTER TABLE model_usage ADD COLUMN IF NOT EXISTS context_receipt jsonb;
+CREATE TABLE IF NOT EXISTS memories(
+ id text PRIMARY KEY, project_id text REFERENCES projects(id), data jsonb NOT NULL,
+ embedding vector(1536), document tsvector GENERATED ALWAYS AS
+ (to_tsvector('simple',data->>'content')) STORED);
+CREATE INDEX IF NOT EXISTS memory_document ON memories USING gin(document);
+CREATE TABLE IF NOT EXISTS security_reports(
+ id text PRIMARY KEY, project_id text REFERENCES projects(id), work_id text REFERENCES work_orders(id),
+ data jsonb NOT NULL, created_at timestamptz NOT NULL DEFAULT now());
+CREATE TABLE IF NOT EXISTS security_exceptions(
+ id text PRIMARY KEY, work_id text NOT NULL REFERENCES work_orders(id),
+ project_id text NOT NULL REFERENCES projects(id), data jsonb NOT NULL);
+CREATE INDEX IF NOT EXISTS security_exceptions_work ON security_exceptions(work_id);
+CREATE TABLE IF NOT EXISTS notifications(
+ id text PRIMARY KEY, work_id text REFERENCES work_orders(id), data jsonb NOT NULL,
+ delivered boolean NOT NULL DEFAULT false);
+CREATE TABLE IF NOT EXISTS panel_tickets(
+ ticket_hash text PRIMARY KEY, origin text NOT NULL, epoch text NOT NULL, expires_at timestamptz NOT NULL);
+CREATE TABLE IF NOT EXISTS panel_sessions(
+ session_hash text PRIMARY KEY, origin text NOT NULL, epoch text NOT NULL, expires_at timestamptz NOT NULL);
+""" + INTEGRATIONS_SCHEMA + MCP_CONNECTIONS_SCHEMA + REPO_CREATION_SCHEMA + PROJECT_TOOLS_SCHEMA + MODEL_CONFIGURATION_SCHEMA
+
+
+def payload(model) -> dict:
+    return json.loads(model.model_dump_json())
+
+
+def digest(value: Any) -> str:
+    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()).hexdigest()
+
+
+class Repository:
+    def __init__(self, dsn: str, *, pool_size: int = 0, execution_slots: int = 2):
+        self.dsn = dsn
+        self.execution_slots = execution_slots
+        self.notification_destinations: dict[str, WebhookDestination] = {}
+        self.pool = AsyncConnectionPool(dsn, open=False, min_size=1, max_size=pool_size,
+            kwargs={"row_factory": dict_row, "connect_timeout": 5}, reset=self._reset_connection) if pool_size else None
+
+    @staticmethod
+    async def _reset_connection(conn):
+        await conn.execute("SELECT pg_advisory_unlock_all()")
+        await conn.commit()
+
+    async def close(self):
+        if self.pool:
+            await self.pool.close()
+
+    @asynccontextmanager
+    async def connection(self):
+        if self.pool:
+            async with self.pool.connection(timeout=10) as conn:
+                yield conn
+        else:
+            async with await psycopg.AsyncConnection.connect(self.dsn, row_factory=dict_row, connect_timeout=5) as conn:
+                yield conn
+
+    async def initialize(self):
+        if self.pool:
+            await self.pool.open(wait=True)
+        async with self.connection() as conn:
+            await migrate(conn, SCHEMA)
+
+    async def healthy(self) -> bool:
+        try:
+            async with self.connection() as conn:
+                await conn.execute("SELECT 1")
+            return True
+        except psycopg.Error:
+            return False
+
+    async def issue_panel_ticket(self, ticket_hash: str, origin: str, epoch: str):
+        async with self.connection() as conn:
+            await conn.execute("SELECT pg_advisory_xact_lock(%s)", (PANEL_SESSION_LOCK,))
+            await conn.execute("DELETE FROM panel_tickets WHERE expires_at<=clock_timestamp() OR epoch<>%s", (epoch,))
+            count = await (await conn.execute("SELECT count(*) AS n FROM panel_tickets")).fetchone()
+            if count["n"] >= 32:
+                raise DomainError("PANEL_TICKET_LIMIT", "Wait one minute before opening another panel access link", 429)
+            await conn.execute("INSERT INTO panel_tickets VALUES(%s,%s,%s,clock_timestamp()+interval '60 seconds')", (ticket_hash, origin, epoch))
+
+    async def exchange_panel_ticket(self, ticket_hash: str, session_hash: str, origin: str, epoch: str):
+        async with self.connection() as conn:
+            await conn.execute("SELECT pg_advisory_xact_lock(%s)", (PANEL_SESSION_LOCK,))
+            await conn.execute("DELETE FROM panel_sessions WHERE expires_at<=clock_timestamp() OR epoch<>%s", (epoch,))
+            count = await (await conn.execute("SELECT count(*) AS n FROM panel_sessions")).fetchone()
+            if count["n"] >= 128:
+                raise DomainError("PANEL_SESSION_LIMIT", "Close a panel session before opening another", 429)
+            ticket = await (await conn.execute("DELETE FROM panel_tickets WHERE ticket_hash=%s AND origin=%s AND epoch=%s AND expires_at>clock_timestamp() RETURNING ticket_hash", (ticket_hash, origin, epoch))).fetchone()
+            if ticket is None:
+                return None
+            row = await (await conn.execute("INSERT INTO panel_sessions VALUES(%s,%s,%s,clock_timestamp()+interval '8 hours') RETURNING expires_at", (session_hash, origin, epoch))).fetchone()
+            return row["expires_at"]
+
+    async def panel_session(self, session_hash: str, origin: str, epoch: str):
+        async with self.connection() as conn:
+            row = await (await conn.execute("SELECT expires_at FROM panel_sessions WHERE session_hash=%s AND origin=%s AND epoch=%s AND expires_at>clock_timestamp()", (session_hash, origin, epoch))).fetchone()
+            return row["expires_at"] if row else None
+
+    async def revoke_panel_session(self, session_hash: str):
+        async with self.connection() as conn:
+            await conn.execute("DELETE FROM panel_sessions WHERE session_hash=%s", (session_hash,))
+
+    async def create_project(self, project: Project):
+        async with self.connection() as conn:
+            created = await (await conn.execute("INSERT INTO projects VALUES(%s,%s) ON CONFLICT DO NOTHING RETURNING id", (project.id, Jsonb(payload(project))))).fetchone()
+            if created is None:
+                raise DomainError("PROJECT_EXISTS", "This repository is already registered")
+        return project
+
+    async def projects(self) -> list[Project]:
+        async with self.connection() as conn:
+            cursor = await conn.execute("SELECT data FROM projects ORDER BY data->>'name'")
+            return [Project.model_validate(row["data"]) async for row in cursor]
+
+    async def project(self, project_id: str) -> Project:
+        async with self.connection() as conn:
+            row = await (await conn.execute("SELECT data FROM projects WHERE id=%s", (project_id,))).fetchone()
+        if not row:
+            raise DomainError("PROJECT_NOT_FOUND", "Project not found", 404)
+        return Project.model_validate(row["data"])
+
+    async def admit(self, work: WorkOrder, enqueue) -> WorkOrder:
+        request = payload(work.model_copy())
+        # The key is bound to the submitted request, not timestamps allocated by the server.
+        for key in set(request) - set(WorkOrderCreate.model_fields):
+            request.pop(key)
+        request_hash = digest(request)
+        async with self.connection() as conn:
+            await conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))", (work.idempotency_key,))
+            prior = await (await conn.execute("SELECT data,request_hash FROM work_orders WHERE idem=%s", (work.idempotency_key,))).fetchone()
+            if prior:
+                if prior["request_hash"] != request_hash:
+                    raise DomainError("IDEMPOTENCY_CONFLICT", "The key already identifies another work order")
+                return WorkOrder.model_validate(prior["data"])
+            await conn.execute("INSERT INTO work_orders(id,project_id,idem,request_hash,data) VALUES(%s,%s,%s,%s,%s)",
+                               (work.id, work.project_id, work.idempotency_key, request_hash, Jsonb(payload(work))))
+            # Enqueue in this same PostgreSQL transaction to avoid accepted-but-lost work.
+            await enqueue(conn, work.id)
+        return work
+
+    async def work(self, work_id: str) -> WorkOrder:
+        async with self.connection() as conn:
+            row = await (await conn.execute("SELECT data,control FROM work_orders WHERE id=%s", (work_id,))).fetchone()
+        if not row:
+            raise DomainError("WORK_NOT_FOUND", "Work order not found", 404)
+        work = WorkOrder.model_validate(row["data"])
+        work.control = row["control"]
+        return work
+
+    async def works(self) -> list[WorkOrder]:
+        async with self.connection() as conn:
+            cursor = await conn.execute("SELECT data FROM work_orders ORDER BY updated_at DESC LIMIT 200")
+            return [WorkOrder.model_validate(row["data"]) async for row in cursor]
+
+    async def save(self, work: WorkOrder):
+        async with self.connection() as conn:
+            await conn.execute("UPDATE work_orders SET data=%s,updated_at=now() WHERE id=%s", (Jsonb(payload(work)), work.id))
+
+    async def revise_scope(self, work_id: str, change: ScopeChange) -> WorkOrder:
+        # The service holds the project lock; this row lock also serializes owner controls.
+        async with self.connection() as conn:
+            row = await (await conn.execute("SELECT data,control FROM work_orders WHERE id=%s FOR UPDATE", (work_id,))).fetchone()
+            if row is None:
+                raise DomainError("WORK_NOT_FOUND", "Work order not found", 404)
+            work = WorkOrder.model_validate(row["data"])
+            if work.plan_revision != change.expected_revision:
+                raise DomainError("STALE_PLAN", "The plan changed")
+            if row["control"] == "cancel":
+                raise DomainError("CANCEL_REQUESTED", "Requested cancellation must finish before changing the work order")
+            if work.status not in {Status.PAUSED, Status.BLOCKED}:
+                raise DomainError("PAUSE_REQUIRED", "Pause the work order before changing its scope")
+            work.objective, work.acceptance = change.objective, change.acceptance
+            work.plan_revision += 1
+            work.tasks, work.questions, work.findings = [], [], []
+            work.evidence, work.error_code, work.control = None, None, None
+            work.security_snapshot_digest, work.security_rules_version = None, None
+            work.phase, work.status, work.updated_at = "intake", Status.PAUSED, now()
+            work.summary = "New revision saved; resume to prepare the workspace"
+            await conn.execute("UPDATE work_orders SET data=%s,scope=%s,accepted_answer=NULL,control=NULL,updated_at=now() WHERE id=%s",
+                               (Jsonb(payload(work)), Jsonb({"revision": work.plan_revision}), work_id))
+            event_id, message = new_id(), f"New scope, revision {work.plan_revision}"
+            await conn.execute("INSERT INTO work_events(id,work_id,kind,message) VALUES(%s,%s,'scope_changed',%s)", (event_id, work_id, message))
+            await conn.execute("INSERT INTO notifications VALUES(%s,%s,%s,false)", (event_id, work_id, Jsonb({"kind": "scope_changed", "message": message})))
+            return work
+
+    async def pending_scope(self, work_id: str) -> int | None:
+        async with self.connection() as conn:
+            row = await (await conn.execute("SELECT scope FROM work_orders WHERE id=%s", (work_id,))).fetchone()
+        if row is None or row["scope"] is None:
+            return None
+        marker = row["scope"]
+        if not isinstance(marker, dict) or set(marker) != {"revision"} or type(marker["revision"]) is not int or marker["revision"] < 1:
+            raise DomainError("SCOPE_STATE_INVALID", "The pending revision is invalid")
+        return marker["revision"]
+
+    async def increase_token_budget(self, work_id: str, change: TokenBudgetIncrease) -> WorkOrder:
+        return await self._increase_budget(work_id, "max_tokens", change.expected_revision, change.expected_max_tokens, change.max_tokens)
+
+    async def increase_call_budget(self, work_id: str, change: CallBudgetIncrease) -> WorkOrder:
+        return await self._increase_budget(work_id, "max_calls", change.expected_revision, change.expected_max_calls, change.max_calls)
+
+    async def use_cli_progress_limits(self, work_id: str, change: CliProgressLimitsChange, model_revision: int) -> WorkOrder:
+        async with self.connection() as conn:
+            # Serialize with destination edits so the validated CLI selection is still current.
+            await conn.execute("SELECT pg_advisory_xact_lock(813788)")
+            selection = await (await conn.execute("SELECT revision FROM model_configuration WHERE singleton=true")).fetchone()
+            if (selection["revision"] if selection else 0) != model_revision:
+                raise DomainError("MODEL_CONFIGURATION_CHANGED", "Model configuration changed; refresh before continuing", 409)
+            row = await (await conn.execute("SELECT data,control FROM work_orders WHERE id=%s FOR UPDATE", (work_id,))).fetchone()
+            if row is None:
+                raise DomainError("WORK_NOT_FOUND", "Work order not found", 404)
+            work = WorkOrder.model_validate(row["data"])
+            if work.plan_revision != change.expected_revision:
+                raise DomainError("STALE_PLAN", "The plan changed")
+            if work.budget != change.expected_budget:
+                raise DomainError("STALE_BUDGET", "Limits changed; inspect the work order before retrying")
+            if row["control"] == "cancel":
+                raise DomainError("CANCEL_REQUESTED", "Requested cancellation must finish before changing limits")
+            if work.status not in {Status.PAUSED, Status.BLOCKED}:
+                raise DomainError("PAUSE_REQUIRED", "Pause the work order before changing its limit policy")
+            if work.budget.max_cost_usd != 0 or work.cost_usd > 0:
+                raise DomainError("MODEL_LIMITS_REQUIRED", "CLI progress controls require a work order without API budget or spend; retain its explicit quotas", 409)
+            if work.budget.progress_limits:
+                raise DomainError("CLI_PROGRESS_LIMITS_ACTIVE", "The work order already uses CLI progress controls")
+            work.budget = Budget(max_calls=None, max_tokens=None, active_seconds=None, max_cost_usd=0)
+            message = "The owner enabled CLI progress controls without cumulative quotas; all recorded usage is preserved"
+            work.summary, work.updated_at = message + "; resuming is independent", now()
+            work.control = row["control"]
+            await conn.execute("UPDATE work_orders SET data=%s,updated_at=now() WHERE id=%s", (Jsonb(payload(work)), work_id))
+            event_id = new_id()
+            await conn.execute("INSERT INTO work_events(id,work_id,kind,message) VALUES(%s,%s,'cli_progress_limits',%s)", (event_id, work_id, message))
+            await conn.execute("INSERT INTO notifications VALUES(%s,%s,%s,false)", (event_id, work_id, Jsonb({"kind": "cli_progress_limits", "message": message})))
+            return work
+
+    async def _increase_budget(self, work_id: str, field: Literal["max_tokens", "max_calls"], expected_revision: int, expected_limit: int, new_limit: int) -> WorkOrder:
+        label = {"max_tokens": "tokens", "max_calls": "llamadas"}[field]
+        async with self.connection() as conn:
+            row = await (await conn.execute("SELECT data,control FROM work_orders WHERE id=%s FOR UPDATE", (work_id,))).fetchone()
+            if row is None:
+                raise DomainError("WORK_NOT_FOUND", "Work order not found", 404)
+            work = WorkOrder.model_validate(row["data"])
+            if work.plan_revision != expected_revision:
+                raise DomainError("STALE_PLAN", "The plan changed")
+            if work.budget.progress_limits:
+                raise DomainError("CLI_PROGRESS_LIMITS_ACTIVE", "Cumulative quotas are disabled; a nonexistent limit cannot be extended")
+            if getattr(work.budget, field) != expected_limit:
+                raise DomainError("STALE_BUDGET", f"The limit for {label} changed; inspect the work order before retrying")
+            if row["control"] == "cancel":
+                raise DomainError("CANCEL_REQUESTED", "Requested cancellation must finish before extending the limit")
+            if work.status not in {Status.PAUSED, Status.BLOCKED}:
+                raise DomainError("PAUSE_REQUIRED", f"Pause the work order before extending the limit for {label}")
+            if new_limit <= expected_limit:
+                raise DomainError("BUDGET_INCREASE_REQUIRED", f"The new limit for {label} debe ser mayor", 422)
+            setattr(work.budget, field, new_limit)
+            message = f"Limit for {label} extended by the owner: {expected_limit} → {new_limit}"
+            work.summary, work.updated_at = message + "; the state is preserved and resuming is independent", now()
+            work.control = row["control"]
+            await conn.execute("UPDATE work_orders SET data=%s,updated_at=now() WHERE id=%s", (Jsonb(payload(work)), work_id))
+            event_id = new_id()
+            await conn.execute("INSERT INTO work_events(id,work_id,kind,message) VALUES(%s,%s,'budget_increased',%s)", (event_id, work_id, message))
+            await conn.execute("INSERT INTO notifications VALUES(%s,%s,%s,false)", (event_id, work_id, Jsonb({"kind": "budget_increased", "message": message})))
+            return work
+
+    async def acknowledge_scope(self, work_id: str, revision: int):
+        async with self.connection() as conn:
+            cursor = await conn.execute("UPDATE work_orders SET scope=NULL WHERE id=%s AND scope=%s AND data->>'plan_revision'=%s",
+                                        (work_id, Jsonb({"revision": revision}), str(revision)))
+            if cursor.rowcount != 1:
+                raise DomainError("STALE_PLAN", "The pending revision changed")
+
+    async def add_active_seconds(self, work_id: str, seconds: float):
+        async with self.connection() as conn:
+            await conn.execute("UPDATE work_orders SET data=jsonb_set(data,'{active_seconds_used}',to_jsonb(coalesce((data->>'active_seconds_used')::numeric,0)+%s::numeric)) WHERE id=%s", (seconds, work_id))
+
+    async def event(self, work: WorkOrder, kind: str, message: str):
+        async with self.connection() as conn:
+            event_id = new_id()
+            await conn.execute("INSERT INTO work_events(id,work_id,kind,message) VALUES(%s,%s,%s,%s)", (event_id, work.id, kind, message))
+            await conn.execute("INSERT INTO notifications VALUES(%s,%s,%s,false)", (event_id, work.id, Jsonb({"kind": kind, "message": message})))
+            from sabre.notifications import enqueue_notifications
+            await enqueue_notifications(conn, self.notification_destinations, event_id, work)
+
+    async def record_execution_event(self, event: ExecutionEvent):
+        async with self.connection() as conn:
+            await conn.execute("INSERT INTO run_events(id,work_id,data) VALUES(%s,%s,%s) ON CONFLICT(id) DO NOTHING",
+                (event.id, event.work_id, Jsonb(event.model_dump(mode="json"))))
+
+    async def execution_events(self, work_id: str, after: int = 0, limit: int = 100) -> EventPage:
+        if after < 0 or not 1 <= limit <= 200:
+            raise DomainError("INVALID_CURSOR", "Use a non-negative cursor and a limit between 1 and 200", 422)
+        async with self.connection() as conn:
+            rows = await (await conn.execute("SELECT seq,data FROM run_events WHERE work_id=%s AND seq>%s ORDER BY seq LIMIT %s",
+                (work_id, after, limit + 1))).fetchall()
+        selected = rows[:limit]
+        return EventPage(items=[SequencedEvent(sequence=row["seq"], event=ExecutionEvent.model_validate_json(json.dumps(row["data"]))) for row in selected],
+                         next_cursor=selected[-1]["seq"] if selected else after, has_more=len(rows) > limit)
+
+    async def events(self, work_id: str):
+        async with self.connection() as conn:
+            return await (await conn.execute("SELECT id,work_id,kind,message,created_at FROM work_events WHERE work_id=%s ORDER BY seq", (work_id,))).fetchall()
+
+    async def command(self, work_id: str, command: str | None):
+        async with self.connection() as conn:
+            await conn.execute("UPDATE work_orders SET control=%s WHERE id=%s", (command, work_id))
+
+    async def request_control(self, work_id: str, command: str):
+        async with self.connection() as conn:
+            row = await (await conn.execute("SELECT data FROM work_orders WHERE id=%s FOR UPDATE", (work_id,))).fetchone()
+            if not row:
+                raise DomainError("WORK_NOT_FOUND", "Work order not found", 404)
+            work = WorkOrder.model_validate(row["data"])
+            if work.status in {Status.COMPLETED, Status.CANCELLED}:
+                raise DomainError("WORK_TERMINAL", "The work order has already finished")
+            await conn.execute("UPDATE work_orders SET control=%s,updated_at=now() WHERE id=%s", (command, work_id))
+
+    async def finalize_idle_control(self, work_id: str, command: str) -> bool:
+        # The caller holds the project execution lock, so no workspace writer can race this transition.
+        async with self.connection() as conn:
+            row = await (await conn.execute("SELECT data,control FROM work_orders WHERE id=%s FOR UPDATE", (work_id,))).fetchone()
+            work = WorkOrder.model_validate(row["data"])
+            if row["control"] != command or work.status in {Status.COMPLETED, Status.CANCELLED}:
+                return False
+            work.status = Status.PAUSED if command == "pause" else Status.CANCELLED
+            work.control, work.updated_at = "pause" if command == "pause" else "cancel", now()
+            work.summary = "Work order paused" if command == "pause" else "Work order cancelled"
+            await conn.execute("UPDATE work_orders SET data=%s,updated_at=now() WHERE id=%s", (Jsonb(payload(work)), work_id))
+            return True
+
+    async def control(self, work_id: str):
+        async with self.connection() as conn:
+            row = await (await conn.execute("SELECT control FROM work_orders WHERE id=%s", (work_id,))).fetchone()
+            return row["control"] if row else None
+
+    async def answer(self, work_id: str, answer: dict, enqueue):
+        async with self.connection() as conn:
+            row = await (await conn.execute("SELECT data,accepted_answer FROM work_orders WHERE id=%s FOR UPDATE", (work_id,))).fetchone()
+            if not row:
+                raise DomainError("WORK_NOT_FOUND", "Work order not found", 404)
+            work = WorkOrder.model_validate(row["data"])
+            question = next((q for q in work.questions if q.id == answer["question_id"]), None)
+            if work.status != "waiting_input" or not question or question.answer is not None or row["accepted_answer"]:
+                raise DomainError("QUESTION_CLOSED", "The question no longer accepts answers")
+            if question.plan_revision != answer["plan_revision"] or work.plan_revision != answer["plan_revision"]:
+                raise DomainError("STALE_PLAN", "The response belongs to another plan revision")
+            question.answer, question.answered_at = answer["answer"], now()
+            work.status, work.summary = Status.QUEUED, "Response received; resume queued"
+            await conn.execute("UPDATE work_orders SET accepted_answer=%s,data=%s,updated_at=now() WHERE id=%s", (Jsonb(answer), Jsonb(payload(work)), work_id))
+            await enqueue(conn, work_id)
+
+    async def pending_answer(self, work_id: str):
+        async with self.connection() as conn:
+            row = await (await conn.execute("SELECT accepted_answer FROM work_orders WHERE id=%s", (work_id,))).fetchone()
+            return row["accepted_answer"] if row else None
+
+    async def clear_answer(self, work_id: str, question_id: str | None = None):
+        async with self.connection() as conn:
+            await conn.execute("UPDATE work_orders SET accepted_answer=NULL WHERE id=%s AND (%s::text IS NULL OR accepted_answer->>'question_id'=%s)", (work_id, question_id, question_id))
+
+    async def resume(self, work_id: str, enqueue):
+        async with self.connection() as conn:
+            row = await (await conn.execute("SELECT data FROM work_orders WHERE id=%s FOR UPDATE", (work_id,))).fetchone()
+            if not row:
+                raise DomainError("WORK_NOT_FOUND", "Work order not found", 404)
+            work = WorkOrder.model_validate(row["data"])
+            if work.status not in {Status.PAUSED, Status.BLOCKED, Status.FAILED}:
+                raise DomainError("RESUME_NOT_ALLOWED", "The work order is not paused or blocked")
+            work.status, work.error_code, work.summary = Status.QUEUED, None, "Resume queued"
+            await conn.execute("UPDATE work_orders SET control=NULL,data=%s,updated_at=now() WHERE id=%s", (Jsonb(payload(work)), work_id))
+            await enqueue(conn, work_id)
+        return work
+
+    @asynccontextmanager
+    async def project_lock(self, project_id: str, *, execution_slot: bool = True):
+        # Session locks are released by PostgreSQL when a dead worker disconnects.
+        async with self.connection() as conn:
+            row = await (await conn.execute("SELECT pg_try_advisory_lock(hashtextextended(%s,1)) AS held", (project_id,))).fetchone()
+            slot = None
+            try:
+                if row["held"] and execution_slot:
+                    for candidate in range(913775, 913775 + self.execution_slots):
+                        acquired = await (await conn.execute("SELECT pg_try_advisory_lock(%s) AS held", (candidate,))).fetchone()
+                        if acquired["held"]:
+                            slot = candidate
+                            break
+                yield bool(row["held"] and (not execution_slot or slot is not None))
+            finally:
+                if slot is not None:
+                    await conn.execute("SELECT pg_advisory_unlock(%s)", (slot,))
+                if row["held"]:
+                    await conn.execute("SELECT pg_advisory_unlock(hashtextextended(%s,1))", (project_id,))
+
+    async def reserve_usage(self, work: WorkOrder, tokens: int, usd: float, monthly_limit: float, *, context_receipt: ContextReceipt | dict | None = None):
+        receipt = checked_receipt(context_receipt, work) if context_receipt is not None else None
+        async with self.connection() as conn:
+            await conn.execute("SELECT pg_advisory_xact_lock(813772)")
+            scope = await (await conn.execute("SELECT project_id,data->>'plan_revision' AS revision,data->'budget' AS budget FROM work_orders WHERE id=%s", (work.id,))).fetchone()
+            if receipt is not None:
+                if scope is None or scope["project_id"] != receipt.project_id or scope["revision"] != str(receipt.plan_revision):
+                    raise DomainError("CONTEXT_RECEIPT_SCOPE", "The context reference does not belong to the current work order", 409)
+            current_budget = Budget.model_validate(scope["budget"]) if scope is not None else None
+            missing_caps = any(cap is None for cap in (work.budget.max_calls, work.budget.max_tokens, work.budget.active_seconds))
+            if missing_caps or (current_budget is not None and current_budget.progress_limits):
+                # A stale checkpoint or unpersisted object cannot authorize unlimited use.
+                if current_budget != work.budget:
+                    raise DomainError("STALE_BUDGET", "The limit policy changed; retrieve the current work order", 409)
+                if receipt is None or receipt.model_provider not in {"codex_cli", "claude_cli"} or usd != 0:
+                    raise DomainError("MODEL_LIMITS_REQUIRED", "This provider requires explicit quotas; progress mode only allows verified CLI sessions", 409)
+            totals = await (await conn.execute("SELECT count(*) calls,coalesce(sum(coalesce(actual_tokens,reserved_tokens)),0) tokens,coalesce(sum(coalesce(actual_usd,reserved_usd)),0) usd FROM model_usage WHERE work_id=%s", (work.id,))).fetchone()
+            monthly = await (await conn.execute("SELECT coalesce(sum(coalesce(actual_usd,reserved_usd)),0) usd FROM model_usage WHERE created_at>=date_trunc('month',now())")).fetchone()
+            if (work.budget.max_calls is not None and totals["calls"] >= work.budget.max_calls) or (work.budget.max_tokens is not None and totals["tokens"] + tokens > work.budget.max_tokens) or float(totals["usd"]) + usd > work.budget.max_cost_usd or (usd > 0 and float(monthly["usd"]) + usd > monthly_limit):
+                raise DomainError("BUDGET_EXHAUSTED", "The budget does not allow another model call")
+            usage_id = new_id()
+            await conn.execute("INSERT INTO model_usage(id,work_id,reserved_tokens,reserved_usd,context_receipt) VALUES(%s,%s,%s,%s,%s)", (usage_id, work.id, tokens, usd, Jsonb(payload(receipt)) if receipt is not None else None))
+            return usage_id
+
+    async def settle_usage(self, usage_id: str, tokens: int, usd: float):
+        async with self.connection() as conn:
+            await conn.execute("UPDATE model_usage SET actual_tokens=%s,actual_usd=%s WHERE id=%s", (tokens, usd, usage_id))
+
+    async def reserve_chat_usage(self, context_key: str, tokens: int, usd: float, monthly_limit: float, context_limit: float = 0.25):
+        async with self.connection() as conn:
+            await conn.execute("SELECT pg_advisory_xact_lock(813772)")
+            totals = await (await conn.execute("SELECT count(*) calls,coalesce(sum(coalesce(actual_tokens,reserved_tokens)),0) tokens,coalesce(sum(coalesce(actual_usd,reserved_usd)),0) usd FROM model_usage WHERE context_key=%s", (context_key,))).fetchone()
+            monthly = await (await conn.execute("SELECT coalesce(sum(coalesce(actual_usd,reserved_usd)),0) usd FROM model_usage WHERE created_at>=date_trunc('month',now())")).fetchone()
+            if totals["calls"] >= 8 or totals["tokens"] + tokens > 100000 or float(totals["usd"]) + usd > context_limit or (usd > 0 and float(monthly["usd"]) + usd > monthly_limit):
+                raise DomainError("BUDGET_EXHAUSTED", "The budget does not allow another conversation or memory call")
+            usage_id = new_id()
+            await conn.execute("INSERT INTO model_usage(id,work_id,reserved_tokens,reserved_usd,context_key) VALUES(%s,NULL,%s,%s,%s)", (usage_id, tokens, usd, context_key))
+            return usage_id
+
+    async def usage(self, work_id: str):
+        async with self.connection() as conn:
+            return await (await conn.execute("SELECT count(*) calls,coalesce(sum(coalesce(actual_tokens,reserved_tokens)),0) tokens,coalesce(sum(coalesce(actual_usd,reserved_usd)),0) usd FROM model_usage WHERE work_id=%s", (work_id,))).fetchone()
+
+    async def audit_usage(self, work_id: str) -> UsageSummary:
+        async with self.connection() as conn:
+            row = await (await conn.execute("""
+                SELECT count(*) calls,count(actual_tokens) settled_calls,
+                    count(*) FILTER(WHERE actual_tokens IS NULL) unsettled_calls,
+                    coalesce(sum(coalesce(actual_tokens,reserved_tokens)),0) tokens,
+                    coalesce(sum(actual_tokens),0) measured_tokens,
+                    coalesce(sum(reserved_tokens) FILTER(WHERE actual_tokens IS NULL),0) unknown_reserved_tokens,
+                    coalesce(sum(coalesce(actual_usd,reserved_usd)),0) cost_usd
+                FROM model_usage WHERE work_id=%s
+            """, (work_id,))).fetchone()
+            return UsageSummary(calls=int(row["calls"]), settled_calls=int(row["settled_calls"]),
+                unsettled_calls=int(row["unsettled_calls"]), tokens=int(row["tokens"]),
+                measured_tokens=int(row["measured_tokens"]), unknown_reserved_tokens=int(row["unknown_reserved_tokens"]),
+                cost_usd=float(row["cost_usd"]))
+
+    async def audit_context_usage(self, work_id: str) -> ContextUsageSummary | None:
+        async with self.connection() as conn:
+            rows = await (await conn.execute("SELECT context_receipt FROM model_usage WHERE work_id=%s", (work_id,))).fetchall()
+        return aggregate_receipts([row["context_receipt"] for row in rows], work_id)
+
+    async def audit_checkpoints(self, work_id: str, limit: int = 100) -> CheckpointInventory:
+        # Only metadata is queried here; the official saver decodes checkpoint values.
+        limit = min(max(limit, 1), 100)
+        async with self.connection() as conn:
+            row = await (await conn.execute("SELECT count(*) count,count(DISTINCT thread_id) threads FROM checkpoints WHERE checkpoint_ns='' AND split_part(thread_id,'/',1)=%s", (work_id,))).fetchone()
+            children = await (await conn.execute("SELECT thread_id FROM checkpoints WHERE checkpoint_ns='' AND split_part(thread_id,'/',1)=%s AND thread_id<>%s GROUP BY thread_id ORDER BY max(checkpoint_id) DESC LIMIT %s", (work_id, work_id, limit + 1))).fetchall()
+            return {"count": int(row["count"]), "threads": int(row["threads"]), "child_threads": [r["thread_id"] for r in children[:limit]], "truncated": len(children) > limit}
+
+    async def knowledge_inventory(self, project_id: str) -> KnowledgeInventory:
+        async with self.connection() as conn:
+            memories = await (await conn.execute("""SELECT count(*) total,
+                count(*) FILTER(WHERE (data->>'active')::boolean AND data->>'invalidated_at' IS NULL) active,
+                count(*) FILTER(WHERE NOT (data->>'active')::boolean AND data->>'invalidated_at' IS NULL) pending,
+                count(*) FILTER(WHERE data->>'invalidated_at' IS NOT NULL) invalidated
+                FROM memories WHERE project_id=%s""", (project_id,))).fetchone()
+            checkpoints = await (await conn.execute("SELECT count(*) count,count(DISTINCT c.thread_id) threads FROM checkpoints c JOIN work_orders w ON split_part(c.thread_id,'/',1)=w.id WHERE c.checkpoint_ns='' AND w.project_id=%s", (project_id,))).fetchone()
+            works = await (await conn.execute("SELECT id FROM work_orders WHERE project_id=%s ORDER BY updated_at DESC,id LIMIT 6", (project_id,))).fetchall()
+            return {"memories": {k: int(v) for k, v in memories.items()}, "checkpoints": {k: int(v) for k, v in checkpoints.items()}, "work_ids": [r["id"] for r in works[:5]], "truncated": len(works) > 5}
+
+    async def get_effect(self, key: str):
+        async with self.connection() as conn:
+            return await (await conn.execute("SELECT * FROM effects WHERE operation_key=%s", (key,))).fetchone()
+
+    async def begin_command(self, key: str, request: dict):
+        async with self.connection() as conn:
+            created = await (await conn.execute("""INSERT INTO effects(operation_key,request_hash,state,result)
+                VALUES(%s,%s,'pending',NULL) ON CONFLICT DO NOTHING RETURNING operation_key""", (key, digest(request)))).fetchone()
+            if created:
+                return None
+            return await (await conn.execute("SELECT * FROM effects WHERE operation_key=%s", (key,))).fetchone()
+
+    async def begin_effect(self, key: str, request: dict):
+        async with self.connection() as conn:
+            await conn.execute("INSERT INTO effects VALUES(%s,%s,'pending',NULL) ON CONFLICT DO NOTHING", (key, digest(request)))
+            row = await (await conn.execute("SELECT * FROM effects WHERE operation_key=%s", (key,))).fetchone()
+            if row["request_hash"] != digest(request):
+                raise DomainError("EFFECT_CONFLICT", "The operation is bound to other data")
+            return row
+
+    async def finish_effect(self, key: str, result: dict):
+        async with self.connection() as conn:
+            await conn.execute("UPDATE effects SET state='completed',result=%s WHERE operation_key=%s", (Jsonb(result), key))
+
+    async def create_memory(self, item: MemoryItem, embedding: list[float] | None = None):
+        async with self.connection() as conn:
+            await conn.execute("INSERT INTO memories(id,project_id,data,embedding) VALUES(%s,%s,%s,%s) ON CONFLICT(id) DO NOTHING", (item.id, item.project_id, Jsonb(payload(item)), str(embedding) if embedding else None))
+            row = await (await conn.execute("SELECT data FROM memories WHERE id=%s", (item.id,))).fetchone()
+            return MemoryItem.model_validate(row["data"])
+
+    async def set_memory_state(self, memory_id: str, approve: bool):
+        async with self.connection() as conn:
+            row = await (await conn.execute("SELECT data FROM memories WHERE id=%s FOR UPDATE", (memory_id,))).fetchone()
+            if not row:
+                raise DomainError("MEMORY_NOT_FOUND", "Recuerdo no encontrado", 404)
+            item = MemoryItem.model_validate(row["data"])
+            if item.invalidated_at:
+                raise DomainError("MEMORY_INVALIDATED", "The memory is invalidated; create a new proposal")
+            if approve:
+                item.active, item.approved_at = True, now()
+            else:
+                item.active, item.invalidated_at = False, now()
+            await conn.execute("UPDATE memories SET data=%s WHERE id=%s", (Jsonb(payload(item)), memory_id))
+        return item
+
+    async def memories(self, project_id: str) -> list[MemoryItem]:
+        async with self.connection() as conn:
+            cursor = await conn.execute("SELECT data FROM memories WHERE project_id=%s ORDER BY data->>'created_at' DESC", (project_id,))
+            return [MemoryItem.model_validate(r["data"]) async for r in cursor]
+
+    async def memory(self, memory_id: str) -> MemoryItem:
+        async with self.connection() as conn:
+            row = await (await conn.execute("SELECT data FROM memories WHERE id=%s", (memory_id,))).fetchone()
+        if not row:
+            raise DomainError("MEMORY_NOT_FOUND", "Recuerdo no encontrado", 404)
+        return MemoryItem.model_validate(row["data"])
+
+    async def has_embedded_memory(self, project_id: str, commit: str) -> bool:
+        async with self.connection() as conn:
+            row = await (await conn.execute("""SELECT EXISTS(SELECT 1 FROM memories WHERE project_id=%s
+                AND (data->>'active')::boolean AND data->>'invalidated_at' IS NULL
+                AND data->>'source_commit'=%s AND embedding IS NOT NULL) AS found""", (project_id, commit))).fetchone()
+        return row["found"]
+
+    async def memory_for_context(self, project_id: str, commit: str, memory_id: str) -> MemoryItem:
+        async with self.connection() as conn:
+            row = await (await conn.execute("""SELECT data FROM memories WHERE id=%s AND project_id=%s
+                AND (data->>'active')::boolean AND data->>'invalidated_at' IS NULL
+                AND data->>'source_commit'=%s""", (memory_id, project_id, commit))).fetchone()
+        if row is None:
+            raise DomainError("MEMORY_NOT_AVAILABLE", "The memory is not active for this project and commit", 404)
+        return MemoryItem.model_validate(row["data"])
+
+    async def search_memory(self, project_id: str, query: str, commit: str, embedding: list[float] | None = None, *, match_any=False):
+        query_function = "websearch_to_tsquery" if match_any else "plainto_tsquery"
+        async with self.connection() as conn:
+            if embedding:
+                cursor = await conn.execute(sql.SQL("""
+                    WITH scoped AS (
+                        SELECT id,data,document,embedding FROM memories
+                        WHERE project_id=%s AND (data->>'active')::boolean
+                        AND data->>'invalidated_at' IS NULL AND data->>'source_commit'=%s
+                    ), semantic AS (
+                        SELECT id,row_number() OVER (ORDER BY embedding <=> %s::vector) AS position
+                        FROM scoped WHERE embedding IS NOT NULL ORDER BY position LIMIT 8
+                    ), lexical AS (
+                        SELECT id,row_number() OVER (ORDER BY ts_rank(document,{query_function}('simple',%s)) DESC,id) AS position
+                        FROM scoped WHERE document @@ {query_function}('simple',%s) ORDER BY position LIMIT 8
+                    ), scores AS (
+                        SELECT id,sum(1.0/(60+position)) AS score FROM (
+                            SELECT * FROM semantic UNION ALL SELECT * FROM lexical
+                        ) candidates GROUP BY id
+                    )
+                    SELECT scoped.data FROM scores JOIN scoped USING(id) ORDER BY scores.score DESC,id LIMIT 8
+                """).format(query_function=sql.Identifier(query_function)), (project_id, commit, str(embedding), query, query))
+            else:
+                cursor = await conn.execute(sql.SQL("SELECT data FROM memories WHERE project_id=%s AND (data->>'active')::boolean AND data->>'invalidated_at' IS NULL AND data->>'source_commit'=%s AND document @@ {query_function}('simple',%s) ORDER BY ts_rank(document,{query_function}('simple',%s)) DESC,id LIMIT 8").format(query_function=sql.Identifier(query_function)), (project_id, commit, query, query))
+            return [MemoryItem.model_validate(r["data"]) async for r in cursor]
+
+    async def report_security(self, work: WorkOrder):
+        async with self.connection() as conn:
+            for finding in work.findings:
+                data = payload(finding) | {"work_id": work.id, "project_id": work.project_id}
+                key = digest({"work": work.id, "revision": work.plan_revision, "finding": finding.fingerprint})
+                await conn.execute("INSERT INTO security_reports(id,project_id,work_id,data) VALUES(%s,%s,%s,%s) ON CONFLICT(id) DO UPDATE SET data=excluded.data", (key, work.project_id, work.id, Jsonb(data)))
+
+    async def security(self, project_id: str | None = None):
+        async with self.connection() as conn:
+            cursor = await conn.execute("SELECT data FROM security_reports WHERE (%s::text IS NULL OR project_id=%s) ORDER BY created_at DESC LIMIT 500", (project_id, project_id))
+            return [r["data"] async for r in cursor]
+
+    async def create_security_exception(self, work_id: str, request: SecurityExceptionCreate) -> SecurityException:
+        async with self.connection() as conn:
+            row = await (await conn.execute("SELECT data FROM work_orders WHERE id=%s FOR UPDATE", (work_id,))).fetchone()
+            if not row:
+                raise DomainError("WORK_NOT_FOUND", "Work order not found", 404)
+            work = WorkOrder.model_validate(row["data"])
+            if work.status not in {Status.BLOCKED, Status.PAUSED}:
+                raise DomainError("PAUSE_REQUIRED", "The exception requires a blocked or paused work order")
+            if work.plan_revision != request.plan_revision or work.security_snapshot_digest != request.snapshot_digest or work.security_rules_version != request.rules_version:
+                raise DomainError("STALE_SECURITY", "The exception does not match the current plan and security report")
+            matches = [finding for finding in work.findings if finding.fingerprint == request.fingerprint]
+            if not matches:
+                raise DomainError("FINDING_NOT_FOUND", "The finding does not belong to the current report", 404)
+            if any(finding.category in {"secret", "scanner_error"} for finding in matches):
+                raise DomainError("SECURITY_EXCEPTION_FORBIDDEN", "Secrets and incomplete checks cannot be exempted", 422)
+            moment = now()
+            if not moment < request.expires_at <= moment + timedelta(days=30):
+                raise DomainError("SECURITY_EXCEPTION_EXPIRY", "Expiration must be in the future and within thirty days", 422)
+            exception_id = digest({"work_id": work_id, "request": payload(request)})
+            prior = await (await conn.execute("SELECT data FROM security_exceptions WHERE id=%s", (exception_id,))).fetchone()
+            if prior:
+                existing = SecurityException.model_validate(prior["data"])
+                if existing.revoked_at:
+                    raise DomainError("SECURITY_EXCEPTION_REVOKED", "This approval was revoked; renewal requires a new decision")
+                return existing
+            existing_rows = await conn.execute("SELECT data FROM security_exceptions WHERE work_id=%s", (work_id,))
+            async for existing_row in existing_rows:
+                existing = SecurityException.model_validate(existing_row["data"])
+                if existing.fingerprint == request.fingerprint and existing.plan_revision == request.plan_revision and existing.snapshot_digest == request.snapshot_digest and existing.rules_version == request.rules_version and not existing.revoked_at and existing.expires_at > moment:
+                    raise DomainError("SECURITY_EXCEPTION_EXISTS", "The finding already has an active exception; revoke it before replacing it")
+            exception = SecurityException(**request.model_dump(), id=exception_id, work_id=work_id, project_id=work.project_id, approved_at=moment)
+            await conn.execute("INSERT INTO security_exceptions(id,work_id,project_id,data) VALUES(%s,%s,%s,%s)", (exception.id, work_id, work.project_id, Jsonb(payload(exception))))
+            return exception
+
+    async def security_exceptions(self, work_id: str) -> list[SecurityException]:
+        await self.work(work_id)
+        async with self.connection() as conn:
+            cursor = await conn.execute("SELECT data FROM security_exceptions WHERE work_id=%s ORDER BY id", (work_id,))
+            return [SecurityException.model_validate(row["data"]) async for row in cursor]
+
+    async def revoke_security_exception(self, work_id: str, exception_id: str) -> SecurityException:
+        async with self.connection() as conn:
+            row = await (await conn.execute("SELECT data FROM security_exceptions WHERE id=%s AND work_id=%s FOR UPDATE", (exception_id, work_id))).fetchone()
+            if not row:
+                raise DomainError("SECURITY_EXCEPTION_NOT_FOUND", "Exception not found in this work order", 404)
+            exception = SecurityException.model_validate(row["data"])
+            if exception.revoked_at is None:
+                exception.revoked_at = now()
+                await conn.execute("UPDATE security_exceptions SET data=%s WHERE id=%s", (Jsonb(payload(exception)), exception.id))
+            return exception
+
+    async def audit_model_usage(self, work_id: str) -> list[dict]:
+        async with self.connection() as conn:
+            rows = await (await conn.execute("""
+                SELECT context_receipt->>'model_provider' AS model_provider,
+                    context_receipt->>'model_name' AS model_name,
+                    context_receipt->>'role' AS role,
+                    (context_receipt->>'model_configuration_revision')::bigint AS configuration_revision,
+                    count(*) AS calls, count(actual_tokens) AS settled_calls,
+                    coalesce(sum(actual_tokens),0) AS measured_tokens,
+                    coalesce(sum(reserved_tokens) FILTER(WHERE actual_tokens IS NULL),0) AS unknown_reserved_tokens,
+                    coalesce(sum(coalesce(actual_usd,reserved_usd)),0) AS cost_usd
+                FROM model_usage WHERE work_id=%s GROUP BY 1,2,3,4 ORDER BY 1,2,3,4
+            """, (work_id,))).fetchall()
+        return [{**row, "cost_usd": float(row["cost_usd"])} for row in rows]

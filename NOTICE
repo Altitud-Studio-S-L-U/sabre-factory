@@ -1,0 +1,9 @@
+SABRE Factory
+Copyright (c) 2026 Altitud Studio S.L.U.
+
+The phase-oriented execution and inspection experience is inspired by
+Super Simple Software Factory by IndyDevDan (MIT):
+https://github.com/disler/super-simple-software-factory
+
+Third-party licenses and CLI distribution notices are in infra/licenses/.
+Provider binaries and services retain their own licenses and terms.

@@ -1,0 +1,314 @@
+name: sabre-factory
+
+x-app-environment: &app-environment
+  SABRE_BOOTSTRAP_FILE: /run/secrets/sabre/control.json
+  SABRE_VAULT_MASTER_KEY_FILE: /run/secrets/sabre/master.key
+  SABRE_EXECUTOR_URL: http://executor:8090
+  SABRE_DATA_DIR: /var/lib/sabre
+  SABRE_PANEL_ORIGIN: ${SABRE_PANEL_ORIGIN:-http://127.0.0.1:8000}
+  SABRE_MODEL_NAME: ${SABRE_MODEL_NAME:-}
+  SABRE_MODEL_PROVIDER: ${SABRE_MODEL_PROVIDER:-openai}
+  SABRE_MODEL_BASE_URL: ${SABRE_MODEL_BASE_URL:-}
+  SABRE_OTLP_ENDPOINT: ${SABRE_OTLP_ENDPOINT:-}
+  SABRE_MONTHLY_BUDGET_USD: ${SABRE_MONTHLY_BUDGET_USD:-0}
+  SABRE_MODEL_INPUT_USD_PER_MILLION: ${SABRE_MODEL_INPUT_USD_PER_MILLION:-0}
+  SABRE_MODEL_OUTPUT_USD_PER_MILLION: ${SABRE_MODEL_OUTPUT_USD_PER_MILLION:-0}
+  SABRE_EMBEDDING_MODEL: ${SABRE_EMBEDDING_MODEL:-}
+  SABRE_EMBEDDING_USD_PER_MILLION: ${SABRE_EMBEDDING_USD_PER_MILLION:-0}
+  SABRE_CHAT_BUDGET_USD: ${SABRE_CHAT_BUDGET_USD:-0.25}
+  SABRE_CONTEXT_DEDUP_ENABLED: ${SABRE_CONTEXT_DEDUP_ENABLED:-true}
+  SABRE_CONTEXT_DEDUP_TRIGGER_BYTES: ${SABRE_CONTEXT_DEDUP_TRIGGER_BYTES:-65536}
+  SABRE_CONTEXT_DEDUP_MIN_RESULT_BYTES: ${SABRE_CONTEXT_DEDUP_MIN_RESULT_BYTES:-4096}
+  SABRE_CONTEXT_DEDUP_KEEP_MODEL_TURNS: ${SABRE_CONTEXT_DEDUP_KEEP_MODEL_TURNS:-2}
+  SABRE_CONTEXT_ARCHIVE_ENABLED: ${SABRE_CONTEXT_ARCHIVE_ENABLED:-true}
+  SABRE_CONTEXT_INPUT_MAX_BYTES: ${SABRE_CONTEXT_INPUT_MAX_BYTES:-98304}
+  SABRE_MCP_SERVERS: ${SABRE_MCP_SERVERS:?Set SABRE_MCP_SERVERS to a JSON object}
+  SABRE_ROLE_MODELS: ${SABRE_ROLE_MODELS:?Set SABRE_ROLE_MODELS to a JSON object}
+  SABRE_ALLOWED_ORIGINS: ${SABRE_ALLOWED_ORIGINS:?Set SABRE_ALLOWED_ORIGINS to a JSON array}
+  SABRE_WEBHOOKS: ${SABRE_WEBHOOKS:-{}}
+  SABRE_EXECUTION_SLOTS: ${SABRE_EXECUTION_SLOTS:-2}
+  SABRE_SLACK_OWNER_ID: ${SABRE_SLACK_OWNER_ID:-}
+  SABRE_CODEX_CLI_URL: http://codex-runner:8091
+  SABRE_CODEX_CLI_TOKEN_FILE: /run/secrets/codex-bridge/token
+  SABRE_CLAUDE_CLI_URL: http://claude-runner:8092
+  SABRE_CLAUDE_CLI_TOKEN_FILE: /run/secrets/claude-bridge/token
+
+services:
+  postgres:
+    image: sabre-factory-postgres:local
+    environment:
+      POSTGRES_DB: sabre
+      POSTGRES_USER: sabre_admin
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres/admin.password
+      PGDATA: /var/lib/postgresql/18/docker
+    volumes:
+      - postgres-data:/var/lib/postgresql
+      - postgres-bootstrap:/run/secrets/postgres:ro
+    networks: [control]
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -h 127.0.0.1 -U sabre_admin -d sabre]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    mem_limit: 512m
+    cpus: 1
+    restart: unless-stopped
+
+  api:
+    image: sabre-factory-api:local
+    environment: *app-environment
+    depends_on:
+      postgres: {condition: service_healthy}
+    ports: ["127.0.0.1:${SABRE_PORT:-8000}:8000"]
+    volumes: [sabre-data:/var/lib/sabre, control-bootstrap:/run/secrets/sabre:ro, codex-bridge:/run/secrets/codex-bridge:ro, claude-bridge:/run/secrets/claude-bridge:ro]
+    networks: [control, outbound, codex_control, claude_control]
+    read_only: true
+    tmpfs: ["/tmp:size=64m,mode=1777"]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    mem_limit: 512m
+    cpus: 1
+    restart: unless-stopped
+
+  worker:
+    image: sabre-factory-api:local
+    command: [python, -m, sabre.worker]
+    environment: *app-environment
+    depends_on:
+      postgres: {condition: service_healthy}
+      executor: {condition: service_healthy}
+      dependencies-proxy: {condition: service_healthy}
+    volumes: [sabre-data:/var/lib/sabre, control-bootstrap:/run/secrets/sabre:ro, codex-bridge:/run/secrets/codex-bridge:ro, claude-bridge:/run/secrets/claude-bridge:ro]
+    networks: [control, outbound, codex_control, claude_control]
+    read_only: true
+    tmpfs: ["/tmp:size=64m,mode=1777"]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    mem_limit: 1g
+    cpus: 2
+    restart: unless-stopped
+
+  control:
+    image: sabre-factory-api:local
+    command: [python, -m, sabre.worker, --control]
+    environment: *app-environment
+    depends_on:
+      postgres: {condition: service_healthy}
+      executor: {condition: service_healthy}
+      security-proxy: {condition: service_healthy}
+    volumes: [sabre-data:/var/lib/sabre, control-bootstrap:/run/secrets/sabre:ro, codex-bridge:/run/secrets/codex-bridge:ro, claude-bridge:/run/secrets/claude-bridge:ro]
+    networks: [control, outbound, codex_control, claude_control]
+    read_only: true
+    tmpfs: ["/tmp:size=64m,mode=1777"]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    mem_limit: 512m
+    cpus: 1
+    restart: unless-stopped
+
+  executor:
+    image: sabre-factory-api:local
+    user: "0:0"
+    command: [uvicorn, sabre.executor:app, --host, 0.0.0.0, --port, "8090", --no-access-log]
+    environment:
+      SABRE_BOOTSTRAP_FILE: /run/secrets/sabre/broker.json
+      SABRE_API_URL: http://api:8000
+      SABRE_EXECUTOR_STATE: /workspaces
+      SABRE_PYTHON_IMAGE: ${SABRE_PYTHON_IMAGE:-}
+      SABRE_NODE_IMAGE: ${SABRE_NODE_IMAGE:-}
+      SABRE_HELPER_IMAGE: ${SABRE_HELPER_IMAGE:-}
+      SABRE_GITLEAKS_IMAGE: zricethezav/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
+      SABRE_TRIVY_IMAGE: aquasec/trivy:0.76.1@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c
+      SABRE_SEMGREP_IMAGE: semgrep/semgrep:1.182.1@sha256:451b3d875c00dac7ed5db5293e584a07de11449a409c10b3c2d2652f429630b6
+      SABRE_TRIVY_DB_VOLUME: sabre-factory-trivy-cache
+      SABRE_SEMGREP_RULES_VOLUME: ${SABRE_RULES_VOLUME:-sabre-factory-semgrep-rules}
+      SABRE_DEPENDENCY_NETWORK: sabre-factory_dependencies
+      SABRE_DEPENDENCY_PROXY: http://dependencies-proxy:3128
+      SABRE_SECURITY_UPDATE_NETWORK: sabre-factory_security_updates
+      SABRE_SECURITY_UPDATE_PROXY: http://security-proxy:3128
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - executor-state:/workspaces
+      - semgrep-rules:/rules:ro
+      - broker-bootstrap:/run/secrets/sabre:ro
+    networks: [control, outbound]
+    read_only: true
+    tmpfs: ["/tmp:size=64m,mode=1777"]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/health', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    mem_limit: 384m
+    cpus: 1
+    restart: unless-stopped
+
+  codex-runner:
+    profiles: [codex]
+    image: "${SABRE_CODEX_RUNNER_IMAGE:-sabre-factory-codex-runner:local}"
+    environment:
+      SABRE_CODEX_CLI_HOME: /var/lib/sabre-codex
+      SABRE_CODEX_CLI_TOKEN_FILE: /run/secrets/codex-bridge/token
+      HOME: /var/lib/sabre-codex
+      CODEX_HOME: /var/lib/sabre-codex
+    volumes:
+      - type: volume
+        source: codex-home
+        target: /var/lib/sabre-codex
+        volume: {nocopy: true}
+      - codex-bridge:/run/secrets/codex-bridge:ro
+    networks: [codex_control, codex_outbound]
+    read_only: true
+    tmpfs: ["/tmp:size=64m,mode=1777"]
+    security_opt:
+      - no-new-privileges:true
+      - "seccomp=${SABRE_CODEX_SECCOMP_FILE:?Use the SABRE operations helper to locate the reviewed profile}"
+    cap_drop: [ALL]
+    pids_limit: 128
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8091/health', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    mem_limit: 1g
+    cpus: 2
+    restart: unless-stopped
+
+  claude-runner:
+    profiles: [claude]
+    image: "${SABRE_CLAUDE_RUNNER_IMAGE:-sabre-factory-claude-runner:local}"
+    user: "10001:10001"
+    environment:
+      SABRE_CLAUDE_CLI_HOME: /var/lib/sabre-claude
+      SABRE_CLAUDE_CLI_TOKEN_FILE: /run/secrets/claude-bridge/token
+      HOME: /var/lib/sabre-claude
+      CLAUDE_CONFIG_DIR: /var/lib/sabre-claude
+    volumes:
+      - type: volume
+        source: claude-home
+        target: /var/lib/sabre-claude
+        volume: {nocopy: true}
+      - claude-bridge:/run/secrets/claude-bridge:ro
+    networks: [claude_control, claude_outbound]
+    read_only: true
+    tmpfs: ["/tmp:size=128m,mode=1777"]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    pids_limit: 128
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8092/health', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    mem_limit: 1g
+    cpus: 2
+    restart: unless-stopped
+
+  dependencies-proxy:
+    image: sabre-factory-proxy:local
+    networks: [dependencies, outbound]
+    read_only: true
+    tmpfs: ["/tmp:size=32m,mode=1777"]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    healthcheck:
+      test: [CMD, /usr/sbin/squid, -k, check, -f, /etc/squid/squid.conf]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    mem_limit: 128m
+    cpus: 0.5
+    restart: unless-stopped
+
+  slack:
+    profiles: [slack]
+    image: sabre-factory-api:local
+    command: [python, -m, sabre.slack]
+    environment:
+      SABRE_API_URL: http://api:8000
+      SABRE_BOOTSTRAP_FILE: /run/secrets/sabre/gateway.json
+    depends_on: [api]
+    volumes: [gateway-bootstrap:/run/secrets/sabre:ro]
+    networks: [control, outbound]
+    read_only: true
+    tmpfs: ["/tmp:size=32m,mode=1777"]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    mem_limit: 256m
+    cpus: 0.5
+    restart: unless-stopped
+
+  security-proxy:
+    image: sabre-factory-security-proxy:local
+    networks: [security_updates, outbound]
+    read_only: true
+    tmpfs: ["/tmp:size=32m,mode=1777"]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    healthcheck:
+      test: [CMD, /usr/sbin/squid, -k, check, -f, /etc/squid/squid.conf]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    mem_limit: 128m
+    cpus: 0.5
+    restart: unless-stopped
+
+  trivy-db:
+    profiles: [prepare]
+    image: aquasec/trivy:0.76.1@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c
+    command: [image, --download-db-only, --db-repository, "ghcr.io/aquasecurity/trivy-db:2", --cache-dir, /cache, --no-progress]
+    environment:
+      HTTPS_PROXY: http://security-proxy:3128
+      HTTP_PROXY: http://security-proxy:3128
+    depends_on:
+      security-proxy: {condition: service_healthy}
+    volumes: [trivy-cache:/cache]
+    networks: [security_updates]
+    read_only: true
+    tmpfs: ["/tmp:size=512m,mode=1777"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 64
+    mem_limit: 768m
+    cpus: 1
+
+  jaeger:
+    profiles: [telemetry]
+    image: jaegertracing/jaeger:2.22.0@sha256:836b967b5abcf1f7758066aa6b348619267a2f1459f72d472840570f9bd88a17
+    ports: ["127.0.0.1:16686:16686"]
+    networks: [control, outbound]
+    mem_limit: 384m
+    cpus: 0.5
+
+networks:
+  control: {internal: true}
+  dependencies: {internal: true}
+  security_updates: {internal: true}
+  codex_control: {internal: true}
+  codex_outbound: {}
+  claude_control: {internal: true}
+  claude_outbound: {}
+  outbound: {}
+
+volumes:
+  control-bootstrap: {external: true, name: sabre-factory-control-bootstrap}
+  broker-bootstrap: {external: true, name: sabre-factory-broker-bootstrap}
+  gateway-bootstrap: {external: true, name: sabre-factory-gateway-bootstrap}
+  postgres-bootstrap: {external: true, name: sabre-factory-postgres-bootstrap}
+  codex-bridge: {external: true, name: sabre-factory-codex-bridge}
+  codex-home: {external: true, name: sabre-factory-codex-home}
+  claude-bridge: {external: true, name: sabre-factory-claude-bridge}
+  claude-home: {external: true, name: sabre-factory-claude-home}
+  postgres-data: {}
+  sabre-data: {}
+  executor-state: {}
+  trivy-cache: {name: sabre-factory-trivy-cache}
+  semgrep-rules: {name: "${SABRE_RULES_VOLUME:-sabre-factory-semgrep-rules}"}

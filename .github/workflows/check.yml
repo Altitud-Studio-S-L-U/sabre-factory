@@ -1,0 +1,119 @@
+name: Verify SABRE
+
+on:
+  pull_request:
+  push:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: check-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - name: Prepare isolated PostgreSQL
+        run: |
+          node infra/ops.mjs init
+          node infra/ops.mjs build postgres
+          node infra/ops.mjs up postgres
+      - name: Backend contracts and regressions
+        env:
+          SABRE_DEV_NETWORK: sabre-factory_control
+        run: node infra/dev.mjs test tests integration
+      - name: Private bootstrap and encrypted legacy migration
+        run: |
+          node infra/bootstrap-check.mjs
+          node infra/codex-bootstrap-check.mjs
+          node infra/codex-profile-check.mjs
+          node infra/claude-bootstrap-check.mjs
+      - name: Local MCP and panel launcher contracts
+        run: node --test infra/*.test.mjs
+      - name: Pinned Codex native policy without credentials
+        run: bash infra/codex-apparmor-ci.sh
+      - name: Pinned Claude native policy with a synthetic local provider
+        run: node infra/dev.mjs claude-policy
+      - name: Backend lint
+        run: node infra/dev.mjs lint
+      - name: Backend type checks
+        run: node infra/dev.mjs types
+      - name: Worker crash and recovery
+        run: node infra/recovery-check.mjs
+      - name: Stop isolated services
+        if: always()
+        run: if [ -f .env ]; then node infra/ops.mjs down; fi
+
+  web:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          node-version: "24.22.2"
+      - run: npm install --global --ignore-scripts pnpm@11.19.0
+      - run: pnpm --dir web install --frozen-lockfile
+      - run: pnpm --dir web lint
+      - run: pnpm --dir web test
+      - run: pnpm --dir web exec playwright install --with-deps chromium
+      - run: pnpm --dir web test:browser
+      - run: pnpm --dir web build
+
+  launcher:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2025, macos-15, ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          node-version: "24.22.2"
+      - name: Launcher and local transport contracts (not full host compatibility)
+        run: node --test infra/*.test.mjs
+
+  candidate:
+    needs: [backend, web, launcher]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          node-version: "24.22.2"
+      - run: npm install --global --ignore-scripts pnpm@11.19.0
+      - run: pnpm --dir web install --frozen-lockfile
+      - name: Prepare exact candidate inventories
+        run: |
+          mkdir -p work
+          pnpm --dir web licenses list --json --prod > work/web-licenses.json
+          node infra/dev.mjs run python -c "print('Candidate environment built')"
+          node infra/release.mjs
+      - name: Attest public candidate artifacts
+        if: github.event.repository.private == false && github.event_name == 'push'
+        uses: actions/attest@f057fd524d485ac48d9b534c235aad15b5bb303f
+        with:
+          subject-path: work/release/*
+      - name: Retain reviewed candidate artifacts
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: candidate-${{ github.sha }}
+          path: work/release/
+          if-no-files-found: error
+          retention-days: 14

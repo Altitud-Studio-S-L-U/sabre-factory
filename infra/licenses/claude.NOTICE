@@ -1,0 +1,8 @@
+Claude Code CLI 2.1.316 is proprietary software published by Anthropic.
+This SABRE image downloads the official Linux x64 executable and verifies its SHA-256 digest.
+
+Publisher license and terms:
+https://github.com/anthropics/claude-code/blob/main/LICENSE.md
+https://www.anthropic.com/legal/commercial-terms
+
+The CLI is not covered by SABRE's own source-code license.

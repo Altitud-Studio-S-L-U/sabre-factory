@@ -1,0 +1,7 @@
+{
+  "disableAllHooks": true,
+  "disableWorkflows": true,
+  "disableClaudeAiConnectors": true,
+  "syncClaudeAiSkills": false,
+  "syncClaudeAiPlugins": false
+}
