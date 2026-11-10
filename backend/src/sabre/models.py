@@ -68,6 +68,7 @@ class Status(StrEnum):
 
 
 class Budget(Contract):
+    model_config = ConfigDict(strict=True, hide_input_in_errors=True)
     max_calls: int | None = Field(default=40, ge=1, le=500, description="Maximum model-adapter invocations; null uses CLI progress controls with no cumulative quota")
     max_tokens: int | None = Field(default=100000, ge=1, le=10000000)
     max_cost_usd: float = Field(default=0, ge=0, le=1000, description="API spend authorization; zero permits only invocations with no API charge recorded by SABRE")
@@ -255,7 +256,7 @@ class WorkOrder(WorkOrderCreate):
 
 class Answer(Contract):
     question_id: str
-    plan_revision: int
+    plan_revision: int = Field(strict=True)
     answer: str = Field(min_length=1, max_length=12000)
 
 

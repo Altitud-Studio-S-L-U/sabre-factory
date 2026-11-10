@@ -61,3 +61,22 @@ async def test_reusing_a_key_for_changed_input_is_rejected():
         await dispatch(service, command)
     assert error.value.code == "IDEMPOTENCY_CONFLICT"
     service.control.assert_not_awaited()
+
+
+@pytest.mark.parametrize("limit", [True, "10"])
+async def test_http_command_rejects_coerced_nested_budget_before_any_effect(limit):
+    import httpx
+    from pydantic import SecretStr
+
+    from sabre.api import create_app
+    service = SimpleNamespace(submit=AsyncMock(), guard=SecretGuard(), repository=SimpleNamespace(begin_command=AsyncMock()))
+    cfg = SimpleNamespace(auth_token=SecretStr("synthetic-owner-control-token"), allowed_origins=["http://localhost:8000"])
+    body = {"version": 1, "idempotency_key": "synthetic-request-key", "correlation_id": "synthetic-correlation",
+        "payload": {"type": "work.submit", "request": {"project_id": "synthetic-project", "mode": "patch",
+            "objective": "Correct a synthetic example", "acceptance": ["Tests pass"],
+            "budget": {"max_calls": limit}, "idempotency_key": "synthetic-request-key"}}}
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(create_app(service, cfg)), base_url="http://localhost:8000") as client:
+        response = await client.post("/api/v1/commands", json=body, headers={"Authorization": "Bearer synthetic-owner-control-token"})
+    assert response.status_code == 422
+    service.repository.begin_command.assert_not_awaited()
+    service.submit.assert_not_awaited()
