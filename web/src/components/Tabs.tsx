@@ -1,4 +1,6 @@
-import { useId, useRef, type ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
+import { Tabs as UiTabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
+import './ui/foundation.css';
 
 export default function Tabs<T extends string>({
   items,
@@ -15,53 +17,36 @@ export default function Tabs<T extends string>({
   children: (value: T) => ReactNode;
   className?: string;
 }) {
-  const id = useId();
-  const buttons = useRef<(HTMLButtonElement | null)[]>([]);
-  const active = Math.max(
-    0,
-    items.findIndex((item) => item.value === value),
-  );
+  const requestedValue = useRef(value);
+  useEffect(() => {
+    requestedValue.current = value;
+  }, [value]);
+  const change = (next: string) => {
+    const selected = items.find((item) => item.value === next);
+    if (selected && selected.value !== requestedValue.current) {
+      // Pointer activation can notify through both focus and mouse-down before React commits.
+      requestedValue.current = selected.value;
+      onChange(selected.value);
+    }
+  };
   return (
-    <div className={`console-tabset ${className}`}>
-      <div className="console-tablist" role="tablist" aria-label={label}>
-        {items.map((item, index) => (
-          <button
-            type="button"
-            role="tab"
-            id={`${id}-${index}`}
-            aria-controls={`${id}-panel`}
-            aria-selected={value === item.value}
-            tabIndex={value === item.value ? 0 : -1}
-            key={item.value}
-            ref={(element) => {
-              buttons.current[index] = element;
-            }}
-            onClick={() => onChange(item.value)}
-            onKeyDown={(event) => {
-              let next: number;
-              if (event.key === 'ArrowRight') next = (index + 1) % items.length;
-              else if (event.key === 'ArrowLeft') next = (index + items.length - 1) % items.length;
-              else if (event.key === 'Home') next = 0;
-              else if (event.key === 'End') next = items.length - 1;
-              else return;
-              event.preventDefault();
-              onChange(items[next].value);
-              buttons.current[next]?.focus();
-            }}
-          >
+    <UiTabs
+      className={`console-tabset ${className}`}
+      value={value}
+      onValueChange={change}
+      activationMode="automatic"
+    >
+      <TabsList className="console-tablist" aria-label={label} loop>
+        {items.map((item) => (
+          <TabsTrigger className="console-tab-trigger" type="button" key={item.value} value={item.value}>
             {item.label}
             {item.count != null && <span className="tab-count">{item.count}</span>}
-          </button>
+          </TabsTrigger>
         ))}
-      </div>
-      <div
-        role="tabpanel"
-        id={`${id}-panel`}
-        aria-labelledby={`${id}-${active}`}
-        className="console-tabpanel"
-      >
+      </TabsList>
+      <TabsContent value={value} className="console-tabpanel">
         {children(value)}
-      </div>
-    </div>
+      </TabsContent>
+    </UiTabs>
   );
 }

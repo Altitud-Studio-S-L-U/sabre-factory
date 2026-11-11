@@ -427,6 +427,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/operator/readiness": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Operator Readiness */
+        get: operations["operator_readiness_api_v1_operator_readiness_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/operator/messages/{message_id}/resume": {
         parameters: {
             query?: never;
@@ -2150,6 +2167,35 @@ export interface components {
             /** Usage Ids */
             usage_ids: string[];
         };
+        /** BudgetDenial */
+        BudgetDenial: {
+            /**
+             * Version
+             * @default 1
+             * @constant
+             */
+            version: 1;
+            /**
+             * Metric
+             * @enum {string}
+             */
+            metric: "tokens" | "invocations" | "active_seconds" | "repairs" | "api_spend" | "factory_spend" | "unknown";
+            /**
+             * Basis
+             * @enum {string}
+             */
+            basis: "next_reservation" | "consumed_limit" | "historical_unknown";
+            /** Used */
+            used: number | null;
+            /** Reserved */
+            reserved: number | null;
+            /** Requested */
+            requested: number | null;
+            /** Required */
+            required: number | null;
+            /** Limit */
+            limit: number | null;
+        };
         /** BudgetMetricView */
         BudgetMetricView: {
             policy: components["schemas"]["MetricBudget-Output"];
@@ -2242,6 +2288,7 @@ export interface components {
              * @default 0
              */
             unreconciled_calls: number;
+            denial: components["schemas"]["BudgetDenial"] | null;
         };
         /** BuiltinTool */
         BuiltinTool: {
@@ -2768,6 +2815,26 @@ export interface components {
             policies: components["schemas"]["FactoryPolicy"][];
             context: components["schemas"]["ContextConfiguration"];
         };
+        /** FactoryNavigationAction */
+        FactoryNavigationAction: {
+            /**
+             * Id
+             * @enum {string}
+             */
+            id: "connect-github-read" | "connect-github-publish" | "configure-models" | "connect-provider" | "add-mcp-connection";
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "open_tool" | "open_models" | "open_tools";
+            /**
+             * Target
+             * @enum {string}
+             */
+            target: "github.read" | "github.publish" | "model" | "mcp";
+            /** Label */
+            label: string;
+        };
         /** FactoryPolicy */
         FactoryPolicy: {
             /**
@@ -2792,6 +2859,28 @@ export interface components {
             value: string;
             /** Validator */
             validator: string | null;
+        };
+        /** FactoryReadinessView */
+        FactoryReadinessView: {
+            /**
+             * Version
+             * @default 1
+             * @constant
+             */
+            version: 1;
+            /** Items */
+            items: components["schemas"]["ReadinessItem"][];
+            /** Connections */
+            connections: components["schemas"]["ReadinessConnection"][];
+            /** External Tools */
+            external_tools: components["schemas"]["ReadinessExternalTools"][];
+            /**
+             * External Tools Truncated
+             * @default false
+             */
+            external_tools_truncated: boolean;
+            /** Actions */
+            actions: components["schemas"]["FactoryNavigationAction"][];
         };
         /** FlowConfiguration */
         "FlowConfiguration-Input": {
@@ -3682,6 +3771,8 @@ export interface components {
             truncated: boolean;
             /** Tools */
             tools: components["schemas"]["OperatorToolTrace"][];
+            /** Actions */
+            actions: components["schemas"]["FactoryNavigationAction"][];
         };
         /** PackageVersion */
         PackageVersion: {
@@ -3825,6 +3916,36 @@ export interface components {
             revision: number;
             /** Servers */
             servers: string[];
+        };
+        /** ReadinessConnection */
+        ReadinessConnection: {
+            /**
+             * Id
+             * @enum {string}
+             */
+            id: "github.read" | "github.publish";
+            /** Enabled */
+            enabled: boolean;
+            /** Credential Configured */
+            credential_configured: boolean;
+            /** Access */
+            access: string;
+        };
+        /** ReadinessExternalTools */
+        ReadinessExternalTools: {
+            /** Id */
+            id: string;
+            /**
+             * Kind
+             * @constant
+             */
+            kind: "mcp";
+            /** Enabled */
+            enabled: boolean;
+            /** Credential Configured */
+            credential_configured: boolean;
+            /** Tool Count */
+            tool_count: number;
         };
         /** ReadinessItem */
         ReadinessItem: {
@@ -4645,6 +4766,7 @@ export interface components {
             budget_revision: number;
             /** Limiting Metric */
             limiting_metric: string | null;
+            budget_denial: components["schemas"]["BudgetDenial"] | null;
             /**
              * Repair Cycles Used
              * @default 0
@@ -5749,6 +5871,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    operator_readiness_api_v1_operator_readiness_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FactoryReadinessView"];
                 };
             };
         };

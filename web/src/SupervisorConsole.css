@@ -15,7 +15,7 @@
   right: 20px;
   top: 76px;
   bottom: 82px;
-  width: 580px;
+  width: 620px;
   max-width: calc(100vw - 32px);
   min-height: 0;
   overflow: hidden;
@@ -47,6 +47,128 @@
   flex-wrap: wrap;
   gap: 10px;
   font-size: 17px;
+}
+.supervisor-profile {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.supervisor-avatar {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border: 1px solid #e2b76b40;
+  border-radius: 50%;
+  background: #e2b76b12;
+  color: var(--accent);
+}
+.supervisor-reply-identity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+.supervisor-reply-identity .supervisor-avatar {
+  width: 28px;
+  height: 28px;
+}
+.supervisor-reply-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+.supervisor-action-card {
+  padding: 14px;
+  margin-top: 14px;
+  border: 1px solid #e2b76b40;
+  border-radius: 12px;
+  background: #e2b76b08;
+}
+.supervisor-action-card > p {
+  margin: 0 0 10px;
+  font-weight: 500;
+}
+.supervisor-action-card > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.supervisor-action-card > small {
+  display: block;
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.6;
+}
+.supervisor-pending {
+  display: grid;
+  gap: 7px;
+  margin: 12px 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+.supervisor-pending > span {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.supervisor-pending svg,
+.supervisor-sendbar button[data-submitting='true'] svg {
+  animation: supervisor-processing 1.4s linear infinite;
+}
+@keyframes supervisor-processing {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .supervisor-pending svg,
+  .supervisor-sendbar button[data-submitting='true'] svg {
+    animation: none;
+  }
+}
+.supervisor-pending small {
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+.supervisor-welcome {
+  display: flex;
+  min-height: 100%;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 12px;
+  text-align: center;
+}
+.supervisor-welcome > .supervisor-avatar {
+  width: 56px;
+  height: 56px;
+  margin-bottom: 18px;
+}
+.supervisor-welcome h3 {
+  font-size: 22px;
+  font-weight: 500;
+  letter-spacing: -0.5px;
+}
+.supervisor-welcome p {
+  max-width: 360px;
+  color: var(--muted);
+}
+.supervisor-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 14px;
+}
+.supervisor-suggestions .button {
+  border-radius: 20px;
+  background: transparent;
 }
 .supervisor-drawer .eyebrow {
   margin-top: 4px;
@@ -157,10 +279,10 @@
   margin: 0 auto 24px;
 }
 .supervisor-owner-message {
-  margin-left: 30px;
+  margin-left: 56px;
   padding: 12px 15px;
   border: 1px solid var(--line);
-  border-radius: 12px 12px 3px 12px;
+  border-radius: 16px 16px 4px 16px;
   background: var(--surface-raised);
 }
 .supervisor-owner-message > strong,
@@ -198,6 +320,9 @@
   resize: vertical;
   min-height: 72px;
   max-height: 180px;
+  border-radius: 14px;
+  padding: 14px;
+  background: var(--code-bg);
 }
 .supervisor-grants {
   margin: 10px 0;
@@ -242,6 +367,27 @@
 .supervisor-tools summary {
   cursor: pointer;
   color: var(--muted);
+}
+.supervisor-tools > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  list-style: none;
+  flex-wrap: wrap;
+}
+.supervisor-tools > summary::-webkit-details-marker {
+  display: none;
+}
+.supervisor-inspect-label {
+  margin-left: auto;
+  color: var(--ink);
+  font-size: 10px;
+}
+.supervisor-tool-peek {
+  color: var(--muted);
+  font-size: 10px;
+  flex-basis: 100%;
+  padding-left: 22px;
 }
 .supervisor-tool {
   margin-top: 10px;
@@ -288,14 +434,24 @@
     padding-top: 12px;
   }
   .supervisor-drawer .eyebrow {
-    font-size: 10px;
+    display: none;
   }
   .supervisor-window-controls .button {
     padding: 7px;
     font-size: 11px;
   }
   .supervisor-owner-message {
-    margin-left: 16px;
+    margin-left: 24px;
+  }
+  .supervisor-profile {
+    gap: 7px;
+  }
+  .supervisor-profile > .supervisor-avatar {
+    width: 32px;
+    height: 32px;
+  }
+  .supervisor-presence {
+    font-size: 9px;
   }
   .supervisor-launcher.button {
     right: 16px;

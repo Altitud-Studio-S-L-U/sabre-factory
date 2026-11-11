@@ -9,6 +9,17 @@ from sabre.contracts import StrictContract
 BudgetMetric = Literal["tokens", "invocations", "active_seconds", "repairs"]
 
 
+class BudgetDenial(StrictContract):
+    version: Literal[1] = 1
+    metric: Literal["tokens", "invocations", "active_seconds", "repairs", "api_spend", "factory_spend", "unknown"]
+    basis: Literal["next_reservation", "consumed_limit", "historical_unknown"]
+    used: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    reserved: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    requested: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    required: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    limit: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+
+
 class MetricBudget(StrictContract):
     primary: int | None = Field(ge=0, le=1000000000)
     reserve: int = Field(default=0, ge=0, le=1000000000)
@@ -87,6 +98,7 @@ class BudgetView(StrictContract):
     token_prevention: Literal["reservation_bound", "cli_post_invocation"]
     unsettled_usage_ids: list[str] = Field(default_factory=list, max_length=50)
     unreconciled_calls: int = Field(default=0, ge=0)
+    denial: BudgetDenial | None = None
 
 
 def activate_reserve(metric: MetricBudget, required: float) -> MetricBudget | None:

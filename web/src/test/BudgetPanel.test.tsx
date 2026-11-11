@@ -31,6 +31,7 @@ const work: WorkOrder = {
   effective_budget_policy: null,
   budget_revision: 7,
   limiting_metric: 'tokens',
+  budget_denial: null,
   repair_cycles_used: 1,
   last_failure_fingerprint: null,
   identical_failure_count: 0,
@@ -55,6 +56,7 @@ const work: WorkOrder = {
 };
 const snapshot: BudgetView = {
   version: 1,
+  denial: null,
   revision: 7,
   metrics: {
     tokens: {
@@ -267,7 +269,7 @@ it('offers a budget decision without changing a ceiling or resuming automaticall
   const { api, writes } = connect();
   render(<BudgetPanel api={api} work={{ ...work, error_code: 'BUDGET_EXHAUSTED' }} />);
   const decision = await screen.findByRole('region', { name: 'Budget decision' });
-  expect(within(decision).getByText('Budget reached — choose how to continue')).toBeInTheDocument();
+  expect(within(decision).getByText('Budget authorization required — choose how to continue')).toBeInTheDocument();
   await user.click(within(decision).getByRole('button', { name: 'Set a new limit' }));
   const dialog = screen.getByRole('dialog', { name: 'Amend run limits' });
   expect(within(dialog).getByLabelText('Cumulative limit policy')).toHaveValue('bounded');

@@ -25,7 +25,8 @@
 .control-textarea:focus-visible,
 .control-button:focus-visible {
   outline: 2px solid var(--accent);
-  outline-offset: 3px;
+  outline-offset: 2px;
+  box-shadow: none;
 }
 .control-input[aria-invalid='true'],
 .control-textarea[aria-invalid='true'] {

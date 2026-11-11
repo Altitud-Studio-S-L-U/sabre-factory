@@ -119,6 +119,9 @@ class Runtime:
                     work.status, work.summary, work.error_code = Status.FAILED, "Execution failed; inspect controls and resume after correcting the cause", "EXECUTION_ERROR"
                     if isinstance(error, DomainError):
                         work.status, work.summary, work.error_code = Status.BLOCKED, error.message, error.code
+                        work.budget_denial = error.budget_denial
+                        if error.budget_denial:
+                            work.limiting_metric = error.budget_denial.metric
                     await self.factory.finish(work)
                     await self.repository.event(work, "failed", work.summary)
                     # Do not persist exception strings: libraries can include request content or credentials.

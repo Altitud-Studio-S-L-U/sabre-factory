@@ -4,7 +4,157 @@ import { expect, test, vi } from 'vitest';
 import { createApi, type OperatorMessageRequest, type WorkOrder } from '../api';
 import SupervisorConsole from '../SupervisorConsole';
 
-test('chat expands without losing its draft and opens only recorded tool details on demand', async () => {
+test('observed setup actions accept only registered destinations and never model-supplied URLs', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (path: string) =>
+      Response.json(
+        path.endsWith('/tools')
+          ? {
+              version: 1,
+              message_id: 'setup-message',
+              available: true,
+              checkpoint_id: 'setup-record',
+              truncated: false,
+              tools: [],
+              actions: [
+                {
+                  id: 'connect-github-read',
+                  kind: 'open_tool',
+                  target: 'github.read',
+                  label: 'Connect GitHub repositories',
+                },
+                {
+                  id: 'connect-provider',
+                  kind: 'open_models',
+                  target: 'model',
+                  label: 'Connect model provider',
+                },
+                { id: 'add-mcp-connection', kind: 'open_tools', target: 'mcp', label: 'Add MCP connection' },
+                {
+                  id: 'connect-github-publish',
+                  kind: 'open_tool',
+                  target: 'https://untrusted.example',
+                  label: 'Injected action',
+                },
+              ],
+            }
+          : {
+              items: [
+                {
+                  version: 1,
+                  id: 'setup-message',
+                  work_id: null,
+                  text: 'Check readiness',
+                  source: 'web',
+                  allowed_actions: [],
+                  state: 'completed',
+                  reply: 'Review the recorded connection state.',
+                  error_code: null,
+                  created_at: '2026-11-11T10:00:00Z',
+                },
+              ],
+              truncated: false,
+            },
+      ),
+    ),
+  );
+  render(
+    <SupervisorConsole
+      api={createApi('synthetic-csrf')}
+      orders={[]}
+      selectedId={null}
+      disconnected={false}
+    />,
+  );
+  const user = userEvent.setup();
+  await user.click(screen.getByRole('button', { name: /Supervisor/ }));
+  expect(await screen.findByRole('link', { name: 'Connect GitHub repositories' })).toHaveAttribute(
+    'href',
+    '/tools?connection=github.read',
+  );
+  expect(screen.getByRole('link', { name: 'Connect model provider' })).toHaveAttribute(
+    'href',
+    '/config?section=provider',
+  );
+  expect(screen.getByRole('link', { name: 'Add MCP connection' })).toHaveAttribute(
+    'href',
+    '/tools?setup=mcp',
+  );
+  expect(screen.queryByRole('link', { name: 'Injected action' })).not.toBeInTheDocument();
+});
+
+test('active replies show elapsed submission time and only retained tool activity', async () => {
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-11T10:01:05Z'));
+  try {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (path: string) =>
+        Response.json(
+          path.endsWith('/tools')
+            ? {
+                version: 1,
+                message_id: 'active-message',
+                available: true,
+                checkpoint_id: 'retained',
+                truncated: false,
+                actions: [],
+                tools: [
+                  {
+                    call_id: 'active-tool',
+                    name: 'get_work',
+                    input: '{"work_id":"run-a"}',
+                    output: null,
+                    status: 'pending',
+                    redacted: false,
+                    truncated: false,
+                  },
+                ],
+              }
+            : {
+                items: [
+                  {
+                    version: 1,
+                    id: 'active-message',
+                    work_id: 'run-a',
+                    text: 'Inspect the current run',
+                    source: 'web',
+                    allowed_actions: [],
+                    state: 'running',
+                    reply: null,
+                    error_code: null,
+                    created_at: '2026-11-11T10:00:00Z',
+                  },
+                ],
+                truncated: false,
+              },
+        ),
+      ),
+    );
+    render(
+      <SupervisorConsole
+        api={createApi('synthetic-csrf')}
+        orders={[]}
+        selectedId="run-a"
+        disconnected={false}
+      />,
+    );
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: /Supervisor/ }));
+    expect(await screen.findByText('1:05 since sent · includes queue time')).toBeVisible();
+    expect(screen.getByText('Processing message')).toBeVisible();
+    expect(await screen.findByText('get_work · pending')).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Open run' })).toHaveAttribute('href', '/work/run-a');
+    await user.click(screen.getByText('Recorded tool invocations · 1'));
+    await user.click(screen.getByText('get_work · pending'));
+    expect(screen.getByText('No result recorded.')).toBeVisible();
+    expect(screen.getByText('{"work_id":"run-a"}')).toBeVisible();
+  } finally {
+    clock.mockRestore();
+  }
+});
+
+test('chat expands without losing its draft and keeps prefetched tool details folded until inspected', async () => {
   const paths: string[] = [];
   vi.stubGlobal(
     'fetch',
@@ -62,13 +212,14 @@ test('chat expands without losing its draft and opens only recorded tool details
   const user = userEvent.setup();
   await user.click(screen.getByRole('button', { name: /Supervisor/ }));
   await screen.findByText('The recorded inspection is available.');
-  expect(paths.some((path) => path.endsWith('/tools'))).toBe(false);
+  await waitFor(() => expect(paths.some((path) => path.endsWith('/tools'))).toBe(true));
+  expect(screen.queryByText('Recorded source excerpt')).not.toBeInTheDocument();
   expect(screen.getByText('Allow actions for this message').closest('details')).not.toHaveAttribute('open');
   await user.type(screen.getByRole('textbox', { name: 'Message' }), 'Keep this unsent concern');
   await user.click(screen.getByRole('button', { name: 'Expand chat' }));
   expect(screen.getByRole('dialog', { name: 'Supervisor conversation' })).toBeVisible();
   expect(screen.getByRole('button', { name: 'Outside chat' }).inert).toBe(true);
-  await user.click(screen.getByText('Recorded tool invocations'));
+  await user.click(screen.getByText(/Recorded tool invocations/));
   await screen.findByText('read_file · completed');
   await user.click(screen.getByText('read_file · completed'));
   expect(screen.getByText('Recorded source excerpt')).toBeVisible();

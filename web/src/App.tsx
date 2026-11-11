@@ -44,6 +44,9 @@ import type { FlowConfiguration as FlowConfig } from './api';
 import Icon, { type IconName } from './Icon';
 import Field from './components/FormField';
 import Select from './components/Select';
+import UsageMeter from './components/UsageMeter';
+import StatusBadge from './components/StatusBadge';
+import LoadingState from './components/LoadingState';
 import SupervisorConsole from './SupervisorConsole';
 import RunsWorkspace from './RunsWorkspace';
 import AgentsConsole from './AgentsConsole';
@@ -107,13 +110,6 @@ function CliProgressPolicy() {
     </>
   );
 }
-const money = new Intl.NumberFormat('en-US', {
-  style: 'currency',
-  currency: 'USD',
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 4,
-});
-const integer = new Intl.NumberFormat('en-US');
 const statusLabels: Record<string, string> = {
   queued: 'Queued',
   running: 'Running',
@@ -214,12 +210,7 @@ function externalUrl(value: string | null | undefined) {
 }
 
 function Badge({ value }: { value: string }) {
-  return (
-    <span className={`badge badge-${value}`}>
-      <span className="status-dot" aria-hidden="true" />
-      {statusLabels[value] || value}
-    </span>
-  );
+  return <StatusBadge value={value} label={statusLabels[value] || value} />;
 }
 function ErrorNotice({ children }: { children: ReactNode }) {
   return (
@@ -732,7 +723,7 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
                     title={detailError ? 'Run unavailable' : 'Loading run'}
                     description={detailError || 'Reading the saved factory state.'}
                   />
-                  {!detailError && <p role="status">Loading run…</p>}
+                  {!detailError && <LoadingState label="Loading run…" />}
                   <Link className="back-link" to="/work">
                     ← All runs
                   </Link>
@@ -843,7 +834,13 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
                 </>
               )}
               {view === 'config' && (
-                <ConfigConsole api={api} projects={projects} connected={!error} onRefresh={reload} />
+                <ConfigConsole
+                  key={location.search}
+                  api={api}
+                  projects={projects}
+                  connected={!error}
+                  onRefresh={reload}
+                />
               )}
               {(view === 'settings' || view === 'tools') && (
                 <>
@@ -855,7 +852,13 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
                     />
                   )}
                   {view === 'tools' ? (
-                    <ToolsConsole api={api} projects={projects} connected={!error} onRefresh={reload} />
+                    <ToolsConsole
+                      key={location.search}
+                      api={api}
+                      projects={projects}
+                      connected={!error}
+                      onRefresh={reload}
+                    />
                   ) : (
                     <Integrations api={api} onChanged={reload} />
                   )}
@@ -1802,25 +1805,31 @@ function WorkDetail({
                       }}
                     />
                   ) : (
-                    <section className="aside-section" aria-labelledby="usage-title">
+                    <section className="aside-section usage-panel" aria-labelledby="usage-title">
                       <h2 id="usage-title">Usage and limits</h2>
-                      <Usage label="Model calls" value={order.calls_used} max={order.budget.max_calls} />
-                      <Usage label="Tokens" value={order.tokens_used} max={order.budget.max_tokens} />
-                      <Usage
-                        label="Recorded API cost"
-                        value={order.cost_usd}
-                        max={order.budget.max_cost_usd}
-                        currency
-                      />
-                      <Usage
-                        label="Active time · min"
-                        value={Math.round(order.active_seconds_used / 60)}
-                        max={
-                          order.budget.active_seconds === null
-                            ? null
-                            : Math.round(order.budget.active_seconds / 60)
-                        }
-                      />
+                      <p className="usage-panel-caption">
+                        Recorded cumulative usage against this run’s configured ceilings. Pending model
+                        consumption may not be reflected here.
+                      </p>
+                      <div className="usage-meter-grid">
+                        <Usage label="Model calls" value={order.calls_used} max={order.budget.max_calls} />
+                        <Usage label="Tokens" value={order.tokens_used} max={order.budget.max_tokens} />
+                        <Usage
+                          label="Recorded API cost"
+                          value={order.cost_usd}
+                          max={order.budget.max_cost_usd}
+                          currency
+                        />
+                        <Usage
+                          label="Active time · min"
+                          value={Math.round(order.active_seconds_used / 60)}
+                          max={
+                            order.budget.active_seconds === null
+                              ? null
+                              : Math.round(order.budget.active_seconds / 60)
+                          }
+                        />
+                      </div>
                       {perAgent && <CliProgressPolicy />}
                       {canChangeLimits && (
                         <>
@@ -1912,18 +1921,7 @@ function Usage({
   max: number | null;
   currency?: boolean;
 }) {
-  return (
-    <div className="usage">
-      <div>
-        <span>{label}</span>
-        <strong>
-          {currency ? money.format(value) : integer.format(value)}{' '}
-          {max !== null && <small>/ {currency ? money.format(max) : integer.format(max)}</small>}
-        </strong>
-      </div>
-      {max !== null && max > 0 && <meter min={0} max={max} value={Math.min(value, max)} aria-label={label} />}
-    </div>
-  );
+  return <UsageMeter label={label} value={value} max={max} currency={currency} />;
 }
 
 function SecurityExceptions({

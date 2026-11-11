@@ -341,6 +341,12 @@ def create_app(service=None, config=None) -> FastAPI:
         from sabre.operator_inspection import inspect_operator_tools
         return await inspect_operator_tools(svc(), message_id)
 
+    from sabre.operator_readiness import FactoryReadinessView, factory_readiness
+
+    @application.get("/api/v1/operator/readiness", response_model=FactoryReadinessView)
+    async def operator_readiness():
+        return await factory_readiness(svc())
+
     @application.post("/api/v1/operator/messages/{message_id}/resume", response_model=OperatorMessageView, status_code=202)
     async def resume_operator_message(message_id: str, body: OperatorMessageResume):
         return await svc().queue.operator_conversation.resume(message_id, body)

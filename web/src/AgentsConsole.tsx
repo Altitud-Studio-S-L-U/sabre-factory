@@ -1,4 +1,5 @@
 import Button from './components/Button';
+import LoadingState from './components/LoadingState';
 import Input from './components/Input';
 import Textarea from './components/Textarea';
 import { useEffect, useState } from 'react';
@@ -212,7 +213,7 @@ export default function AgentsConsole({
           )}
           {!connected && <p className="notice warning">Disconnected snapshot. Agent changes are disabled.</p>}
           {loading ? (
-            <p role="status">Loading published specialists…</p>
+            <LoadingState label="Loading published specialists…" />
           ) : !agent || !definition ? (
             <div className="console-empty">
               The agent catalog is unavailable. Refresh after checking the factory connection.

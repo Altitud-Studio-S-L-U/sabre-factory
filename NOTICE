@@ -6,4 +6,8 @@ Super Simple Software Factory by IndyDevDan (MIT):
 https://github.com/disler/super-simple-software-factory
 
 Third-party licenses and CLI distribution notices are in infra/licenses/.
+UI foundation components in web/src/components/ui are adapted from shadcn/ui
+New York registry (MIT), copyright (c) 2023 shadcn. The full license is
+preserved in infra/licenses/shadcn-ui.txt. Utility classes use the local sf
+prefix and SABRE theme tokens; Tailwind Preflight is not included.
 Provider binaries and services retain their own licenses and terms.

@@ -1,15 +1,19 @@
 """Owner-local projections of actual Supervisor tool records in LangGraph."""
 
+import json
+
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from pydantic import ValidationError
 
 from sabre.inspection import safe_text, visible_text
 from sabre.models import DomainError
 from sabre.operator_contracts import OperatorToolTrace, OperatorToolTracePage
+from sabre.operator_readiness import FactoryReadinessView, navigation_actions
 
 
 def recorded_tools(messages, message_id, guard, checkpoint_id=None):
     result = OperatorToolTracePage(message_id=message_id, available=False, checkpoint_id=checkpoint_id)
-    calls = {}
+    calls: dict[str, OperatorToolTrace] = {}
     # A bounded inspection must not disclose another owner's message segment.
     material = messages[-2000:]
     result.truncated = len(messages) > len(material)
@@ -43,6 +47,16 @@ def recorded_tools(messages, message_id, guard, checkpoint_id=None):
             row.redacted = row.redacted or redacted
             row.truncated = row.truncated or truncated
             row.status = "error" if message.status == "error" else "completed"
+            if row.name == "get_factory_readiness":
+                result.actions = []
+                raw = visible_text(message.content)
+                if row.status == "completed" and not row.redacted and len(raw) <= 65536:
+                    try:
+                        guard.check(raw)
+                        readiness = FactoryReadinessView.model_validate(json.loads(raw))
+                        result.actions = navigation_actions(readiness)
+                    except (DomainError, ValidationError, ValueError):
+                        pass
     return result
 
 

@@ -27,7 +27,7 @@ class BudgetModel(BaseChatModel):
         return "synthetic-budget-tool-loop"
 
     def bind_tools(self, tools, **kwargs):
-        assert {tool.name for tool in tools} == {"get_work", "get_work_budget"}
+        assert {tool.name for tool in tools} == {"get_work", "get_work_budget", "get_factory_readiness"}
         return self
 
     def _generate(self, messages, stop=None, run_manager=None, **kwargs):
@@ -68,7 +68,7 @@ def setup():
 async def test_readonly_supervisor_budget_uses_live_ledger_and_preserves_unknown_cost():
     service, event = setup()
     tools = {item.name: item for item in conversation_tools(service, None, event)}
-    assert set(tools) == {"get_work", "get_work_budget"}
+    assert set(tools) == {"get_work", "get_work_budget", "get_factory_readiness"}
     result = await tools["get_work_budget"].ainvoke({"work_id": "run-a"})
     assert result["scope"] == "run" and result["project_id"] == "project-a"
     assert result["budget_revision"] == 5 and result["error_code"] == "BUDGET_EXHAUSTED"

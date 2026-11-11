@@ -1,0 +1,29 @@
+@layer theme, utilities;
+@import 'tailwindcss/theme.css' layer(theme) prefix(sf);
+@import 'tailwindcss/utilities.css' layer(utilities) prefix(sf);
+@source '../../';
+
+@theme inline {
+  --color-background: var(--surface);
+  --color-foreground: var(--ink);
+  --color-primary: var(--accent);
+  --color-primary-foreground: #17130d;
+  --color-secondary: var(--surface-raised);
+  --color-secondary-foreground: var(--ink);
+  --color-muted: var(--surface-raised);
+  --color-muted-foreground: var(--muted);
+  --color-accent: var(--active-bg);
+  --color-accent-foreground: var(--ink);
+  --color-destructive: #b63b50;
+  --color-destructive-foreground: #fff;
+  --color-input: #596576;
+  --color-ring: var(--accent);
+  --color-border: var(--line);
+  --radius-md: var(--radius);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-skeleton] {
+    animation: none;
+  }
+}

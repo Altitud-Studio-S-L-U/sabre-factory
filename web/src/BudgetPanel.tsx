@@ -15,6 +15,7 @@ import Dialog from './components/Dialog';
 import Field from './components/FormField';
 import Select from './components/Select';
 import './BudgetPanel.css';
+import BudgetBlockReason from './BudgetBlockReason';
 
 const labels: Record<BudgetMetric, string> = {
   tokens: 'Tokens',
@@ -270,10 +271,11 @@ export default function BudgetPanel({
             <section className="budget-decision" aria-label="Budget decision">
               <div>
                 <span className="eyebrow">Operator decision required</span>
-                <h3>Budget reached — choose how to continue</h3>
+                <h3>Budget authorization required — choose how to continue</h3>
                 <p>
-                  The run is blocked before its next model call. Set a new cumulative ceiling or remove a
-                  selected ceiling. Other limits, paid API spending and factory policies still apply. Nothing
+                  The next step was blocked by a budget check. Recorded usage can still be below a ceiling: a
+                  model call must also fit its reservation before it starts. Review the recorded reason before
+                  changing a limit. Other limits, paid API spending and factory policies still apply. Nothing
                   changes until you review and save the authorization.
                 </p>
               </div>
@@ -298,10 +300,11 @@ export default function BudgetPanel({
               </div>
             </section>
           )}
+          {budget.denial && <BudgetBlockReason denial={budget.denial} />}
           <div className="budget-snapshot">
             <span>Authorization revision {budget.revision}</span>
             <span>Pending step: {budget.pending_step}</span>
-            {budget.limiting_metric && (
+            {budget.limiting_metric && budget.limiting_metric !== 'exhausted' && (
               <strong>
                 Limiting metric: {labels[budget.limiting_metric as BudgetMetric] ?? budget.limiting_metric}
               </strong>

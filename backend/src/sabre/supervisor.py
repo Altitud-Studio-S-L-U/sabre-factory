@@ -182,6 +182,12 @@ def conversation_tools(service, store, event: ConversationMessage | OperatorCont
                 "CLI subscription fees are not measured API cost. Reading does not change limits or resume execution."]})
 
     @tool
+    async def get_factory_readiness() -> dict:
+        """Inspect actual model/provider readiness and GitHub connection metadata. Returns approved local setup actions; never reads secrets, connects accounts or authorizes tools."""
+        from sabre.operator_readiness import factory_readiness
+        return await checked(await factory_readiness(service))
+
+    @tool
     async def submit_work(request: WorkOrderCreate) -> dict:
         """Submit requested work. A positive API spending limit must appear with USD/$ in the owner's message."""
         if request.budget.max_cost_usd > 0 and Decimal(str(request.budget.max_cost_usd)) not in explicit_budgets(event.text):
@@ -247,9 +253,9 @@ def conversation_tools(service, store, event: ConversationMessage | OperatorCont
             raise DomainError("MEMORY_CONTEXT_REQUIRED", "Specify the memory identifier to resolve")
         return await checked(await service.memory.update(memory_id, approve))
 
-    tools = [list_projects, register_project, list_work, get_work, get_work_budget, submit_work, answer_question, control_work, change_scope, security_findings, search_memory, propose_memory, resolve_memory]
+    tools = [list_projects, register_project, list_work, get_work, get_work_budget, get_factory_readiness, submit_work, answer_question, control_work, change_scope, security_findings, search_memory, propose_memory, resolve_memory]
     if isinstance(event, OperatorContext):
-        reads = {"get_work", "get_work_budget"} if event.work_id else {"list_projects", "list_work", "get_work", "get_work_budget", "security_findings", "search_memory"}
+        reads = {"get_work", "get_work_budget", "get_factory_readiness"} if event.work_id else {"list_projects", "list_work", "get_work", "get_work_budget", "get_factory_readiness", "security_findings", "search_memory"}
         return [definition for definition in tools if definition.name in reads | set(event.allowed_actions)]
     return tools
 
@@ -260,6 +266,7 @@ Work orders continue in the background; do not wait for completion in this conve
 Before answering a question, consult its identifier and current revision. Do not approve on behalf of the owner. To change work, use its thread or ask for the exact identifier. Security watch proposes work without starting patches. Merge and deployment are forbidden.
 Never request keys or credentials through Slack. Summarize results and link the PR when available.
 For budget or consumption questions, call get_work_budget for the selected run before answering. In a factory conversation, resolve the project with list_projects and list_work(project_id) first. Budgets belong to runs; do not invent a shared project allowance or add their ceilings as an available balance. Distinguish measured usage, pending reservations, uncapped metrics, API spend and CLI subscription costs. If multiple runs are relevant, identify them and ask which one the owner means. A budget question is read-only and never authorizes changing limits or resuming.
+For GitHub or model connection questions, call get_factory_readiness before claiming access is missing or ready. Describe the observed metadata and its verification limits; configured credentials are not proof of repository permissions. If setup is missing, refer to its approved setup actions. Never invent a connection button, external URL, credential, tool or authorization. These actions only navigate to owner setup; they do not connect services or start work.
 """
 
 

@@ -13,6 +13,7 @@ from psycopg.types.json import Jsonb
 from psycopg_pool import AsyncConnectionPool
 
 from sabre.budget_contracts import BudgetAuthorization, BudgetPolicy, activate_reserve
+from sabre.budget_diagnostics import dispatch_denial
 from sabre.context_receipts import ContextReceipt, ContextUsageSummary, aggregate_receipts, checked_receipt
 from sabre.events import EventPage, ExecutionEvent, SequencedEvent
 from sabre.integrations import INTEGRATIONS_SCHEMA
@@ -276,11 +277,16 @@ class Repository:
         await conn.execute("INSERT INTO work_events(id,work_id,kind,message) VALUES(%s,%s,'budget_authorization',%s)", (event_id, work.id, message))
         await conn.execute("INSERT INTO notifications VALUES(%s,%s,%s,false)", (event_id, work.id, Jsonb({"kind": "budget_authorization", "message": message})))
 
-    async def _activate_budget(self, conn, work, metric, required):
+    async def _activate_budget(self, conn, work, metric, required, *, denial=None):
         before = getattr(work.effective_budget_policy, metric)
         after = activate_reserve(before, required)
         if after is None:
-            raise DomainError("BUDGET_" + metric.upper(), f"The {metric} ceiling blocks the pending step", 409)
+            if denial is None:
+                used = {"active_seconds": work.active_seconds_used, "repairs": work.repair_cycles_used}.get(metric)
+                denial = dispatch_denial(metric, used if used is not None else required,
+                    max(0, required - used) if used is not None else 0, before.absolute, used=used,
+                    reserved=0 if used is not None else None)
+            raise DomainError("BUDGET_" + metric.upper(), f"The {metric} ceiling blocks the pending step", 409, budget_denial=denial)
         if after != before:
             await self._budget_authorization(conn, work, metric, before, after, "reserve_activation", "Activated the finite reserve authorized at launch")
 
@@ -562,6 +568,7 @@ class Repository:
             if work.status not in {Status.PAUSED, Status.BLOCKED, Status.FAILED}:
                 raise DomainError("RESUME_NOT_ALLOWED", "The work order is not paused or blocked")
             work.status, work.error_code, work.summary = Status.QUEUED, None, "Resume queued"
+            work.budget_denial, work.limiting_metric = None, None
             await conn.execute("UPDATE work_orders SET control=NULL,data=%s,updated_at=now() WHERE id=%s", (Jsonb(payload(work)), work_id))
             await enqueue(conn, work_id)
         return work
@@ -604,19 +611,53 @@ class Repository:
                     raise DomainError("STALE_BUDGET", "The limit policy changed; retrieve the current work order", 409)
                 if receipt is None or receipt.model_provider not in {"codex_cli", "claude_cli"} or usd != 0:
                     raise DomainError("MODEL_LIMITS_REQUIRED", "This provider requires explicit quotas; progress mode only allows verified CLI sessions", 409)
-            totals = await (await conn.execute("SELECT count(*) calls,coalesce(sum(coalesce(actual_tokens,reserved_tokens)),0) tokens,coalesce(sum(coalesce(actual_usd,reserved_usd)),0) usd FROM model_usage WHERE work_id=%s", (work.id,))).fetchone()
+            totals = await (await conn.execute("""SELECT count(*) calls,
+                count(*) FILTER (WHERE actual_tokens IS NOT NULL) settled_calls,
+                count(*) FILTER (WHERE actual_tokens IS NULL) unsettled_calls,
+                coalesce(sum(coalesce(actual_tokens,reserved_tokens)),0) tokens,
+                coalesce(sum(actual_tokens),0) measured_tokens,
+                coalesce(sum(reserved_tokens) FILTER (WHERE actual_tokens IS NULL),0) reserved_tokens,
+                coalesce(sum(coalesce(actual_usd,reserved_usd)),0) usd,
+                coalesce(sum(actual_usd),0) measured_usd,
+                coalesce(sum(reserved_usd) FILTER (WHERE actual_usd IS NULL),0) reserved_usd
+                FROM model_usage WHERE work_id=%s""", (work.id,))).fetchone()
             monthly = await (await conn.execute("SELECT coalesce(sum(coalesce(actual_usd,reserved_usd)),0) usd FROM model_usage WHERE created_at>=date_trunc('month',now())")).fetchone()
+            def token_denial(limit):
+                return dispatch_denial("tokens", int(totals["tokens"]), tokens, limit,
+                    used=int(totals["measured_tokens"]), reserved=int(totals["reserved_tokens"]))
+
+            def call_denial(limit):
+                return dispatch_denial("invocations", int(totals["calls"]), 1, limit,
+                    used=int(totals["settled_calls"]), reserved=int(totals["unsettled_calls"]))
+
+            def spend_denial():
+                return dispatch_denial("api_spend", float(totals["usd"]), usd, work.budget.max_cost_usd,
+                    used=float(totals["measured_usd"]), reserved=float(totals["reserved_usd"]))
+
+            def factory_denial():
+                return dispatch_denial("factory_spend", float(monthly["usd"]), usd, monthly_limit)
             if current is not None and policy is not None:
                 await self._check_budget_revision(conn, current, work)
-                await self._activate_budget(conn, current, "invocations", int(totals["calls"]) + 1)
-                await self._activate_budget(conn, current, "tokens", int(totals["tokens"]) + tokens)
+                await self._activate_budget(conn, current, "invocations", int(totals["calls"]) + 1,
+                    denial=call_denial(policy.invocations.absolute) if policy.invocations.absolute is not None else None)
+                await self._activate_budget(conn, current, "tokens", int(totals["tokens"]) + tokens,
+                    denial=token_denial(policy.tokens.absolute) if policy.tokens.absolute is not None else None)
                 await self._activate_budget(conn, current, "active_seconds", current.active_seconds_used + 0.001)
                 if float(totals["usd"]) + usd > work.budget.max_cost_usd:
-                    raise DomainError("BUDGET_API_SPEND", "The authorized API spend does not permit this invocation", 409)
+                    raise DomainError("BUDGET_API_SPEND", "The authorized API spend does not permit this invocation", 409, budget_denial=spend_denial())
                 if usd > 0 and float(monthly["usd"]) + usd > monthly_limit:
-                    raise DomainError("BUDGET_FACTORY_SPEND", "The factory spending ceiling does not permit this invocation", 409)
-            if (policy is None and ((work.budget.max_calls is not None and totals["calls"] >= work.budget.max_calls) or (work.budget.max_tokens is not None and totals["tokens"] + tokens > work.budget.max_tokens))) or float(totals["usd"]) + usd > work.budget.max_cost_usd or (usd > 0 and float(monthly["usd"]) + usd > monthly_limit):
-                raise DomainError("BUDGET_EXHAUSTED", "The budget does not allow another model call")
+                    raise DomainError("BUDGET_FACTORY_SPEND", "The factory spending ceiling does not permit this invocation", 409, budget_denial=factory_denial())
+            denial = None
+            if policy is None and work.budget.max_calls is not None and totals["calls"] >= work.budget.max_calls:
+                denial = call_denial(work.budget.max_calls)
+            elif policy is None and work.budget.max_tokens is not None and totals["tokens"] + tokens > work.budget.max_tokens:
+                denial = token_denial(work.budget.max_tokens)
+            elif float(totals["usd"]) + usd > work.budget.max_cost_usd:
+                denial = spend_denial()
+            elif usd > 0 and float(monthly["usd"]) + usd > monthly_limit:
+                denial = factory_denial()
+            if denial is not None:
+                raise DomainError("BUDGET_EXHAUSTED", "The pending model-call reservation does not fit the authorized budget", budget_denial=denial)
             usage_id = new_id()
             await conn.execute("INSERT INTO model_usage(id,work_id,reserved_tokens,reserved_usd,context_receipt) VALUES(%s,%s,%s,%s,%s)", (usage_id, work.id, tokens, usd, Jsonb(payload(receipt)) if receipt is not None else None))
             if current is not None and policy is not None:

@@ -85,6 +85,13 @@ class OperatorToolTrace(StrictContract):
     truncated: bool = False
 
 
+class FactoryNavigationAction(StrictContract):
+    id: Literal["connect-github-read", "connect-github-publish", "configure-models", "connect-provider", "add-mcp-connection"]
+    kind: Literal["open_tool", "open_models", "open_tools"]
+    target: Literal["github.read", "github.publish", "model", "mcp"]
+    label: str = Field(max_length=80)
+
+
 class OperatorToolTracePage(StrictContract):
     version: Literal[1] = 1
     message_id: str
@@ -92,3 +99,4 @@ class OperatorToolTracePage(StrictContract):
     checkpoint_id: str | None = None
     truncated: bool = False
     tools: list[OperatorToolTrace] = Field(default_factory=list, max_length=50)
+    actions: list[FactoryNavigationAction] = Field(default_factory=list, max_length=5)

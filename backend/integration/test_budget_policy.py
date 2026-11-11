@@ -49,6 +49,56 @@ async def test_metrics_exhaust_independently_and_zero_spend_never_authorizes_pai
     assert error.value.code == "BUDGET_REPAIRS"
 
 
+@pytest.mark.parametrize("modern", [False, True])
+async def test_denial_records_next_reservation_without_claiming_all_tokens_consumed(repository, modern):
+    repo, _, work = await fixture_work(repository)
+    work.budget.max_tokens = 1000
+    if modern:
+        work.effective_budget_policy = BudgetPolicy(version=1, tokens=bounded(1000))
+    await repo.save(work)
+    first = await repo.reserve_usage(work, 800, 0, 100)
+    await repo.settle_usage(first, 600, 0)
+    await repo.reserve_usage(work, 100, 0, 100)
+    with pytest.raises(DomainError) as error:
+        await repo.reserve_usage(work, 400, 0, 100)
+    assert error.value.code == ("BUDGET_TOKENS" if modern else "BUDGET_EXHAUSTED")
+    denial = error.value.budget_denial
+    assert denial.model_dump() == {"version": 1, "metric": "tokens", "basis": "next_reservation",
+        "used": 600, "reserved": 100, "requested": 400, "required": 1100, "limit": 1000}
+    assert (await repo.usage(work.id))["calls"] == 2
+    work.status, work.error_code, work.budget_denial = Status.BLOCKED, error.value.code, denial
+    await repo.save(work)
+    assert (await repo.work(work.id)).budget_denial == denial
+    assert (await budget_view(repo, work.id)).denial == denial
+
+
+@pytest.mark.parametrize(("metric", "budget", "tokens", "usd", "monthly_limit"), [
+    ("invocations", {"max_calls": 1}, 1, 0, 100),
+    ("api_spend", {"max_cost_usd": 0}, 1, 0.1, 100),
+    ("factory_spend", {"max_cost_usd": 10}, 1, 0.1, 0),
+])
+async def test_legacy_generic_code_keeps_precise_denied_metric(repository, metric, budget, tokens, usd, monthly_limit):
+    repo, _, work = await fixture_work(repository)
+    work.budget = work.budget.model_copy(update=budget)
+    await repo.save(work)
+    if metric == "invocations":
+        await repo.reserve_usage(work, 1, 0, monthly_limit)
+    with pytest.raises(DomainError) as error:
+        await repo.reserve_usage(work, tokens, usd, monthly_limit)
+    assert error.value.code == "BUDGET_EXHAUSTED" and error.value.budget_denial.metric == metric
+    assert error.value.budget_denial.requested == (1 if metric == "invocations" else 0.1)
+    assert (await repo.usage(work.id))["calls"] == (1 if metric == "invocations" else 0)
+
+
+async def test_old_generic_denial_does_not_invent_a_historical_request(repository):
+    repo, _, work = await fixture_work(repository)
+    work.status, work.error_code, work.limiting_metric = Status.BLOCKED, "BUDGET_EXHAUSTED", "exhausted"
+    await repo.save(work)
+    projection = await budget_view(repo, work.id)
+    assert projection.denial.basis == "historical_unknown" and projection.denial.metric == "unknown"
+    assert projection.denial.requested is None and projection.denial.required is None
+
+
 async def test_revision_checked_amendment_survives_stale_checkpoint_and_stops_inflight_dispatch(repository):
     initial = BudgetPolicy(version=1)
     repo, _, work = await policy_work(repository, initial)

@@ -8,6 +8,7 @@ from sabre.budget_contracts import (
     BudgetView,
     bounded,
 )
+from sabre.budget_diagnostics import recorded_denial
 
 
 async def budget_view(repository, work_id):
@@ -36,4 +37,4 @@ async def budget_view(repository, work_id):
         authorizations=[BudgetAuthorization.model_validate(row["data"]) for row in rows],
         limiting_metric=work.limiting_metric, pending_step=work.phase,
         token_prevention="cli_post_invocation" if cli or work.budget.progress_limits else "reservation_bound",
-        unsettled_usage_ids=[row["id"] for row in unreconciled[:50]], unreconciled_calls=len(unreconciled))
+        unsettled_usage_ids=[row["id"] for row in unreconciled[:50]], unreconciled_calls=len(unreconciled), denial=recorded_denial(work))

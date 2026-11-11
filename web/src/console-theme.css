@@ -34,6 +34,16 @@
   --amber: #e2b76b;
   --code-bg: #0d1015;
   --radius: 8px;
+  --status-neutral-ink: #c2cbd7;
+  --status-neutral-bg: #252b34;
+  --status-active-ink: #b7d1ff;
+  --status-active-bg: #233047;
+  --status-wait-ink: #f0cc8d;
+  --status-wait-bg: #30271a;
+  --status-error-ink: #ffc0c5;
+  --status-error-bg: #35232a;
+  --status-success-ink: #a1dfb8;
+  --status-success-bg: #1d3027;
   color: var(--ink);
   background: var(--canvas);
 }

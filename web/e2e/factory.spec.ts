@@ -14,6 +14,148 @@ async function captureSource(page: Page, section: string) {
     scale: 'css',
   });
 }
+test('cancelled runs remain inspectable in Closed with a readable final-state badge', async ({ page }) => {
+  const order = { ...syntheticRun(), status: 'cancelled', error_code: null };
+  const writes: string[] = [];
+  await page.route('**/api/v1/work**', async (route) => {
+    if (route.request().method() === 'POST') writes.push(route.request().url());
+    const path = new URL(route.request().url()).pathname;
+    if (path.endsWith('/work')) return route.fulfill({ json: [order] });
+    if (path.endsWith('/work/synthetic-run')) return route.fulfill({ json: order });
+    await route.fallback();
+  });
+  await page.goto('/work');
+  await page.getByRole('button', { name: 'Closed', exact: true }).click();
+  await expect(page.locator('.run-rail-item')).toHaveCount(1);
+  await page.locator('.run-rail-item').click();
+  await expect(page).toHaveURL(/\/work\/synthetic-run/);
+  const badge = page.locator('.detail-header .badge-cancelled');
+  await expect(badge).toHaveText('Cancelled');
+  await expect(badge.locator('svg.lucide')).toBeVisible();
+  const contrast = await badge.evaluate((el) => {
+    const l = (color: string) => {
+      const c = color
+        .match(/[\d.]+/g)!
+        .slice(0, 3)
+        .map(Number)
+        .map((n) => {
+          n /= 255;
+          return n <= 0.04045 ? n / 12.92 : ((n + 0.055) / 1.055) ** 2.4;
+        });
+      return c[0] * 0.2126 + c[1] * 0.7152 + c[2] * 0.0722;
+    };
+    const css = getComputedStyle(el),
+      a = l(css.color),
+      b = l(css.backgroundColor);
+    return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+  });
+  expect(contrast).toBeGreaterThanOrEqual(4.5);
+  await expect(page.getByRole('button', { name: 'Resume', exact: true })).toHaveCount(0);
+  expect(writes).toEqual([]);
+  await captureSource(page, 'cancelled-history');
+});
+
+test('connection action links open the registered setup surface without saving', async ({ page }) => {
+  const writes: string[] = [];
+  page.on('request', (request) => {
+    if (request.method() === 'POST') writes.push(request.url());
+  });
+  await page.goto('/tools?connection=github.read');
+  await expect(page.getByRole('button', { name: 'Credentials', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(page.getByText(/Opening this page does not save credentials/)).toBeVisible();
+  await page.goto('/tools?setup=mcp');
+  await expect(page.getByRole('dialog', { name: 'Add MCP server' })).toBeVisible();
+  expect(writes).toEqual([]);
+});
+test('supervisor offers observed connection actions and opens setup from the same page', async ({ page }) => {
+  const messageId = 'synthetic-readiness-message';
+  const actions = [
+    {
+      id: 'connect-github-read',
+      kind: 'open_tool',
+      target: 'github.read',
+      label: 'Connect GitHub repositories',
+    },
+    { id: 'add-mcp-connection', kind: 'open_tools', target: 'mcp', label: 'Add MCP connection' },
+  ];
+  await page.route('**/api/v1/operator/messages**', (route) =>
+    route.fulfill({
+      json: new URL(route.request().url()).pathname.endsWith('/tools')
+        ? {
+            version: 1,
+            message_id: messageId,
+            available: true,
+            checkpoint_id: 'synthetic-readiness-checkpoint',
+            truncated: false,
+            actions,
+            tools: [
+              {
+                call_id: 'synthetic-readiness-call',
+                name: 'get_factory_readiness',
+                input: '{}',
+                output: JSON.stringify({
+                  version: 1,
+                  items: [],
+                  connections: [
+                    {
+                      id: 'github.read',
+                      enabled: true,
+                      credential_configured: false,
+                      access: 'Synthetic public-only access',
+                    },
+                  ],
+                  external_tools: [],
+                  external_tools_truncated: false,
+                  actions,
+                }),
+                status: 'completed',
+                redacted: false,
+                truncated: false,
+              },
+            ],
+          }
+        : {
+            items: [
+              {
+                version: 1,
+                id: messageId,
+                work_id: null,
+                text: 'Synthetic fixture: inspect GitHub readiness',
+                allowed_actions: [],
+                state: 'completed',
+                reply:
+                  'GitHub credentials are missing in this synthetic fixture. Open setup to connect the account.',
+                error_code: null,
+                created_at: '2026-11-11T10:00:00Z',
+              },
+            ],
+            truncated: false,
+          },
+    }),
+  );
+  const writes: string[] = [];
+  page.on('request', (request) => {
+    if (request.method() === 'POST') writes.push(request.url());
+  });
+  await page.goto('/tools');
+  await page.getByRole('button', { name: 'Supervisor', exact: true }).click();
+  await page.getByRole('button', { name: 'Expand chat', exact: true }).click();
+  const chat = page.getByRole('dialog', { name: 'Supervisor conversation' });
+  await expect(chat.getByRole('link', { name: 'Connect GitHub repositories' })).toBeVisible();
+  await expect(chat.locator('.supervisor-avatar').first()).toBeVisible();
+  await captureSource(page, 'supervisor-actions');
+  await chat.getByRole('link', { name: 'Connect GitHub repositories' }).click();
+  await expect(chat).not.toBeVisible();
+  await expect(page).toHaveURL(/\/tools\?connection=github.read/);
+  await expect(page.getByRole('button', { name: 'Credentials', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  expect(writes).toEqual([]);
+});
 test('expanded run preserves inspection and exposes review and security without page overflow', async ({
   page,
 }) => {
@@ -85,6 +227,7 @@ function syntheticRun(): WorkOrder {
     effective_budget_policy: null,
     budget_revision: 0,
     limiting_metric: null,
+    budget_denial: null,
     repair_cycles_used: 0,
     last_failure_fingerprint: null,
     identical_failure_count: 0,
@@ -227,7 +370,8 @@ test('supervisor expands, retains per-run context and reveals recorded tools', a
   await expect(chat).toBeVisible();
   await chat.locator('summary').filter({ hasText: 'Recorded tool invocations' }).click();
   await expect(chat.getByText('get_work_budget', { exact: false }).first()).toBeVisible();
-  await chat.locator('summary').filter({ hasText: 'get_work_budget' }).click();
+  await expect(chat.locator('.supervisor-tools')).toHaveAttribute('open', '');
+  await chat.locator('.supervisor-tool > summary').filter({ hasText: 'get_work_budget' }).click();
   await expect(chat.getByText('{"measured_tokens":1200}', { exact: true })).toBeVisible();
   await captureSource(page, 'supervisor-expanded');
   await chat.locator('summary').filter({ hasText: 'Attention inbox' }).click();
@@ -1389,4 +1533,58 @@ test('recorded process keeps phase attempts, agent tools, memory and failed chec
         .evaluate((element) => element.scrollWidth > element.clientWidth),
     ).toBe(true);
   await captureSource(page, 'process');
+});
+
+test('usage meters retain quota semantics with padded dark tracks and responsive cards', async ({ page }) => {
+  // Synthetic values exercise appearance only; this fixture does not run a model.
+  const order = syntheticRun();
+  order.calls_used = 7;
+  order.tokens_used = 18420;
+  order.cost_usd = 1.2;
+  order.active_seconds_used = 252;
+  order.budget.max_cost_usd = 5;
+  await page.route('**/api/v1/work**', async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path.endsWith('/work')) return route.fulfill({ json: [order] });
+    if (path.endsWith('/work/synthetic-run')) return route.fulfill({ json: order });
+    if (path.endsWith('/audit'))
+      return route.fulfill({
+        json: {
+          work_id: order.id,
+          plan_revision: order.plan_revision,
+          status: order.status,
+          phase: order.phase,
+          usage: runUsageSnapshot(order.id, 7, 18420).usage,
+          context: null,
+          models: [],
+          agents: [],
+          tools: [],
+          checkpoint_count: 0,
+          checkpoint_threads: 0,
+          truncated: false,
+        },
+      });
+    await route.fallback();
+  });
+  await page.goto('/work/synthetic-run');
+  await page.getByRole('tab', { name: 'Limits & scope', exact: true }).click();
+  const panel = page.getByRole('region', { name: 'Usage and limits' });
+  await expect(panel).toBeVisible();
+  await expect(panel.getByRole('meter')).toHaveCount(4);
+  const tokens = panel.getByRole('meter', { name: 'Tokens', exact: true });
+  await expect(tokens).toHaveAttribute('max', '100000');
+  await expect(tokens).toHaveAttribute('value', '18420');
+  expect(await tokens.evaluate((element) => element.getBoundingClientRect().height)).toBe(12);
+  expect(await tokens.evaluate((element) => getComputedStyle(element).backgroundColor)).toBe(
+    'rgb(48, 55, 67)',
+  );
+  expect(
+    await panel.evaluate((element) => parseFloat(getComputedStyle(element).paddingLeft)),
+  ).toBeGreaterThanOrEqual(16);
+  const columns = await panel
+    .locator('.usage-meter-grid')
+    .evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(' ').length);
+  expect(columns).toBe(test.info().project.name === 'mobile' ? 1 : 2);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await panel.screenshot({ path: `../work/usage-cards-${test.info().project.name}.png` });
 });

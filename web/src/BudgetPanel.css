@@ -3,6 +3,34 @@
   gap: 16px;
   min-width: 0;
 }
+.budget-denial {
+  display: grid;
+  gap: 12px;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.budget-denial p {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.75;
+  max-width: 90ch;
+}
+.budget-denial dl {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(135px, 1fr));
+  gap: 16px;
+}
+.budget-denial dt {
+  color: var(--muted);
+  font-size: 11px;
+  margin-bottom: 6px;
+}
+.budget-denial dd {
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
 .budget-panel-heading {
   display: flex;
   align-items: start;

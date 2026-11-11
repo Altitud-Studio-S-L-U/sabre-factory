@@ -40,6 +40,8 @@ export interface ToolsConsoleProps {
 }
 
 export default function ToolsConsole({ api, projects, connected = true, onRefresh }: ToolsConsoleProps) {
+  const [requestedConnection] = useState(() => new URLSearchParams(window.location.search).get('connection'));
+  const [connectionOpened, setConnectionOpened] = useState(false);
   const [items, setItems] = useState<IntegrationInfo[]>([]);
   const [servers, setServers] = useState<MCPConnectionInfo[]>([]);
   const [builtins, setBuiltins] = useState<BuiltinToolCatalog['items']>([]);
@@ -51,7 +53,9 @@ export default function ToolsConsole({ api, projects, connected = true, onRefres
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
-  const [editor, setEditor] = useState<{ name: string | null } | null>(null);
+  const [editor, setEditor] = useState<{ name: string | null } | null>(() =>
+    new URLSearchParams(window.location.search).get('setup') === 'mcp' ? { name: null } : null,
+  );
   const [projectDialog, setProjectDialog] = useState(false);
   const [repositories, setRepositories] = useState(false);
   const [projectId, setProjectId] = useState('');
@@ -79,6 +83,22 @@ export default function ToolsConsole({ api, projects, connected = true, onRefres
   useEffect(() => {
     void load();
   }, [load]);
+  useEffect(() => {
+    if (
+      connectionOpened ||
+      !requestedConnection ||
+      !['github.read', 'github.publish'].includes(requestedConnection)
+    )
+      return;
+    if (!items.some((item) => item.id === requestedConnection)) return;
+    setSelectedId(requestedConnection);
+    setFilter('github');
+    setTab('Credentials');
+    setNotice(
+      'Configure this connection in its credential dialog. Opening this page does not save credentials or grant execution permissions.',
+    );
+    setConnectionOpened(true);
+  }, [connectionOpened, requestedConnection, items]);
   useEffect(() => {
     let active = true;
     setPolicy(null);

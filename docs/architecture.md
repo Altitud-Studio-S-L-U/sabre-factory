@@ -32,6 +32,10 @@ flowchart LR
   Publisher --> Draft[Branch and draft PR]
 ```
 
+## Panel components
+
+The React panel shares form controls through `web/src/components`, backed by locally owned shadcn/ui New York components in `components/ui`. Tailwind utilities use the `sf` prefix, map to SABRE's existing tokens and omit Preflight so adoption does not reset established layouts. `components.json` and the Vite/TypeScript alias support further registry additions; new registry code must retain that prefix and the existing license attribution. Custom navigation controls and native radio/checkbox semantics remain separate from generic button and text-field styling. Tabs and dialogs retain their existing tested interaction contracts during incremental adoption.
+
 ## State ownership
 
 LangGraph checkpoints are the source for workflow continuation, including pending interrupts and role-agent continuation. Application tables index admitted orders, project configuration, progress projections, human responses, usage reservations and external-effect receipts. Procrastinate schedules execution; it does not implement a second order state machine.

@@ -1,6 +1,20 @@
 import type { ComponentProps } from 'react';
+import { Button as UiButton } from './ui/button';
+import './ui/foundation.css';
 import './Controls.css';
 
 export default function Button({ className = 'button', type, ...props }: ComponentProps<'button'>) {
-  return <button {...props} type={type} className={`control-button ${className}`} />;
+  const classes = className.split(/\s+/);
+  if (!classes.includes('button'))
+    return <button {...props} type={type} className={`control-button ${className}`} />;
+  return (
+    <UiButton
+      {...props}
+      type={type}
+      variant={
+        classes.includes('primary') ? 'default' : classes.includes('danger') ? 'destructive' : 'secondary'
+      }
+      className={`control-button ${className}`}
+    />
+  );
 }

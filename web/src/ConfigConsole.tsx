@@ -59,7 +59,9 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
   const [draft, setDraft] = useState<FactoryConfiguration | null>(null);
   const [document, setDocument] = useState('');
   const [mode, setMode] = useState('Guided setup');
-  const [step, setStep] = useState(0);
+  const [step, setStep] = useState(() =>
+    new URLSearchParams(window.location.search).get('section') === 'models' ? 1 : 0,
+  );
   const [flow, setFlow] = useState<'patch' | 'maintain' | 'create' | 'audit'>('patch');
   const [runners, setRunners] = useState<ModelConfiguration['runners']>([]);
   const [modelIntegrations, setModelIntegrations] = useState<Awaited<ReturnType<Api['integrations']>>>([]);

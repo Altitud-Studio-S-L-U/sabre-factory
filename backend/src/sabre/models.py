@@ -8,7 +8,7 @@ from uuid import uuid4
 from pydantic import AwareDatetime, ConfigDict, Field, SecretStr, field_validator, model_validator
 
 from sabre.browser_contracts import BrowserPreview
-from sabre.budget_contracts import BudgetPolicy
+from sabre.budget_contracts import BudgetDenial, BudgetPolicy
 from sabre.contracts import Contract
 from sabre.flow_contracts import FlowConfiguration, ResolvedFlow
 
@@ -247,6 +247,7 @@ class WorkOrder(WorkOrderCreate):
     effective_budget_policy: BudgetPolicy | None = None
     budget_revision: int = Field(default=0, ge=0)
     limiting_metric: str | None = None
+    budget_denial: BudgetDenial | None = None
     repair_cycles_used: int = Field(default=0, ge=0)
     last_failure_fingerprint: str | None = None
     identical_failure_count: int = Field(default=0, ge=0)
@@ -334,8 +335,9 @@ class MemoryItem(MemoryCreate):
 
 
 class DomainError(Exception):
-    def __init__(self, code: str, message: str, status_code: int = 409):
+    def __init__(self, code: str, message: str, status_code: int = 409, *, budget_denial: BudgetDenial | None = None):
         self.code = code
         self.message = message
         self.status_code = status_code
+        self.budget_denial = budget_denial
         super().__init__(message)

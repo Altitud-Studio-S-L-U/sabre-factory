@@ -15,6 +15,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, RetryPolicy, interrupt
 from pydantic import ConfigDict, Field, ValidationError
 
+from sabre.budget_diagnostics import dispatch_denial
 from sabre.error_boundaries import guarded_call
 from sabre.events import ExecutionEvent
 from sabre.execution_observer import current_execution
@@ -280,11 +281,14 @@ class Factory:
         if work.effective_budget_policy is not None:
             await self.repository.ensure_budget_metric(work, "active_seconds", work.active_seconds_used + 0.001)
         elif work.budget.active_seconds is not None and work.active_seconds_used >= work.budget.active_seconds:
-            raise DomainError("TIME_BUDGET", "The work order exhausted its active time")
+            raise DomainError("TIME_BUDGET", "The work order exhausted its active time",
+                budget_denial=dispatch_denial("active_seconds", work.active_seconds_used, 0,
+                    work.budget.active_seconds, used=work.active_seconds_used, reserved=0))
         # A resumed checkpoint may predate reservations or their final settlement.
         usage = await self.repository.usage(work.id)
         work.calls_used, work.tokens_used, work.cost_usd = int(usage["calls"]), int(usage["tokens"]), float(usage["usd"])
         work.phase, work.status, work.updated_at, work.error_code = phase, Status.RUNNING, now(), None
+        work.budget_denial, work.limiting_metric = None, None
         await self.repository.save(work)
         await self.repository.event(work, "phase", f"Etapa: {phase}")
         return work
@@ -727,7 +731,11 @@ class Factory:
                             timeout_s = max(0.001, work.effective_budget_policy.active_seconds.primary - work.active_seconds_used)
                             graph_input = None
                             continue
-                        raise DomainError("BUDGET_ACTIVE_SECONDS" if work.effective_budget_policy else "TIME_BUDGET", "The work order exhausted its active time") from None
+                        time_limit = work.effective_budget_policy.active_seconds.absolute if work.effective_budget_policy else work.budget.active_seconds
+                        observed_active = work.active_seconds_used + time.monotonic() - started
+                        raise DomainError("BUDGET_ACTIVE_SECONDS" if work.effective_budget_policy else "TIME_BUDGET", "The work order exhausted its active time",
+                            budget_denial=dispatch_denial("active_seconds", observed_active, 0, time_limit,
+                                used=observed_active, reserved=0) if time_limit is not None else None) from None
                 work = WorkOrder.model_validate(result["order"])
                 if result.get("__interrupt__"):
                     work = await self.repository.work(work_id)
@@ -746,7 +754,8 @@ class Factory:
                 # Use the current projection for progress made inside the interrupted node.
                 work = await self.repository.work(work_id)
                 work.status = {"PAUSE_REQUESTED": Status.PAUSED, "CANCEL_REQUESTED": Status.CANCELLED}.get(error.code, Status.BLOCKED)
-                work.limiting_metric = error.code.removeprefix("BUDGET_").lower() if error.code.startswith("BUDGET_") else ("active_seconds" if error.code == "TIME_BUDGET" else None)
+                work.budget_denial = error.budget_denial
+                work.limiting_metric = error.budget_denial.metric if error.budget_denial else (error.code.removeprefix("BUDGET_").lower() if error.code.startswith("BUDGET_") and error.code != "BUDGET_EXHAUSTED" else ("active_seconds" if error.code == "TIME_BUDGET" else None))
                 work.error_code, work.summary = error.code, error.message
                 await self.finish(work)
                 await self.repository.event(work, "blocked", error.message)

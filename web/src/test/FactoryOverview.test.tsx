@@ -31,6 +31,7 @@ function order(id: string, phase: string, status: WorkOrder['status']): WorkOrde
     effective_budget_policy: null,
     budget_revision: 0,
     limiting_metric: null,
+    budget_denial: null,
     repair_cycles_used: 0,
     last_failure_fingerprint: null,
     identical_failure_count: 0,
