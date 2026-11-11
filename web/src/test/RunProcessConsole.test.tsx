@@ -108,12 +108,19 @@ describe('Recorded step errors', () => {
 
   it('explains only the latest failed step with the current summary while the run is blocked', async () => {
     const user = userEvent.setup();
-    const blocked = { ...order('blocked'), error_code: 'BUDGET_EXHAUSTED', summary: 'The budget does not allow another model call' };
+    const blocked = {
+      ...order('blocked'),
+      error_code: 'BUDGET_EXHAUSTED',
+      summary: 'The budget does not allow another model call',
+    };
     render(
       <RunProcessConsole
         order={blocked}
         topology={topology}
-        entries={[failed(1, 'implement', 'attempt-1', 'BUDGET_EXHAUSTED'), failed(2, 'implement', 'attempt-2', 'BUDGET_EXHAUSTED')]}
+        entries={[
+          failed(1, 'implement', 'attempt-1', 'BUDGET_EXHAUSTED'),
+          failed(2, 'implement', 'attempt-2', 'BUDGET_EXHAUSTED'),
+        ]}
       />,
     );
     expect(inspectorNotice().getByText('Current stop reason · BUDGET_EXHAUSTED')).toBeVisible();
@@ -122,7 +129,9 @@ describe('Recorded step errors', () => {
     expect(attempts).toHaveLength(2);
     await user.click(attempts[0]);
     expect(inspectorNotice().getByText(/Historical record · BUDGET_EXHAUSTED · event #1/)).toBeVisible();
-    expect(inspectorNotice().queryByText('The budget does not allow another model call')).not.toBeInTheDocument();
+    expect(
+      inspectorNotice().queryByText('The budget does not allow another model call'),
+    ).not.toBeInTheDocument();
   });
 
   it('labels a failed step as a historical record once the run is cancelled', () => {

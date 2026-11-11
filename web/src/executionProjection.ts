@@ -43,7 +43,9 @@ export function projectExecution(entries: SequencedEvent[]): ObservedSpan[] {
     const last = records.at(-1)!.event;
     // Older runs recorded an owner pause/cancel as a failed step; it is a control outcome, not a failure.
     const event =
-      last.state === 'failed' && isControlCode(last.error_code) ? { ...last, state: 'interrupted' as const } : last;
+      last.state === 'failed' && isControlCode(last.error_code)
+        ? { ...last, state: 'interrupted' as const }
+        : last;
     const started = records.find((item) => item.event.state === 'started');
     const stamp = Date.parse(event.timestamp);
     const start = started

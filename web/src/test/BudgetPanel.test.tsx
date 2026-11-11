@@ -269,7 +269,9 @@ it('offers a budget decision without changing a ceiling or resuming automaticall
   const { api, writes } = connect();
   render(<BudgetPanel api={api} work={{ ...work, error_code: 'BUDGET_EXHAUSTED' }} />);
   const decision = await screen.findByRole('region', { name: 'Budget decision' });
-  expect(within(decision).getByText('Budget authorization required — choose how to continue')).toBeInTheDocument();
+  expect(
+    within(decision).getByText('Budget authorization required — choose how to continue'),
+  ).toBeInTheDocument();
   await user.click(within(decision).getByRole('button', { name: 'Set a new limit' }));
   const dialog = screen.getByRole('dialog', { name: 'Amend run limits' });
   expect(within(dialog).getByLabelText('Cumulative limit policy')).toHaveValue('bounded');
@@ -295,7 +297,13 @@ it('presents a cancelled run that retains a budget error as a final record witho
   render(
     <BudgetPanel
       api={api}
-      work={{ ...work, status: 'cancelled', control: 'cancel', error_code: 'BUDGET_EXHAUSTED', summary: 'Work order cancelled' }}
+      work={{
+        ...work,
+        status: 'cancelled',
+        control: 'cancel',
+        error_code: 'BUDGET_EXHAUSTED',
+        summary: 'Work order cancelled',
+      }}
     />,
   );
   await screen.findByText('Authorization revision 7');

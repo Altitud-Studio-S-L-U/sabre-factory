@@ -12,7 +12,12 @@ type RunState = Pick<WorkOrder, 'status' | 'error_code'>;
 export const CLOSED_STATUSES: readonly WorkOrder['status'][] = ['completed', 'cancelled'];
 export const STOPPED_STATUSES: readonly WorkOrder['status'][] = ['paused', 'blocked', 'failed'];
 export const ACTIVE_STATUSES: readonly WorkOrder['status'][] = ['queued', 'running'];
-export const ATTENTION_STATUSES: readonly WorkOrder['status'][] = ['blocked', 'failed', 'waiting_input', 'paused'];
+export const ATTENTION_STATUSES: readonly WorkOrder['status'][] = [
+  'blocked',
+  'failed',
+  'waiting_input',
+  'paused',
+];
 
 /** Owner pause/cancel requests are control outcomes, not errors (older rows stored them as error codes). */
 const CONTROL_CODES = new Set(['PAUSE_REQUESTED', 'CANCEL_REQUESTED']);
