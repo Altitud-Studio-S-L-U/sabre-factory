@@ -6,6 +6,7 @@ import JsonView from './components/JsonView';
 import { currentBlocker } from './runState';
 import type { RunUsageState } from './useRunUsage';
 import './ExecutionConsole.css';
+import { ticks } from './features/runs/timelineScale';
 
 const clock = (ms: number) =>
   `${Math.floor(ms / 60000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, '0')}`;
@@ -353,9 +354,9 @@ export default function RunProcessConsole({
               <div className="observed-row ruler">
                 <div className="observed-label">PHASE / SPECIALIST</div>
                 <div className="observed-track">
-                  {[0, 0.25, 0.5, 0.75, 1].map((fraction) => (
-                    <span key={fraction} style={{ left: `${fraction * 100}%` }}>
-                      {clock(horizon * fraction)}
+                  {ticks(horizon, zoom).map((tick) => (
+                    <span key={tick.ms} style={{ left: `${tick.fraction * 100}%` }}>
+                      {tick.label}
                     </span>
                   ))}
                 </div>
