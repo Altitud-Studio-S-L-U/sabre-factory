@@ -47,6 +47,7 @@ import Icon, { type IconName } from './Icon';
 import Field from './components/FormField';
 import Select from './components/Select';
 import ModelConfiguration from './ModelConfiguration';
+import SupervisorConsole from './SupervisorConsole';
 
 type View =
   | 'work'
@@ -855,8 +856,8 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
                   />
                   <ModelConfiguration api={api} onChanged={reload} scope="agents" />
                   <p className="hint">
-                    The current runtime uses its registered specialist procedures. Editable procedures and the
-                    DevOps agent catalog are being introduced through the agent contract spec.
+                    Agent procedures are built in. This page changes model assignments; delivery remains a
+                    controlled publication step.
                   </p>
                 </>
               )}
@@ -899,6 +900,7 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
             </>
           )}
         </main>
+        <SupervisorConsole api={api} orders={orders} selectedId={selectedId} disconnected={Boolean(error)} />
       </div>
     </div>
   );

@@ -36,6 +36,12 @@ from sabre.models import (
     WorkOrder,
     WorkOrderCreate,
 )
+from sabre.operator_contracts import (
+    OperatorMessagePage,
+    OperatorMessageRequest,
+    OperatorMessageResume,
+    OperatorMessageView,
+)
 from sabre.project_tools import ProjectToolsChange, ProjectToolsPolicy
 from sabre.repo_creation import (
     RepoCreationDecision,
@@ -76,6 +82,21 @@ def build_mcp(service):
     async def sabre_get_model_configuration() -> ModelConfiguration:
         """Inspect default and role-specific models, explicit destinations, revision and CLI session status. No inference or login is started."""
         return (await service().get_model_configuration())
+
+    @server.tool(structured_output=True)
+    async def sabre_talk_supervisor(request: OperatorMessageRequest) -> OperatorMessageView:
+        """Send an authenticated owner's durable message. Mutations require explicit allowed_actions; messages never grant budget or policy increases."""
+        return await service().queue.operator_conversation.admit(request)
+
+    @server.tool(structured_output=True)
+    async def sabre_supervisor_messages(work_id: str | None = None) -> OperatorMessagePage:
+        """Read the owner's factory or selected-run conversation. No inference or mutation starts."""
+        return await service().queue.operator_conversation.list(work_id)
+
+    @server.tool(structured_output=True)
+    async def sabre_resume_supervisor_message(message_id: str, request: OperatorMessageResume) -> OperatorMessageView:
+        """Owner-authorized checkpoint reconciliation and resumption with the original action grants. Does not expand budgets or permissions."""
+        return await service().queue.operator_conversation.resume(message_id, request)
 
     @server.tool(structured_output=True)
     async def sabre_set_model_configuration(request: ModelConfigurationChange) -> ModelConfiguration:

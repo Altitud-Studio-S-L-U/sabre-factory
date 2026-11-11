@@ -48,6 +48,11 @@ export type ModelConfigurationChange = components['schemas']['ModelConfiguration
 export type FlowConfiguration = components['schemas']['FlowConfiguration-Input'];
 export type SequencedEvent = components['schemas']['SequencedEvent'];
 export type EventPage = components['schemas']['EventPage'];
+export type OperatorMessageRequest = components['schemas']['OperatorMessageRequest'];
+export type OperatorMessageView = components['schemas']['OperatorMessageView'];
+export type OperatorMessagePage = components['schemas']['OperatorMessagePage'];
+export type OperatorMessageResume = components['schemas']['OperatorMessageResume'];
+export type OperatorAction = NonNullable<OperatorMessageRequest['allowed_actions']>[number];
 
 export class ApiError extends Error {
   constructor(
@@ -206,10 +211,21 @@ export function createApi(csrfToken: string, onUnauthorized?: (message: string) 
       request<FlowConfiguration>('/flows/parse', { method: 'POST', body: JSON.stringify({ document }) }),
     executionEvents: (id: string, after = 0) =>
       request<EventPage>(`/work/${encodeURIComponent(id)}/execution-events?after=${after}&limit=200`),
+    supervisorMessages: (workId: string | null = null) =>
+      request<OperatorMessagePage>(
+        `/operator/messages${workId ? `?work_id=${encodeURIComponent(workId)}` : ''}`,
+      ),
+    talkSupervisor: (value: OperatorMessageRequest) =>
+      request<OperatorMessageView>('/operator/messages', { method: 'POST', body: JSON.stringify(value) }),
     createWork: (value: WorkOrderCreate) =>
       request<WorkOrder>('/work', { method: 'POST', body: JSON.stringify(value) }),
     answer: (id: string, value: Answer) =>
       request<WorkOrder>(`/work/${encodeURIComponent(id)}/answer`, {
+        method: 'POST',
+        body: JSON.stringify(value),
+      }),
+    resumeSupervisorMessage: (id: string, value: OperatorMessageResume) =>
+      request<OperatorMessageView>(`/operator/messages/${encodeURIComponent(id)}/resume`, {
         method: 'POST',
         body: JSON.stringify(value),
       }),

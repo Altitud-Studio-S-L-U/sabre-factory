@@ -22,7 +22,9 @@ On Windows, run `open` in your own interactive terminal and follow the single-us
 
 `init` creates protected, service-specific bootstrap files and a master key in Docker volumes. The ignored `.env` contains public configuration. API keys entered in the write-only panel are encrypted in a separate PostgreSQL vault. Coding and verification containers receive no integration credentials.
 
-Connect an official Codex or Claude CLI session with `codex-login` or `claude-login`, or configure an API provider in Integrations. Select explicit model names, approved destinations, prices and limits. Register a repository with its real verification commands, then launch a flow. Alternatively, authorize creation of a new repository and its flow together in Integrations. See [operations](docs/operations.md) for login, isolation, backup and recovery.
+Connect an official Codex or Claude CLI session with `codex-login` or `claude-login`. Choose the factory default in Config and explicit role overrides in Agents; API credentials and external connections are managed in Tools. Select explicit model names, approved destinations, prices and limits. Register a repository through Config → Projects with its real verification commands, then launch a flow. Alternatively, authorize creation of a new repository and its flow together in Tools. See [operations](docs/operations.md) for login, isolation, backup and recovery.
+
+The Supervisor conversation is available throughout the authenticated panel and through owner MCP tools. Messages are durable and read-only by default. Grant individual action tools per message when you want the Supervisor to act; run-scoped conversations cannot modify another run. Replies use the control worker independently of execution. A blocked message retains its checkpoint and can be explicitly reconciled and resumed. The editable agent-procedure catalog, delegated external-agent authentication and other planned console capabilities remain specified under [implementation specs](docs/specs/README.md).
 
 ## Flows
 

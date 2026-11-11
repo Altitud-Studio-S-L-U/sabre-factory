@@ -36,6 +36,14 @@ async def migrate(conn, baseline: str):
         CREATE TABLE repository_flow_launches(
             proposal_id text PRIMARY KEY, request_digest text NOT NULL,
             project jsonb NOT NULL, work jsonb NOT NULL);
+        """, 5: """
+        CREATE TABLE operator_messages(
+            id text PRIMARY KEY, scope text NOT NULL, request_key text NOT NULL,
+            request_digest text NOT NULL, data jsonb NOT NULL,
+            state text NOT NULL DEFAULT 'queued' CHECK(state IN ('queued','running','completed','blocked')),
+            reply text, error_code text, created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+            UNIQUE(scope,request_key));
+        CREATE INDEX operator_message_scope ON operator_messages(scope,created_at,id);
         """}
     if set(applied) - set(migrations):
         raise DomainError("SCHEMA_NEWER_THAN_RUNTIME", "Restore the matching application version before opening this database", 503)

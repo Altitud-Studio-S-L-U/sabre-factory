@@ -1,0 +1,146 @@
+.supervisor-launcher.button {
+  position: fixed;
+  right: 24px;
+  bottom: 22px;
+  z-index: 10;
+  background: var(--active-bg);
+  border-color: var(--accent);
+  padding: 12px 18px;
+  box-shadow: 0 8px 30px #0006;
+}
+.supervisor-drawer {
+  display: flex;
+  flex-direction: column;
+  position: fixed;
+  right: 20px;
+  top: 80px;
+  bottom: 82px;
+  width: 420px;
+  max-width: calc(100vw - 32px);
+  overflow: auto;
+  z-index: 11;
+  border: 1px solid #667080;
+  border-radius: 10px;
+  background: var(--glass);
+  backdrop-filter: blur(24px);
+  box-shadow: 0 15px 70px #0009;
+  padding: 22px;
+}
+.supervisor-drawer .section-heading {
+  margin-bottom: 20px;
+}
+.supervisor-drawer p {
+  font-size: 12px;
+  margin: 10px 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.supervisor-scope,
+.supervisor-compose {
+  display: grid;
+  gap: 8px;
+  font-size: 12px;
+  margin: 16px 0;
+}
+.supervisor-compose textarea {
+  width: 100%;
+  resize: vertical;
+  min-height: 80px;
+  padding: 10px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+}
+.supervisor-history {
+  flex: 1;
+  min-height: 80px;
+  overflow: auto;
+  margin: 20px 0;
+}
+.supervisor-drawer > .section-heading {
+  flex-shrink: 0;
+  margin-bottom: 10px;
+}
+.supervisor-context {
+  font-size: 11px;
+  margin: 8px 0;
+}
+.supervisor-context summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+.supervisor-drawer form {
+  flex: 0 0 auto;
+  max-height: 55%;
+  overflow: auto;
+}
+.supervisor-drawer .supervisor-scope {
+  margin: 8px 0;
+  flex-shrink: 0;
+}
+.supervisor-drawer .supervisor-compose {
+  margin: 8px 0;
+}
+.supervisor-exchange {
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 18px;
+  margin-bottom: 18px;
+}
+.supervisor-exchange > strong,
+.supervisor-reply > strong {
+  font-size: 11px;
+}
+.supervisor-exchange > small {
+  font-size: 10px;
+  color: var(--muted);
+}
+.supervisor-reply {
+  border-left: 2px solid var(--accent);
+  padding-left: 12px;
+  margin-top: 15px;
+}
+.supervisor-message-time {
+  display: block;
+  color: var(--muted);
+  font-size: 10px;
+  margin-top: 5px;
+}
+.supervisor-grants {
+  margin: 14px 0 18px;
+  font-size: 12px;
+}
+.supervisor-grants summary {
+  cursor: pointer;
+}
+.supervisor-grants label {
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+  margin-top: 12px;
+}
+.supervisor-grants input {
+  width: auto;
+  margin-top: 3px;
+  flex-shrink: 0;
+}
+@supports not (backdrop-filter: blur(1px)) {
+  .supervisor-drawer {
+    background: var(--surface);
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .supervisor-drawer {
+    background: var(--surface);
+    backdrop-filter: none;
+  }
+}
+@media (max-width: 700px) {
+  .supervisor-drawer {
+    top: 14px;
+    right: 16px;
+    padding: 18px;
+  }
+  .supervisor-launcher.button {
+    right: 16px;
+    bottom: 16px;
+  }
+}

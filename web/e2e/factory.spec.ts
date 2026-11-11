@@ -96,6 +96,61 @@ test('phase configuration rejects malformed YAML without launching work', async 
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 
+test('supervisor persists an owner conversation across navigation and defaults to read-only', async ({
+  page,
+}) => {
+  const requests: Record<string, unknown>[] = [];
+  const messages: Record<string, unknown>[] = [];
+  await page.route('**/api/v1/operator/messages**', async (route) => {
+    if (route.request().method() === 'POST') {
+      const body = route.request().postDataJSON() as Record<string, unknown>;
+      requests.push(body);
+      const message = {
+        version: 1,
+        id: 'synthetic-owner-message',
+        work_id: body.work_id,
+        text: body.text,
+        allowed_actions: body.allowed_actions,
+        state: 'queued',
+        reply: null,
+        error_code: null,
+        created_at: '2026-11-11T10:00:00Z',
+      };
+      messages.push(message);
+      await route.fulfill({ status: 202, json: message });
+      return;
+    }
+    await route.fulfill({ json: { items: messages, truncated: false } });
+  });
+  await page.goto('/work');
+  await page.getByRole('button', { name: 'Supervisor', exact: false }).click();
+  const conversation = page.getByRole('region', { name: 'Supervisor conversation' });
+  await conversation
+    .getByRole('textbox', { name: 'Message', exact: true })
+    .fill('Watch out: preserve the public API');
+  await conversation.getByRole('button', { name: 'Send message', exact: true }).click();
+  await expect(conversation.getByText('Message queued. No action has been confirmed.')).toBeVisible();
+  expect(requests[0]).toMatchObject({ version: 1, work_id: null, allowed_actions: [] });
+  expect(requests[0]).not.toHaveProperty('principal');
+  await conversation.getByRole('button', { name: 'Close supervisor' }).click();
+  await page
+    .getByRole('navigation', { name: 'Main navigation' })
+    .getByRole('link', { name: 'Agents', exact: true })
+    .click();
+  await page.getByRole('button', { name: 'Supervisor', exact: false }).click();
+  await expect(conversation.getByText('Watch out: preserve the public API', { exact: true })).toBeVisible();
+  messages[0] = {
+    ...messages[0],
+    state: 'completed',
+    reply: 'Synthetic reply: the concern is recorded. No run or policy was changed.',
+  };
+  await expect(
+    conversation.getByText('Synthetic reply: the concern is recorded. No run or policy was changed.'),
+  ).toBeVisible();
+  await page.screenshot({ path: `../work/supervisor-${test.info().project.name}.png`, fullPage: true });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
 test('failed notifications require explicit recovery and show pending after retry', async ({ page }) => {
   await page.goto('/integrations');
   await page.getByRole('button', { name: 'Refresh deliveries' }).click();
@@ -104,6 +159,42 @@ test('failed notifications require explicit recovery and show pending after retr
   await deliveries.getByRole('button', { name: 'Retry delivery' }).click();
   await expect(deliveries.getByRole('cell', { name: 'pending', exact: true })).toBeVisible();
   await expect(deliveries.getByRole('button', { name: 'Retry delivery' })).toHaveCount(0);
+});
+
+test('blocked supervisor message resumes by identity without expanding its original grants', async ({
+  page,
+}) => {
+  let resumed: Record<string, unknown> | undefined;
+  let message = {
+    version: 1,
+    id: 'synthetic-blocked-message',
+    work_id: null,
+    text: 'Inspect readiness',
+    allowed_actions: [],
+    state: 'blocked',
+    reply: null,
+    error_code: 'MODEL_NOT_READY' as string | null,
+    created_at: '2026-11-11T10:00:00Z',
+  };
+  await page.route('**/api/v1/operator/messages**', async (route) => {
+    if (route.request().method() === 'POST') {
+      expect(new URL(route.request().url()).pathname).toBe(
+        '/api/v1/operator/messages/synthetic-blocked-message/resume',
+      );
+      resumed = route.request().postDataJSON() as Record<string, unknown>;
+      message = { ...message, state: 'queued', error_code: null };
+      await route.fulfill({ status: 202, json: message });
+      return;
+    }
+    await route.fulfill({ json: { items: [message], truncated: false } });
+  });
+  await page.goto('/work');
+  await page.getByRole('button', { name: 'Supervisor', exact: false }).click();
+  const conversation = page.getByRole('region', { name: 'Supervisor conversation' });
+  await conversation.getByRole('button', { name: 'Reconcile and resume message' }).click();
+  await expect(conversation.getByText('Message queued. No action has been confirmed.')).toBeVisible();
+  expect(resumed).toEqual({ version: 1, expected_error_code: 'MODEL_NOT_READY' });
+  expect(message.allowed_actions).toEqual([]);
 });
 
 test('incremental timeline reconciles tool completion and pause reflects persisted state', async ({
