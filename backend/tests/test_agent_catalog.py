@@ -8,6 +8,7 @@ from pydantic import ValidationError
 from sabre.agent_catalog import ROLE_ADAPTERS, SPECIALISTS, baseline, definition_errors
 from sabre.agent_contracts import AgentDefinition, AgentDefinitionSnapshot, ChainDefinition, StepResult
 from sabre.agents import AgentTeam
+from sabre.artifacts import ArtifactStore
 from sabre.audit import public_id
 from sabre.budget_contracts import legacy_policy
 from sabre.context_receipts import ContextReceipt
@@ -119,7 +120,7 @@ async def test_snapshot_digest_rejects_mutation_before_any_model_or_tool_call():
         execute.assert_not_awaited()
 
 
-async def test_actual_agent_uses_pinned_instructions_and_tool_intersection(monkeypatch):
+async def test_actual_agent_uses_pinned_instructions_and_tool_intersection(monkeypatch, tmp_path):
     work, binding, _ = pinned_work()
     definition = binding.definition.definition
     definition.instructions = "Pinned owner instructions"
@@ -141,10 +142,12 @@ async def test_actual_agent_uses_pinned_instructions_and_tool_intersection(monke
     cfg = Settings(database_url="postgresql://unused", auth_token="synthetic-test-token-000000", executor_token="synthetic-executor-token-000", model_provider="codex_cli")
     project = Project(id="p", name="Project", repository="https://github.com/test/project", profile="python", gate_commands=[["python", "-m", "unittest"]])
     repository = SimpleNamespace(record_execution_event=AsyncMock())
-    team = AgentTeam(cfg, repository, None, SecretGuard(), model_factory=lambda: SimpleNamespace())
+    guard = SecretGuard()
+    team = AgentTeam(cfg, repository, None, guard, model_factory=lambda: SimpleNamespace(), artifacts=ArtifactStore(tmp_path, guard))
     assert (await team.run("developer", work, project, "Implement")).accepted
     assert "Pinned owner instructions" in captured["system_prompt"]
     assert [tool.name for tool in captured["tools"]] == ["allowed"]
+    assert captured["middleware"][0].context_archive is None  # The pinned allowlist omitted recovery.
     recorded = [call.args[0] for call in repository.record_execution_event.await_args_list]
     assert all(event.agent_id == public_id(captured["middleware"][0].child_id) for event in recorded)
 

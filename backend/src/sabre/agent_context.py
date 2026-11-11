@@ -112,25 +112,30 @@ def memory_references(messages: list[AnyMessage]) -> list[dict]:
     return references
 
 
-def project_tool_context(messages: list[AnyMessage], policy: ContextPolicy) -> ContextProjection:
+def project_tool_context(messages: list[AnyMessage], policy: ContextPolicy, *, archive_recent: bool = False) -> ContextProjection:
     """Plan a model-only view without performing I/O or changing message objects.
 
     Legacy dedup retains a complete later copy. The recoverable archive mode can
     also replace unique older reads; callers must persist originals and provide
     the child-scoped read_context tool before applying that mode.
+    archive_recent is a last resort for a measured over-limit request, with the
+    same recovery requirements. Instructions, effects and recovery pages remain.
     """
     size = serialized_size(messages)
     result = ContextProjection(list(messages), size, size)
     if not policy.enabled or not policy.archive_unique and size < policy.trigger_bytes:
         return result
     turns = [index for index, message in enumerate(messages) if isinstance(message, AIMessage)]
-    if len(turns) <= policy.keep_model_turns:
+    archive_recent = archive_recent and policy.archive_unique
+    if len(turns) <= policy.keep_model_turns and not archive_recent:
         return result
-    protected_start = turns[-policy.keep_model_turns]
+    protected_start = len(messages) if archive_recent or policy.keep_model_turns == 0 else turns[-policy.keep_model_turns]
     newest: dict[tuple[str, str, str], tuple[str, int]] = {}
     for index, message, call in reversed(list(successful_reads(messages))):
         raw = message.content.encode()
         minimum = min(policy.min_result_bytes, policy.archive_min_bytes) if policy.archive_unique else policy.min_result_bytes
+        if archive_recent:
+            minimum = 0
         if len(raw) < minimum:
             continue
         content_digest = hashlib.sha256(raw).hexdigest()
