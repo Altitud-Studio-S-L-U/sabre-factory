@@ -12,7 +12,7 @@ from langchain.agents import create_agent
 from langchain.agents.middleware import AgentMiddleware
 from langchain.agents.middleware.types import InputAgentState
 from langchain.agents.structured_output import AutoStrategy, ProviderStrategy, ToolStrategy
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.errors import GraphRecursionError
 from pydantic import BaseModel, SecretStr, TypeAdapter
@@ -73,6 +73,31 @@ def input_reservation_tokens(sent_bytes: int, *, cli: bool = False) -> int:
     return math.ceil(sent_bytes / BYTES_PER_TOKEN_FLOOR) + (CLI_INPUT_MARGIN_TOKENS if cli else API_INPUT_MARGIN_TOKENS)
 
 
+# Tool failures the model can correct (bad arguments, stale digests, missing files, a
+# timed-out command). Authorization, policy, secrets, budgets and infrastructure faults
+# are never in this set: they still stop the stage.
+RECOVERABLE_TOOL_ERRORS = frozenset({
+    "INVALID_TOOL_ARGUMENTS", "INVALID_SOURCE_PATH", "INVALID_DIGEST", "INVALID_CONTEXT_RANGE",
+    "SOURCE_CONTEXT_STALE", "SOURCE_EDIT_COUNT", "SOURCE_NOT_FOUND", "SOURCE_RANGE_INVALID", "SOURCE_RANGE_LIMIT",
+    "EXECUTION_TIMEOUT", "TOOL_TIMEOUT", "STALE_CONTENT",
+})
+MAX_RECOVERED_TOOL_ERRORS = 8
+# Invalid model turns that one corrective retry may fix.
+RETRYABLE_OUTPUT_ERRORS = frozenset({"MODEL_OUTPUT_INVALID", "CODEX_INVALID_TOOL_REQUEST", "CLAUDE_INVALID_TOOL_REQUEST",
+                                     "CLAUDE_STRUCTURED_OUTPUT_INVALID"})
+
+
+def recoverable_tool_error(error: DomainError) -> bool:
+    # The workspace helper reports file-level faults (missing file, directory, encoding) as 422.
+    return error.code in RECOVERABLE_TOOL_ERRORS or (error.code == "WORKSPACE_IO_FAILED" and error.status_code == 422)
+
+
+def correction_message(error: DomainError) -> HumanMessage:
+    return HumanMessage(content=json.dumps({"platform_correction": (
+        f"Your previous turn was rejected ({error.code}: {error.message}). Reply again using only the listed tools "
+        "with valid arguments, and return the final result through the required structured output.")}))
+
+
 def cache_read_tokens(usage: dict) -> int:
     """Provider-reported cached input tokens (a subset of input tokens), or 0 when unreported."""
     details = usage.get("input_token_details") or {}
@@ -89,6 +114,19 @@ class GuardedCalls(AgentMiddleware):
         self.artifacts = artifacts
         self.context_archive, self.child_id = context_archive, child_id
         self.memory_validator = memory_validator
+        self.recovered_tool_errors = 0
+
+    async def awrap_tool_call(self, request, handler):
+        try:
+            return await handler(request)
+        except DomainError as error:
+            if not recoverable_tool_error(error) or self.recovered_tool_errors >= MAX_RECOVERED_TOOL_ERRORS:
+                raise
+            self.recovered_tool_errors += 1
+            # The error was sanitized at the tool boundary; only its code and fixed message return.
+            return ToolMessage(content=json.dumps({"error": {"code": error.code, "message": error.message, "recoverable": True},
+                "guidance": "The operation had no effect. Correct the request (arguments, path, current digest) and continue."}),
+                tool_call_id=request.tool_call["id"], name=request.tool_call.get("name"), status="error")
 
     @staticmethod
     def response_format_material(response_format):
@@ -408,9 +446,21 @@ class AgentTeam:
                     result = saved.values
                 else:
                     timeout_s = 600
+                    durability = "sync" if self.checkpointer else None
                     try:
                         async with asyncio.timeout(timeout_s):
-                            result = await agent.ainvoke(None if saved and saved.values else input_value, graph_config, durability="sync" if self.checkpointer else None)
+                            result = None
+                            try:
+                                result = await agent.ainvoke(None if saved and saved.values else input_value, graph_config, durability=durability)
+                                if not result.get("structured_response"):
+                                    raise DomainError("MODEL_OUTPUT_INVALID", "The agent did not return a structured result")
+                            except DomainError as error:
+                                # One corrective retry on the same thread. A checkpoint keeps prior work;
+                                # without one only a completed turn's own history can be replayed safely.
+                                if error.code not in RETRYABLE_OUTPUT_ERRORS or (not self.checkpointer and result is None):
+                                    raise
+                                retry = [correction_message(error)] if self.checkpointer else [*result["messages"], correction_message(error)]
+                                result = await agent.ainvoke({"messages": retry}, graph_config, durability=durability)
                     except GraphRecursionError:
                         raise DomainError("AGENT_STEP_LIMIT", "The agent reached the 50-step stage limit; review the work before resuming") from None
                     except TimeoutError:
