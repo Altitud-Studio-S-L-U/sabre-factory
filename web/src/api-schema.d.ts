@@ -1832,7 +1832,37 @@ export interface components {
             /** Last Checkpoint At */
             last_checkpoint_at: string | null;
             /** Duration Ms */
-            duration_ms: null;
+            duration_ms: number | null;
+        };
+        /**
+         * AuditCall
+         * @description One model invocation in reservation order. Values the provider did not report stay None.
+         */
+        AuditCall: {
+            /** Sequence */
+            sequence: number;
+            /** Role */
+            role: ("supervisor" | "analyst" | "architect" | "developer" | "qa" | "reviewer" | "security" | "designer" | "devops") | null;
+            /** Model Provider */
+            model_provider: ("openai" | "local" | "anthropic" | "google" | "codex_cli" | "claude_cli") | null;
+            /** Model Name */
+            model_name: string | null;
+            /** Reserved Tokens */
+            reserved_tokens: number;
+            /** Measured Tokens */
+            measured_tokens: number | null;
+            /** Input Tokens */
+            input_tokens: number | null;
+            /** Output Tokens */
+            output_tokens: number | null;
+            /** Cache Read Tokens */
+            cache_read_tokens: number | null;
+            /** Sent Bytes */
+            sent_bytes: number | null;
+            /** Original Bytes */
+            original_bytes: number | null;
+            /** Call Ms */
+            call_ms: number | null;
         };
         /** AuditModelUsage */
         AuditModelUsage: {
@@ -1854,6 +1884,17 @@ export interface components {
             unknown_reserved_tokens: number;
             /** Cost Usd */
             cost_usd: number;
+            /** Input Tokens */
+            input_tokens: number | null;
+            /** Output Tokens */
+            output_tokens: number | null;
+            /** Cache Read Tokens */
+            cache_read_tokens: number | null;
+            /**
+             * Unsplit Calls
+             * @default 0
+             */
+            unsplit_calls: number;
         };
         /** AuditTool */
         AuditTool: {
@@ -1881,6 +1922,26 @@ export interface components {
             output_digest: string | null;
             /** Duration Ms */
             duration_ms: null;
+        };
+        /**
+         * AuditToolTiming
+         * @description Measured tool boundaries per agent and tool name; output_bytes is the result size sent to the model.
+         */
+        AuditToolTiming: {
+            /** Agent Id */
+            agent_id: string;
+            /** Name */
+            name: string;
+            /** Count */
+            count: number;
+            /** Failed */
+            failed: number;
+            /** Total Ms */
+            total_ms: number;
+            /** Max Ms */
+            max_ms: number;
+            /** Output Bytes */
+            output_bytes: number | null;
         };
         /** AuditUsage */
         AuditUsage: {
@@ -1917,6 +1978,15 @@ export interface components {
             agents: components["schemas"]["AuditAgent"][];
             /** Tools */
             tools: components["schemas"]["AuditTool"][];
+            /** Calls */
+            calls: components["schemas"]["AuditCall"][];
+            /**
+             * Calls Truncated
+             * @default false
+             */
+            calls_truncated: boolean;
+            /** Tool Timings */
+            tool_timings: components["schemas"]["AuditToolTiming"][];
             /** Checkpoint Count */
             checkpoint_count: number;
             /** Checkpoint Threads */
@@ -2787,6 +2857,8 @@ export interface components {
             timestamp: string;
             /** Duration Ms */
             duration_ms: number | null;
+            /** Output Bytes */
+            output_bytes?: number | null;
             /** Error Code */
             error_code: string | null;
             /** Provider */

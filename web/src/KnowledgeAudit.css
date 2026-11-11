@@ -197,3 +197,24 @@
     gap: 4px;
   }
 }
+
+.audit-calls {
+  display: block;
+  overflow-x: auto;
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.audit-calls th,
+.audit-calls td {
+  padding: 0.35rem 0.6rem;
+  border-bottom: 1px solid var(--line, #353c48);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.audit-calls th:nth-child(2),
+.audit-calls td:nth-child(2) {
+  text-align: left;
+}

@@ -25,6 +25,54 @@ const tools: Record<string, string> = {
   external_tool: 'External tool',
 };
 const count = (value: number) => value.toLocaleString('en-US');
+const known = (value: number | null | undefined) =>
+  value === null || value === undefined ? 'unknown' : count(value);
+
+export function formatMs(value: number | null | undefined) {
+  if (value === null || value === undefined) return 'unknown';
+  if (value < 1000) return `${value} ms`;
+  if (value < 60_000) return `${(value / 1000).toFixed(1)} s`;
+  return `${Math.floor(value / 60_000)} min ${Math.round((value % 60_000) / 1000)} s`;
+}
+
+export function formatBytes(value: number | null | undefined) {
+  if (value === null || value === undefined) return 'unknown';
+  return value < 1024 ? `${value} B` : `${(value / 1024).toFixed(1)} KB`;
+}
+
+type ToolTiming = AuditView['tool_timings'][number];
+
+/** Tool boundaries summed across agents, slowest total first. */
+export function toolTotals(timings: ToolTiming[]) {
+  const totals = new Map<
+    string,
+    {
+      name: string;
+      count: number;
+      failed: number;
+      total_ms: number;
+      max_ms: number;
+      output_bytes: number | null;
+    }
+  >();
+  for (const timing of timings) {
+    const entry = totals.get(timing.name) ?? {
+      name: timing.name,
+      count: 0,
+      failed: 0,
+      total_ms: 0,
+      max_ms: 0,
+      output_bytes: null,
+    };
+    entry.count += timing.count;
+    entry.failed += timing.failed;
+    entry.total_ms += timing.total_ms;
+    entry.max_ms = Math.max(entry.max_ms, timing.max_ms);
+    if (timing.output_bytes !== null) entry.output_bytes = (entry.output_bytes ?? 0) + timing.output_bytes;
+    totals.set(timing.name, entry);
+  }
+  return [...totals.values()].sort((a, b) => b.total_ms - a.total_ms || a.name.localeCompare(b.name));
+}
 
 type ContextUsageSummary = NonNullable<AuditView['context']>;
 
@@ -136,9 +184,66 @@ export default function WorkAudit({
             </p>
           )}
           <p className="audit-note">
-            API cost excludes subscription fees. Individual duration is not recorded in this history.
+            API cost excludes subscription fees. Durations come from measured execution boundaries; runs
+            recorded before this measurement show them as unknown.
           </p>
           <ContextUsage data={data.context} />
+          {!!data.tool_timings?.length && (
+            <section aria-label="Tool time">
+              <h3>Tool time</h3>
+              <ul className="audit-agents">
+                {toolTotals(data.tool_timings).map((tool) => (
+                  <li key={tool.name}>
+                    <strong>{tools[tool.name] ?? 'Tool'}</strong>
+                    <span>
+                      {count(tool.count)} calls · {formatMs(tool.total_ms)} total · slowest{' '}
+                      {formatMs(tool.max_ms)}
+                      {tool.failed > 0 ? ` · ${count(tool.failed)} failed` : ''}
+                    </span>
+                    <small>Results sent to the model: {formatBytes(tool.output_bytes)}</small>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+          {!!data.calls?.length && (
+            <details className="audit-tools">
+              <summary>View {count(data.calls.length)} model calls</summary>
+              <p className="audit-note">
+                Reserved tokens are held before each call; measured tokens are what the provider reported.
+                Cached input is part of input.
+              </p>
+              <table className="audit-calls">
+                <thead>
+                  <tr>
+                    <th scope="col">#</th>
+                    <th scope="col">Role</th>
+                    <th scope="col">Reserved</th>
+                    <th scope="col">Input</th>
+                    <th scope="col">Cached</th>
+                    <th scope="col">Output</th>
+                    <th scope="col">Sent</th>
+                    <th scope="col">Duration</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.calls.map((call) => (
+                    <tr key={call.sequence}>
+                      <td>{call.sequence}</td>
+                      <td>{call.role ? (roles[call.role] ?? call.role) : 'Unrecorded'}</td>
+                      <td>{count(call.reserved_tokens)}</td>
+                      <td>{known(call.input_tokens)}</td>
+                      <td>{known(call.cache_read_tokens)}</td>
+                      <td>{known(call.output_tokens)}</td>
+                      <td>{formatBytes(call.sent_bytes)}</td>
+                      <td>{formatMs(call.call_ms)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {data.calls_truncated && <p className="audit-caution">Only the first calls are listed.</p>}
+            </details>
+          )}
           {!!data.models?.length && (
             <section aria-label="Usage by model">
               <h3>Usage by model</h3>
@@ -176,6 +281,7 @@ export default function WorkAudit({
                     <strong>{roles[agent.role] ?? agent.role}</strong>
                     <span className="audit-revision">Review {agent.plan_revision}</span>
                   </div>
+                  {agent.duration_ms !== null && <small>Active {formatMs(agent.duration_ms)}</small>}
                   {agent.model_responses ? (
                     <>
                       <span>
