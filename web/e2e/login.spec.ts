@@ -11,10 +11,15 @@ test('signed-out text retains contrast on both login panels', async ({ page }) =
       '.login-intro h1, .login-intro .eyebrow, .login-intro p, .login-flow, .login-form h2, .login-form-inner > p',
     )
     .evaluateAll((elements) => {
+      const probe = document.createElement('canvas').getContext('2d')!;
+      const srgb = (color: string) => {
+        probe.clearRect(0, 0, 1, 1);
+        probe.fillStyle = color;
+        probe.fillRect(0, 0, 1, 1);
+        return [...probe.getImageData(0, 0, 1, 1).data.slice(0, 3)];
+      };
       const luminance = (color: string) => {
-        const rgb = color
-          .match(/[\d.]+/g)!
-          .slice(0, 3)
+        const rgb = srgb(color)
           .map(Number)
           .map((value) => {
             const channel = value / 255;

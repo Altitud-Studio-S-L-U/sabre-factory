@@ -23,10 +23,15 @@ test('cancelled runs remain inspectable in Closed with a readable final-state ba
   await expect(badge).toHaveText('Cancelled');
   await expect(badge.locator('svg.lucide')).toBeVisible();
   const contrast = await badge.evaluate((el) => {
+    const probe = document.createElement('canvas').getContext('2d')!;
+    const srgb = (color: string) => {
+      probe.clearRect(0, 0, 1, 1);
+      probe.fillStyle = color;
+      probe.fillRect(0, 0, 1, 1);
+      return [...probe.getImageData(0, 0, 1, 1).data.slice(0, 3)];
+    };
     const l = (color: string) => {
-      const c = color
-        .match(/[\d.]+/g)!
-        .slice(0, 3)
+      const c = srgb(color)
         .map(Number)
         .map((n) => {
           n /= 255;
