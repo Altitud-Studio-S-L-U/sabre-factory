@@ -8,6 +8,8 @@ https://github.com/disler/super-simple-software-factory
 Third-party licenses and CLI distribution notices are in infra/licenses/.
 UI foundation components in web/src/components/ui are adapted from shadcn/ui
 New York registry (MIT), copyright (c) 2023 shadcn. The full license is
-preserved in infra/licenses/shadcn-ui.txt. Utility classes use the local sf
-prefix and SABRE theme tokens; Tailwind Preflight is not included.
+preserved in infra/licenses/shadcn-ui.txt. Styling uses Tailwind CSS with
+Preflight and SABRE theme tokens.
+The console bundles the Geist and Geist Mono typefaces, copyright 2024 The Geist
+Project Authors, under the SIL Open Font License 1.1 (infra/licenses/geist-font.OFL.txt).
 Provider binaries and services retain their own licenses and terms.

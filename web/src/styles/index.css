@@ -1,0 +1,65 @@
+/*
+ * Single stylesheet entry, imported first by main.tsx.
+ *
+ * Layer order: Tailwind's theme and Preflight (base), then the legacy screen sheets,
+ * then components and utilities. Utilities always win; legacy rules still override
+ * Preflight on screens that have not migrated. Each legacy sheet is wrapped in
+ * @layer legacy and is deleted when its screen moves to Tailwind and shadcn.
+ */
+@layer theme, base, legacy, components, utilities;
+
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import './tokens.css';
+
+@custom-variant dark (&:where(:root:not(.light), :root:not(.light) *));
+
+@layer base {
+  html {
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    /* Keep focused or scrolled-to elements clear of the sticky header and the mobile tab bar. */
+    scroll-padding-top: 4.5rem;
+  }
+
+  @media (width < 64rem) {
+    html {
+      /* Tab bar plus the floating Supervisor launcher above it. */
+      scroll-padding-bottom: calc(8.5rem + env(safe-area-inset-bottom));
+    }
+  }
+
+  body {
+    min-width: 320px;
+    font-size: var(--text-base);
+    line-height: var(--text-base--line-height);
+  }
+
+  code,
+  kbd,
+  pre,
+  samp {
+    font-family: var(--font-mono);
+  }
+
+  /* One focus ring for every interactive element. */
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}

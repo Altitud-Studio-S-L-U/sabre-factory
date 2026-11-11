@@ -6,24 +6,24 @@ import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from '../../lib/utils';
 
 const buttonVariants = cva(
-  'sf:inline-flex sf:items-center sf:justify-center sf:gap-2 sf:whitespace-nowrap sf:rounded-md sf:text-sm sf:font-medium sf:transition-colors sf:focus-visible:outline-none sf:focus-visible:ring-1 sf:focus-visible:ring-ring sf:disabled:pointer-events-none sf:disabled:opacity-50 sf:[&_svg]:pointer-events-none sf:[&_svg]:size-4 sf:[&_svg]:shrink-0',
+  'inline-flex cursor-pointer items-center justify-center gap-2 whitespace-nowrap rounded-md border text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0',
   {
     variants: {
       variant: {
-        default: 'sf:bg-primary sf:text-primary-foreground sf:shadow sf:hover:bg-primary/90',
-        destructive:
-          'sf:bg-destructive sf:text-destructive-foreground sf:shadow-sm sf:hover:bg-destructive/90',
-        outline:
-          'sf:border sf:border-input sf:bg-background sf:shadow-sm sf:hover:bg-accent sf:hover:text-accent-foreground',
-        secondary: 'sf:bg-secondary sf:text-secondary-foreground sf:shadow-sm sf:hover:bg-secondary/80',
-        ghost: 'sf:hover:bg-accent sf:hover:text-accent-foreground',
-        link: 'sf:text-primary sf:underline-offset-4 sf:hover:underline',
+        default:
+          'border-primary bg-primary font-semibold text-primary-foreground hover:enabled:bg-primary/90',
+        destructive: 'border-danger-border bg-transparent text-danger hover:enabled:bg-danger-bg',
+        outline: 'border-border bg-transparent text-foreground hover:enabled:bg-hover',
+        secondary:
+          'border-border bg-secondary text-foreground hover:enabled:border-input hover:enabled:bg-hover',
+        ghost: 'border-transparent bg-transparent text-foreground hover:enabled:bg-hover',
+        link: 'border-transparent bg-transparent text-link underline-offset-4 hover:enabled:underline',
       },
       size: {
-        default: 'sf:h-9 sf:px-4 sf:py-2',
-        sm: 'sf:h-8 sf:rounded-md sf:px-3 sf:text-xs',
-        lg: 'sf:h-10 sf:rounded-md sf:px-8',
-        icon: 'sf:h-9 sf:w-9',
+        default: 'min-h-10 px-4 py-2',
+        sm: 'min-h-8 px-3 py-1 text-xs',
+        lg: 'min-h-11 px-6',
+        icon: 'size-10 p-0',
       },
     },
     defaultVariants: {

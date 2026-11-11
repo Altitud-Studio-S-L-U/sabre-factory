@@ -1,6 +1,5 @@
 import type { ComponentProps } from 'react';
 import { Input as UiInput } from './ui/input';
-import './ui/foundation.css';
 import './Controls.css';
 
 export default function Input({ className = '', type, ...props }: ComponentProps<'input'>) {

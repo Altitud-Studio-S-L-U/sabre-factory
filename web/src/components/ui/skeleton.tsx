@@ -3,11 +3,7 @@ import { cn } from '../../lib/utils';
 
 function Skeleton({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
   return (
-    <div
-      data-skeleton=""
-      className={cn('sf:animate-pulse sf:rounded-md sf:bg-primary/10', className)}
-      {...props}
-    />
+    <div data-skeleton="" className={cn('animate-pulse rounded-md bg-primary/10', className)} {...props} />
   );
 }
 
