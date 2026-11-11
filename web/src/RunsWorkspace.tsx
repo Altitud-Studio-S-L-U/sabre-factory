@@ -3,6 +3,7 @@ import type { Project, WorkOrder } from './api';
 import Select from './components/Select';
 import { ACTIVE_STATUSES, ATTENTION_STATUSES, isClosed } from './runState';
 import './RunsWorkspace.css';
+import './features/runs/runLayout.css';
 
 export default function RunsWorkspace({
   orders,

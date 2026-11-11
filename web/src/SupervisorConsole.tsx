@@ -2,13 +2,24 @@ import Button from './components/Button';
 import Input from './components/Input';
 import Textarea from './components/Textarea';
 import MessageContent from './components/MessageContent';
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { Link, useInRouterContext } from 'react-router';
-import { ArrowUp, ArrowUpRight, HardHat, LoaderCircle, Wrench } from 'lucide-react';
+import { ArrowUp, ArrowUpRight, LoaderCircle, Wrench } from 'lucide-react';
+import SupervisorAvatar from './features/supervisor/SupervisorAvatar';
+import { DOCK_MAX, DOCK_MIN, useSupervisorDock } from './features/supervisor/dock';
+import './features/supervisor/dock.css';
+import {
+  DONE_WINDOW_MS,
+  presenceFor,
+  presenceLabels,
+  useStablePresence,
+} from './features/supervisor/presence';
 import type { Api, OperatorMessageView, OperatorAction, WorkOrder } from './api';
 import Select from './components/Select';
 import { pendingQuestions } from './runState';
 import './SupervisorConsole.css';
+
+const noMessages: OperatorMessageView[] = [];
 
 const actions: { id: OperatorAction; label: string; run: boolean }[] = [
   { id: 'submit_work', label: 'Start runs within explicitly supplied budgets', run: false },
@@ -272,12 +283,28 @@ export default function SupervisorConsole({
   const followHistory = useRef(true);
   const expansionControl = useRef<HTMLButtonElement>(null);
   const scopeChosen = useRef(false);
+  const dock = useSupervisorDock(open && !expanded);
   useEffect(() => {
     if (open) composer.current?.focus();
   }, [open]);
-  const conversation = history[scope] ?? [];
+  const conversation = useMemo(() => history[scope] ?? noMessages, [history, scope]);
   const message = drafts[scope] ?? '';
-  const responding = conversation.some((item) => item.state === 'queued' || item.state === 'running');
+  const [justReplied, setJustReplied] = useState(false);
+  const pendingIds = useRef(new Set<string>());
+  const repliedTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(repliedTimer.current), []);
+  /** Marks a reply that settled while the owner watched; shown briefly as "Replied". */
+  const noteSettled = (items: OperatorMessageView[]) => {
+    let settled = false;
+    for (const item of items) {
+      if (item.state === 'queued' || item.state === 'running') pendingIds.current.add(item.id);
+      else if (pendingIds.current.delete(item.id) && item.state === 'completed') settled = true;
+    }
+    if (!settled) return;
+    setJustReplied(true);
+    clearTimeout(repliedTimer.current);
+    repliedTimer.current = setTimeout(() => setJustReplied(false), DONE_WINDOW_MS);
+  };
   const closeForNavigation = () => {
     setExpanded(false);
     setOpen(false);
@@ -318,6 +345,7 @@ export default function SupervisorConsole({
       try {
         const page = await api.supervisorMessages(scope || null);
         if (stopped) return;
+        noteSettled(page.items);
         setHistory((prior) => ({
           ...prior,
           [scope]: [
@@ -384,6 +412,15 @@ export default function SupervisorConsole({
   const attention = orders
     .map((order) => ({ order, questions: pendingQuestions(order) }))
     .filter(({ order, questions }) => questions.length > 0 || ['blocked', 'failed'].includes(order.status));
+  const presence = useStablePresence(
+    presenceFor({
+      disconnected,
+      messages: conversation,
+      attention: attention.length,
+      drafting: open && message.trim().length > 0,
+      settledAgoMs: justReplied ? 0 : null,
+    }),
+  );
   const chooseScope = (id: string) => {
     setScope(id);
     followHistory.current = true;
@@ -431,7 +468,13 @@ export default function SupervisorConsole({
           setExpanded(false);
         }}
       >
-        Supervisor <span aria-hidden="true">↗</span>
+        <SupervisorAvatar presence={presence} size={26} />
+        Supervisor
+        {attention.length > 0 && (
+          <span className="supervisor-launcher-count" aria-hidden="true">
+            {attention.length}
+          </span>
+        )}
       </Button>
       {open && (
         <section
@@ -473,16 +516,33 @@ export default function SupervisorConsole({
             }
           }}
         >
+          {!expanded && (
+            <div
+              className="supervisor-dock-handle"
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize supervisor panel"
+              aria-valuemin={DOCK_MIN}
+              aria-valuemax={DOCK_MAX}
+              aria-valuenow={dock.width}
+              tabIndex={0}
+              onPointerDown={dock.startResize}
+              onKeyDown={dock.resizeWithKeys}
+            />
+          )}
           <div className="section-heading">
             <div className="supervisor-profile">
-              <span className="supervisor-avatar" aria-hidden="true">
-                <HardHat size={22} />
-              </span>
+              <SupervisorAvatar presence={presence} size={44} labelled />
               <div>
                 <h2>
                   Supervisor{' '}
-                  <span className="supervisor-presence" data-offline={disconnected}>
-                    {disconnected ? 'Offline' : responding ? 'Working' : 'Connected'}
+                  <span
+                    className="supervisor-presence"
+                    data-offline={disconnected}
+                    data-presence={presence}
+                    role="status"
+                  >
+                    {presenceLabels[presence]}
                   </span>
                 </h2>
                 <span className="eyebrow">Your factory coordination agent</span>
@@ -591,9 +651,7 @@ export default function SupervisorConsole({
           >
             {!conversation.length && (
               <div className="supervisor-welcome">
-                <span className="supervisor-avatar" aria-hidden="true">
-                  <HardHat size={28} />
-                </span>
+                <SupervisorAvatar presence={presence} size={56} />
                 <h3>What should we work on?</h3>
                 <p>Ask about recorded progress, flag a concern or plan the next run. You stay in control.</p>
                 <div className="supervisor-suggestions">
@@ -631,9 +689,18 @@ export default function SupervisorConsole({
                 </div>
                 <div className="supervisor-reply">
                   <div className="supervisor-reply-identity">
-                    <span className="supervisor-avatar" aria-hidden="true">
-                      <HardHat size={17} />
-                    </span>
+                    <SupervisorAvatar
+                      presence={
+                        item.state === 'running'
+                          ? 'working'
+                          : item.state === 'queued'
+                            ? 'queued'
+                            : item.state === 'blocked'
+                              ? 'blocked'
+                              : 'idle'
+                      }
+                      size={24}
+                    />
                     <strong>
                       Supervisor{' '}
                       <span className={`supervisor-message-state state-${item.state}`}>{item.state}</span>

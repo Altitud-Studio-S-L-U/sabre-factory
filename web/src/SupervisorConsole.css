@@ -477,4 +477,18 @@
       z-index: 45;
     }
   }
+  .supervisor-launcher.button {
+    gap: 10px;
+    padding-left: 10px;
+  }
+  .supervisor-launcher-count {
+    min-width: 20px;
+    border-radius: 999px;
+    background: var(--primary);
+    color: var(--primary-foreground);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 20px;
+    text-align: center;
+  }
 }

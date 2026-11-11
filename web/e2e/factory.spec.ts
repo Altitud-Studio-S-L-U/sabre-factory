@@ -235,7 +235,7 @@ test('supervisor offers observed connection actions and opens setup from the sam
   await page.getByRole('button', { name: 'Expand chat', exact: true }).click();
   const chat = page.getByRole('dialog', { name: 'Supervisor conversation' });
   await expect(chat.getByRole('link', { name: 'Connect GitHub repositories' })).toBeVisible();
-  await expect(chat.locator('.supervisor-avatar').first()).toBeVisible();
+  await expect(chat.getByRole('img', { name: /^Supervisor · / })).toBeVisible();
   await captureSource(page, 'supervisor-actions');
   await chat.getByRole('link', { name: 'Connect GitHub repositories' }).click();
   await expect(chat).not.toBeVisible();

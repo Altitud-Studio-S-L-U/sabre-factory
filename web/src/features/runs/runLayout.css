@@ -1,0 +1,47 @@
+/*
+ * Run screens respond to the space they actually get (the docked Supervisor narrows it),
+ * not to the window width. Legacy media queries remain for the window-based cases.
+ */
+@layer components {
+  .main-content {
+    container: console / inline-size;
+  }
+  .run-workspace-main {
+    container: run-detail / inline-size;
+  }
+
+  .console-readout {
+    grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+  }
+
+  @container console (width < 60rem) {
+    .runs-workspace {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .runs-rail {
+      position: static;
+      max-height: none;
+    }
+    .runs-rail-list {
+      display: grid;
+      grid-auto-flow: column;
+      grid-auto-columns: 15rem;
+      overflow: auto;
+    }
+    .runs-rail-filter,
+    .runs-rail > input,
+    .runs-rail-footer {
+      display: none;
+    }
+  }
+
+  @container run-detail (width < 56rem) {
+    .console-workspace {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .console-inspector {
+      border-left: 0;
+      border-top: 1px solid var(--border);
+    }
+  }
+}

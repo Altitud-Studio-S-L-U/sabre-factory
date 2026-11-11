@@ -1,0 +1,113 @@
+@layer components {
+  .supervisor-avatar-root {
+    display: inline-flex;
+    flex: none;
+    --avatar-lamp: var(--success);
+    --avatar-eye: var(--info);
+  }
+  .supervisor-avatar-root svg {
+    overflow: visible;
+  }
+  .supervisor-avatar-root .avatar-head {
+    fill: var(--secondary);
+    stroke: var(--input);
+    stroke-width: 1.5;
+  }
+  .supervisor-avatar-root .avatar-visor {
+    fill: var(--code);
+    stroke: var(--border);
+  }
+  .supervisor-avatar-root .avatar-eyes {
+    fill: var(--avatar-eye);
+    stroke: var(--avatar-eye);
+  }
+  .supervisor-avatar-root .avatar-mouth {
+    fill: var(--input);
+  }
+  .supervisor-avatar-root .avatar-hat,
+  .supervisor-avatar-root .avatar-brim {
+    fill: var(--primary);
+  }
+  .supervisor-avatar-root .avatar-brim {
+    opacity: 0.85;
+  }
+  .supervisor-avatar-root .avatar-bars {
+    fill: var(--primary-foreground);
+    opacity: 0.75;
+  }
+  .supervisor-avatar-root .avatar-lamp {
+    fill: var(--avatar-lamp);
+    stroke: var(--background);
+    stroke-width: 1.5;
+  }
+
+  .supervisor-avatar-root[data-presence='offline'] {
+    --avatar-lamp: var(--neutral-border);
+    --avatar-eye: var(--neutral-border);
+    filter: grayscale(1);
+    opacity: 0.75;
+  }
+  .supervisor-avatar-root[data-presence='queued'],
+  .supervisor-avatar-root[data-presence='working'] {
+    --avatar-lamp: var(--info);
+  }
+  .supervisor-avatar-root[data-presence='needs-you'] {
+    --avatar-lamp: var(--warning);
+    --avatar-eye: var(--warning);
+  }
+  .supervisor-avatar-root[data-presence='blocked'] {
+    --avatar-lamp: var(--danger);
+    --avatar-eye: var(--danger);
+  }
+  .supervisor-avatar-root[data-presence='done'] {
+    --avatar-eye: var(--success);
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .supervisor-avatar-root[data-presence='working'] .avatar-lamp {
+      animation: avatar-pulse 1.2s ease-in-out infinite;
+    }
+    .supervisor-avatar-root[data-presence='queued'] .avatar-lamp {
+      animation: avatar-pulse 2.4s ease-in-out infinite;
+    }
+    .supervisor-avatar-root[data-presence='working'] .avatar-eyes-scan {
+      animation: avatar-scan 1.6s ease-in-out infinite alternate;
+    }
+    .supervisor-avatar-root[data-presence='idle'] .avatar-eyes-blink {
+      transform-origin: 32px 33px;
+      animation: avatar-blink 5s ease-in-out infinite;
+    }
+    .supervisor-avatar-root[data-presence='needs-you'] svg {
+      animation: avatar-bob 1.8s ease-in-out infinite;
+    }
+  }
+
+  @keyframes avatar-pulse {
+    50% {
+      opacity: 0.35;
+    }
+  }
+  @keyframes avatar-scan {
+    from {
+      transform: translateX(-2.5px);
+    }
+    to {
+      transform: translateX(2.5px);
+    }
+  }
+  @keyframes avatar-blink {
+    0%,
+    92%,
+    100% {
+      transform: scaleY(1);
+    }
+    95% {
+      transform: scaleY(0.1);
+    }
+  }
+  @keyframes avatar-bob {
+    50% {
+      transform: translateY(-2px);
+    }
+  }
+}
