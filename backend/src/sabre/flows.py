@@ -36,33 +36,43 @@ def parse_flow_yaml(document: str) -> FlowConfiguration:
         raise DomainError("INVALID_FLOW_CONFIG", "Configuration must match the versioned flow schema; duplicate keys and aliases are rejected", 422) from None
 
 
-async def resolve_flow(configuration, mode, models, credentials) -> ResolvedFlow:
-    revision, data = await models.snapshot()
+async def resolve_flow(configuration, mode, models, credentials, definitions=None, model_snapshot=None) -> ResolvedFlow:
+    from sabre.agent_catalog import ROLE_ADAPTERS
+    revision, data = model_snapshot if model_snapshot is not None else await models.snapshot()
     cfg = models.configured(revision, data)
     approved = {data.default.destination, *(item.destination for item in data.roles.values() if item)}
     metadata = {item.id: item for item in await credentials.vault.list_metadata()}
     phases: dict[Phase, ResolvedPhase] = {}
     for phase, role in PHASE_ROLES.items():
+        if definitions is None and phase in {"ux", "delivery_preparation"}:
+            continue  # Historical callers retain their original phase set.
+        if mode == "audit" and phase in {"ux", "delivery_preparation"}:
+            continue
         if mode == "audit" and phase in {"design", "planning", "implementation"}:
             continue
         if mode != "create" and phase == "design":
             continue
         options = configuration.phases.get(phase)
-        choice = configuration.phase_models.get(phase) or (options.model if options else None) or data.roles[role] or data.default
+        agent_id, _ = ROLE_ADAPTERS[role]
+        definition = definitions.get(agent_id) if definitions else None
+        authorization_role = {"designer": "architect", "devops": "qa"}.get(role, role)
+        choice = configuration.phase_models.get(phase) or (options.model if options else None) or (definition.definition.model if definition else None) or data.roles[authorization_role] or data.default
         if choice.destination not in approved:
             raise DomainError("MODEL_DESTINATION_NOT_APPROVED", "Approve this model destination in Integrations before launching a flow", 403)
-        selected = cfg.for_role(role).model_copy(update=selection_updates(choice))
-        role_target, default_target = model_secret_id(selected, role), model_secret_id(selected)
+        selected = cfg.for_role(authorization_role).model_copy(update=selection_updates(choice))
+        role_target, default_target = model_secret_id(selected, authorization_role), model_secret_id(selected)
         target = role_target if role_target in metadata else default_target
         if target and choice.provider != "local" and (target not in metadata or not metadata[target].configured):
             raise DomainError("MODEL_CREDENTIAL_MISSING", f"Configure credentials for the {phase} phase before launch", 409)
         if not choice.name:
             raise DomainError("MODEL_NAME_REQUIRED", f"Select an explicit model for the {phase} phase", 422)
-        names = options.skills if options and options.skills else DEFAULT_SKILLS[phase]
-        if any(role not in SKILLS[name].roles for name in names):
+        names = options.skills if options and options.skills else DEFAULT_SKILLS.get(phase, [])
+        if definition and not (options and options.skills):
+            names = [skill.name for skill in definition.definition.skills if authorization_role in SKILLS[skill.name].roles]
+        if any(authorization_role not in SKILLS[name].roles for name in names):
             raise DomainError("SKILL_ROLE_MISMATCH", f"A selected skill does not apply to {phase}", 422)
         phases[phase] = ResolvedPhase(role=role, model=choice.model_copy(deep=True), credential_target=target,
-                                     skills={name: SKILLS[name].digest for name in names})
+                                     skills={name: SKILLS[name].digest for name in names}, definition=definition.model_copy(deep=True) if definition else None)
     material = {"configuration": configuration.model_dump(mode="json"), "mode": mode, "revision": revision,
                 "phases": {key: value.model_dump(mode="json") for key, value in phases.items()}}
     return ResolvedFlow(model_revision=revision, phases=phases, configuration_digest=digest(material))

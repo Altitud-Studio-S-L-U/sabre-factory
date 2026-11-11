@@ -97,9 +97,12 @@ class ModelConfigurationService:
         self.baseline = ModelConfigurationData(default=selection(self.seed), roles={
             role: selection(metadata.for_role(role)) if role in metadata.role_models else None for role in ROLES})
 
-    async def snapshot(self) -> tuple[int, ModelConfigurationData]:
-        async with self.repository.connection() as conn:
-            row = await (await conn.execute("SELECT revision,data FROM model_configuration WHERE singleton=true")).fetchone()
+    async def snapshot(self, connection=None) -> tuple[int, ModelConfigurationData]:
+        if connection is not None:
+            row = await (await connection.execute("SELECT revision,data FROM model_configuration WHERE singleton=true")).fetchone()
+        else:
+            async with self.repository.connection() as conn:
+                row = await (await conn.execute("SELECT revision,data FROM model_configuration WHERE singleton=true")).fetchone()
         data = ModelConfigurationData.model_validate(row["data"]) if row else self.baseline.model_copy(deep=True)
         self.guard.check(data)
         return (row["revision"] if row else 0), data
@@ -140,18 +143,23 @@ class ModelConfigurationService:
     async def get(self) -> ModelConfiguration:
         return self.view(*await self.snapshot())
 
-    async def change(self, change: ModelConfigurationChange) -> ModelConfiguration:
+    async def change(self, change: ModelConfigurationChange, *, connection=None) -> ModelConfiguration:
         self.guard.check(change)
         data = ModelConfigurationData(default=change.default, roles=change.roles)
+        if connection is not None:
+            return await self._change(connection, change, data)
         async with self.repository.connection() as conn:
-            await conn.execute("SELECT pg_advisory_xact_lock(813788)")
-            row = await (await conn.execute("SELECT revision FROM model_configuration WHERE singleton=true FOR UPDATE")).fetchone()
-            revision = row["revision"] if row else 0
-            if revision != change.expected_revision:
-                raise DomainError("MODEL_CONFIGURATION_CHANGED", "Model configuration changed; refresh before saving", 409)
-            await conn.execute("""INSERT INTO model_configuration(singleton,revision,data) VALUES(true,%s,%s)
-                ON CONFLICT(singleton) DO UPDATE SET revision=EXCLUDED.revision,data=EXCLUDED.data""",
-                (revision + 1, Jsonb(data.model_dump(mode="json"))))
-            await conn.execute("INSERT INTO model_configuration_events(revision,data) VALUES(%s,%s)",
-                (revision + 1, Jsonb(data.model_dump(mode="json"))))
+            return await self._change(conn, change, data)
+
+    async def _change(self, conn, change, data):
+        await conn.execute("SELECT pg_advisory_xact_lock(813788)")
+        row = await (await conn.execute("SELECT revision FROM model_configuration WHERE singleton=true FOR UPDATE")).fetchone()
+        revision = row["revision"] if row else 0
+        if revision != change.expected_revision:
+            raise DomainError("MODEL_CONFIGURATION_CHANGED", "Model configuration changed; refresh before saving", 409)
+        await conn.execute("""INSERT INTO model_configuration(singleton,revision,data) VALUES(true,%s,%s)
+            ON CONFLICT(singleton) DO UPDATE SET revision=EXCLUDED.revision,data=EXCLUDED.data""",
+            (revision + 1, Jsonb(data.model_dump(mode="json"))))
+        await conn.execute("INSERT INTO model_configuration_events(revision,data) VALUES(%s,%s)",
+            (revision + 1, Jsonb(data.model_dump(mode="json"))))
         return self.view(revision + 1, data)

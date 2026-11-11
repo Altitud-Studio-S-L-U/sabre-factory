@@ -12,6 +12,7 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 from psycopg_pool import AsyncConnectionPool
 
+from sabre.budget_contracts import BudgetAuthorization, BudgetPolicy, activate_reserve
 from sabre.context_receipts import ContextReceipt, ContextUsageSummary, aggregate_receipts, checked_receipt
 from sabre.events import EventPage, ExecutionEvent, SequencedEvent
 from sabre.integrations import INTEGRATIONS_SCHEMA
@@ -186,11 +187,13 @@ class Repository:
         async with self.connection() as conn:
             await conn.execute("DELETE FROM panel_sessions WHERE session_hash=%s", (session_hash,))
 
-    async def create_project(self, project: Project):
+    async def create_project(self, project: Project, enqueue=None):
         async with self.connection() as conn:
             created = await (await conn.execute("INSERT INTO projects VALUES(%s,%s) ON CONFLICT DO NOTHING RETURNING id", (project.id, Jsonb(payload(project))))).fetchone()
             if created is None:
                 raise DomainError("PROJECT_EXISTS", "This repository is already registered")
+            if enqueue is not None:
+                await enqueue(conn, project.id)
         return project
 
     async def projects(self) -> list[Project]:
@@ -205,12 +208,21 @@ class Repository:
             raise DomainError("PROJECT_NOT_FOUND", "Project not found", 404)
         return Project.model_validate(row["data"])
 
+    async def reconcile_admission(self, request: WorkOrderCreate) -> WorkOrder | None:
+        async with self.connection() as conn:
+            prior = await (await conn.execute("SELECT data,request_hash FROM work_orders WHERE idem=%s", (request.idempotency_key,))).fetchone()
+        if prior is None:
+            return None
+        if prior["request_hash"] != digest(request.model_dump(mode="json")):
+            raise DomainError("IDEMPOTENCY_CONFLICT", "The key already identifies another work order")
+        return WorkOrder.model_validate(prior["data"])
+
     async def admit(self, work: WorkOrder, enqueue) -> WorkOrder:
         request = payload(work.model_copy())
         # The key is bound to the submitted request, not timestamps allocated by the server.
         for key in set(request) - set(WorkOrderCreate.model_fields):
             request.pop(key)
-        request_hash = digest(request)
+        request_hash = work.admission_request_digest or digest(request)
         async with self.connection() as conn:
             await conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))", (work.idempotency_key,))
             prior = await (await conn.execute("SELECT data,request_hash FROM work_orders WHERE idem=%s", (work.idempotency_key,))).fetchone()
@@ -240,7 +252,96 @@ class Repository:
 
     async def save(self, work: WorkOrder):
         async with self.connection() as conn:
-            await conn.execute("UPDATE work_orders SET data=%s,updated_at=now() WHERE id=%s", (Jsonb(payload(work)), work.id))
+            await conn.execute("""UPDATE work_orders SET data=%s::jsonb || CASE
+                WHEN coalesce((data->>'budget_revision')::integer,0)>%s THEN
+                jsonb_build_object('budget_revision',data->'budget_revision','effective_budget_policy',data->'effective_budget_policy')
+                ELSE '{}'::jsonb END,updated_at=now() WHERE id=%s""", (Jsonb(payload(work)), work.budget_revision, work.id))
+
+    async def _budget_authorization(self, conn, work, metric, before, after, operation, reason, usage_ids=None):
+        work.budget_revision += 1
+        setattr(work.effective_budget_policy, metric, after)
+        receipt = BudgetAuthorization(revision=work.budget_revision, metric=metric, operation=operation,
+                                      before=before, after=after, reason=reason, usage_ids=usage_ids or [])
+        await conn.execute("INSERT INTO work_budget_authorizations(work_id,revision,data) VALUES(%s,%s,%s)",
+            (work.id, work.budget_revision, Jsonb(receipt.model_dump(mode="json"))))
+        await conn.execute("UPDATE work_orders SET data=%s,updated_at=now() WHERE id=%s", (Jsonb(payload(work)), work.id))
+        event_id = new_id()
+        message = f"Budget {operation}: {metric}; authorization revision {work.budget_revision}"
+        await conn.execute("INSERT INTO work_events(id,work_id,kind,message) VALUES(%s,%s,'budget_authorization',%s)", (event_id, work.id, message))
+        await conn.execute("INSERT INTO notifications VALUES(%s,%s,%s,false)", (event_id, work.id, Jsonb({"kind": "budget_authorization", "message": message})))
+
+    async def _activate_budget(self, conn, work, metric, required):
+        before = getattr(work.effective_budget_policy, metric)
+        after = activate_reserve(before, required)
+        if after is None:
+            raise DomainError("BUDGET_" + metric.upper(), f"The {metric} ceiling blocks the pending step", 409)
+        if after != before:
+            await self._budget_authorization(conn, work, metric, before, after, "reserve_activation", "Activated the finite reserve authorized at launch")
+
+    async def _check_budget_revision(self, conn, current, work):
+        if current.budget_revision == work.budget_revision:
+            return
+        changed = await (await conn.execute("""SELECT 1 FROM work_budget_authorizations
+            WHERE work_id=%s AND revision>%s AND data->>'operation' IN ('amend','usage_reconciliation') LIMIT 1""", (work.id, work.budget_revision))).fetchone()
+        if changed:
+            raise DomainError("STALE_BUDGET", "The budget changed during this invocation; resume from the preserved checkpoint", 409)
+
+    async def ensure_budget_metric(self, work, metric, required):
+        if work.effective_budget_policy is None:
+            return
+        async with self.connection() as conn:
+            row = await (await conn.execute("SELECT data FROM work_orders WHERE id=%s FOR UPDATE", (work.id,))).fetchone()
+            current = WorkOrder.model_validate(row["data"])
+            await self._check_budget_revision(conn, current, work)
+            await self._activate_budget(conn, current, metric, required)
+        work.effective_budget_policy, work.budget_revision = current.effective_budget_policy, current.budget_revision
+
+    async def amend_budget(self, work_id, request):
+        async with self.connection() as conn:
+            row = await (await conn.execute("SELECT data,control FROM work_orders WHERE id=%s FOR UPDATE", (work_id,))).fetchone()
+            if row is None:
+                raise DomainError("WORK_NOT_FOUND", "Work order not found", 404)
+            work = WorkOrder.model_validate(row["data"])
+            if work.status not in {Status.BLOCKED, Status.PAUSED} or row["control"] == "cancel":
+                raise DomainError("PAUSE_REQUIRED", "Pause the run before amending its budget", 409)
+            if work.budget_revision != request.expected_revision:
+                raise DomainError("STALE_BUDGET", "The budget authorization changed; refresh before saving", 409)
+            if work.effective_budget_policy is None:
+                from sabre.budget_contracts import bounded
+                work.effective_budget_policy = BudgetPolicy(version=1, tokens=bounded(work.budget.max_tokens),
+                    invocations=bounded(work.budget.max_calls), active_seconds=bounded(work.budget.active_seconds),
+                    repairs=bounded(work.flow_config.repair_cycles))
+            before = getattr(work.effective_budget_policy, request.metric)
+            await self._budget_authorization(conn, work, request.metric, before, request.policy, "amend", request.reason)
+            return work
+
+    async def unreconciled_usage(self, work_id):
+        async with self.connection() as conn:
+            return await (await conn.execute("""SELECT u.id FROM model_usage u WHERE u.work_id=%s AND u.actual_tokens IS NULL
+                AND NOT EXISTS(SELECT 1 FROM work_budget_authorizations a WHERE a.work_id=u.work_id
+                    AND a.data->>'operation'='usage_reconciliation' AND a.data->'usage_ids' ? u.id)
+                ORDER BY u.created_at,u.id""", (work_id,))).fetchall()
+
+    async def reconcile_budget_usage(self, work_id, request):
+        async with self.connection() as conn:
+            row = await (await conn.execute("SELECT data FROM work_orders WHERE id=%s FOR UPDATE", (work_id,))).fetchone()
+            if row is None:
+                raise DomainError("WORK_NOT_FOUND", "Work order not found", 404)
+            work = WorkOrder.model_validate(row["data"])
+            if work.status not in {Status.PAUSED, Status.BLOCKED}:
+                raise DomainError("PAUSE_REQUIRED", "Pause the run before reconciling unknown usage", 409)
+            if work.budget_revision != request.expected_revision:
+                raise DomainError("STALE_BUDGET", "The authorization revision changed", 409)
+            rows = await (await conn.execute("SELECT id FROM model_usage WHERE work_id=%s AND id=ANY(%s) AND actual_tokens IS NULL FOR UPDATE", (work_id, request.usage_ids))).fetchall()
+            if {item["id"] for item in rows} != set(request.usage_ids) or len(set(request.usage_ids)) != len(request.usage_ids):
+                raise DomainError("USAGE_RECONCILIATION_INVALID", "Select only current unsettled reservations of this run", 422)
+            if work.effective_budget_policy is None:
+                from sabre.budget_contracts import bounded
+                work.effective_budget_policy = BudgetPolicy(version=1, tokens=bounded(work.budget.max_tokens), invocations=bounded(work.budget.max_calls), active_seconds=bounded(work.budget.active_seconds), repairs=bounded(work.flow_config.repair_cycles))
+            selected = work.effective_budget_policy.tokens
+            await self._budget_authorization(conn, work, "tokens", selected, selected, "usage_reconciliation",
+                "Owner retained the complete reservations as unknown usage: " + request.reason, request.usage_ids)
+            return work
 
     async def revise_scope(self, work_id: str, change: ScopeChange) -> WorkOrder:
         # The service holds the project lock; this row lock also serializes owner controls.
@@ -296,6 +397,8 @@ class Repository:
             if row is None:
                 raise DomainError("WORK_NOT_FOUND", "Work order not found", 404)
             work = WorkOrder.model_validate(row["data"])
+            if work.effective_budget_policy is not None:
+                raise DomainError("VERSIONED_BUDGET_REQUIRED", "Use a revision-checked metric amendment for this run", 409)
             if work.plan_revision != change.expected_revision:
                 raise DomainError("STALE_PLAN", "The plan changed")
             if work.budget != change.expected_budget:
@@ -327,6 +430,8 @@ class Repository:
             work = WorkOrder.model_validate(row["data"])
             if work.plan_revision != expected_revision:
                 raise DomainError("STALE_PLAN", "The plan changed")
+            if work.effective_budget_policy is not None:
+                raise DomainError("VERSIONED_BUDGET_REQUIRED", "Use a revision-checked metric amendment for this run", 409)
             if work.budget.progress_limits:
                 raise DomainError("CLI_PROGRESS_LIMITS_ACTIVE", "Cumulative quotas are disabled; a nonexistent limit cannot be extended")
             if getattr(work.budget, field) != expected_limit:
@@ -479,13 +584,15 @@ class Repository:
         receipt = checked_receipt(context_receipt, work) if context_receipt is not None else None
         async with self.connection() as conn:
             await conn.execute("SELECT pg_advisory_xact_lock(813772)")
-            scope = await (await conn.execute("SELECT project_id,data->>'plan_revision' AS revision,data->'budget' AS budget FROM work_orders WHERE id=%s", (work.id,))).fetchone()
+            scope = await (await conn.execute("SELECT project_id,data->>'plan_revision' AS revision,data->'budget' AS budget,data FROM work_orders WHERE id=%s FOR UPDATE", (work.id,))).fetchone()
             if receipt is not None:
                 if scope is None or scope["project_id"] != receipt.project_id or scope["revision"] != str(receipt.plan_revision):
                     raise DomainError("CONTEXT_RECEIPT_SCOPE", "The context reference does not belong to the current work order", 409)
             current_budget = Budget.model_validate(scope["budget"]) if scope is not None else None
+            current = WorkOrder.model_validate(scope["data"]) if scope else None
+            policy = current.effective_budget_policy if current else None
             missing_caps = any(cap is None for cap in (work.budget.max_calls, work.budget.max_tokens, work.budget.active_seconds))
-            if missing_caps or (current_budget is not None and current_budget.progress_limits):
+            if policy is None and (missing_caps or (current_budget is not None and current_budget.progress_limits)):
                 # A stale checkpoint or unpersisted object cannot authorize unlimited use.
                 if current_budget != work.budget:
                     raise DomainError("STALE_BUDGET", "The limit policy changed; retrieve the current work order", 409)
@@ -493,11 +600,34 @@ class Repository:
                     raise DomainError("MODEL_LIMITS_REQUIRED", "This provider requires explicit quotas; progress mode only allows verified CLI sessions", 409)
             totals = await (await conn.execute("SELECT count(*) calls,coalesce(sum(coalesce(actual_tokens,reserved_tokens)),0) tokens,coalesce(sum(coalesce(actual_usd,reserved_usd)),0) usd FROM model_usage WHERE work_id=%s", (work.id,))).fetchone()
             monthly = await (await conn.execute("SELECT coalesce(sum(coalesce(actual_usd,reserved_usd)),0) usd FROM model_usage WHERE created_at>=date_trunc('month',now())")).fetchone()
-            if (work.budget.max_calls is not None and totals["calls"] >= work.budget.max_calls) or (work.budget.max_tokens is not None and totals["tokens"] + tokens > work.budget.max_tokens) or float(totals["usd"]) + usd > work.budget.max_cost_usd or (usd > 0 and float(monthly["usd"]) + usd > monthly_limit):
+            if current is not None and policy is not None:
+                await self._check_budget_revision(conn, current, work)
+                await self._activate_budget(conn, current, "invocations", int(totals["calls"]) + 1)
+                await self._activate_budget(conn, current, "tokens", int(totals["tokens"]) + tokens)
+                await self._activate_budget(conn, current, "active_seconds", current.active_seconds_used + 0.001)
+                if float(totals["usd"]) + usd > work.budget.max_cost_usd:
+                    raise DomainError("BUDGET_API_SPEND", "The authorized API spend does not permit this invocation", 409)
+                if usd > 0 and float(monthly["usd"]) + usd > monthly_limit:
+                    raise DomainError("BUDGET_FACTORY_SPEND", "The factory spending ceiling does not permit this invocation", 409)
+            if (policy is None and ((work.budget.max_calls is not None and totals["calls"] >= work.budget.max_calls) or (work.budget.max_tokens is not None and totals["tokens"] + tokens > work.budget.max_tokens))) or float(totals["usd"]) + usd > work.budget.max_cost_usd or (usd > 0 and float(monthly["usd"]) + usd > monthly_limit):
                 raise DomainError("BUDGET_EXHAUSTED", "The budget does not allow another model call")
             usage_id = new_id()
             await conn.execute("INSERT INTO model_usage(id,work_id,reserved_tokens,reserved_usd,context_receipt) VALUES(%s,%s,%s,%s,%s)", (usage_id, work.id, tokens, usd, Jsonb(payload(receipt)) if receipt is not None else None))
+            if current is not None and policy is not None:
+                work.effective_budget_policy, work.budget_revision = current.effective_budget_policy, current.budget_revision
             return usage_id
+
+    async def check_dispatch_budget(self, work):
+        current = await self.work(work.id)
+        if current.effective_budget_policy is None:
+            return
+        async with self.connection() as conn:
+            await self._check_budget_revision(conn, current, work)
+        work.effective_budget_policy, work.budget_revision = current.effective_budget_policy, current.budget_revision
+        totals = await self.usage(work.id)
+        for metric, required in (("tokens", totals["tokens"]), ("invocations", totals["calls"]),
+                                 ("active_seconds", current.active_seconds_used + 0.001)):
+            await self.ensure_budget_metric(work, metric, required)
 
     async def settle_usage(self, usage_id: str, tokens: int, usd: float):
         async with self.connection() as conn:

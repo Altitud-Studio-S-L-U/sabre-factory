@@ -1,11 +1,15 @@
 """Provider-facing results. Internal legacy results are adapted only after validation."""
 
-from typing import Literal
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import Field, model_validator
 
 from sabre.contracts import StrictContract
-from sabre.models import AgentResult, Task
+
+if TYPE_CHECKING:
+    from sabre.models import AgentResult
 
 
 class PhaseResult(StrictContract):
@@ -22,6 +26,7 @@ class PhaseResult(StrictContract):
         return self
 
     def legacy(self) -> AgentResult:
+        from sabre.models import AgentResult
         return AgentResult(summary=self.summary, accepted=self.status == "completed", questions=self.questions,
                            decisions=getattr(self, "decisions", []), tasks=getattr(self, "tasks", []))
 
@@ -51,6 +56,7 @@ class PlanningResult(PhaseResult):
         return self
 
     def legacy(self) -> AgentResult:
+        from sabre.models import AgentResult, Task
         return AgentResult(summary=self.summary, accepted=self.status == "completed", questions=self.questions,
                            tasks=[Task(**task.model_dump()) for task in self.tasks])
 

@@ -28,6 +28,8 @@ from packaging.requirements import InvalidRequirement, Requirement
 from packaging.version import InvalidVersion, Version
 from pydantic import Field
 
+from sabre.browser_contracts import BrowserJob
+from sabre.browser_qa import BrowserRunner
 from sabre.models import Contract, DomainError, Project, SecurityFinding
 from sabre.private_credentials import fetch_credentials
 from sabre.security import SecretGuard, parse_findings, scanner_error
@@ -238,6 +240,7 @@ class DockerBroker:
         self.slots = asyncio.Semaphore(2)
         self.restored: set[str] = set()
         self.security_database_lock = asyncio.Lock()
+        self.browser_runner = BrowserRunner(self)
 
     def lock(self, work_id: str) -> asyncio.Lock:
         return self.locks.setdefault(valid_work_id(work_id), asyncio.Lock())
@@ -830,7 +833,15 @@ class DockerBroker:
         return json.loads(result.output)
 
     async def cleanup(self, work_id: str) -> None:
+        self.browser_runner.cancel(work_id)
         async with self.lock(work_id):
+            # Browser jobs are admitted only after this metadata is committed.
+            # Failed workspace admission therefore has no browser resources to reap.
+            if self._metadata_path(work_id).exists():
+                await asyncio.to_thread(self.browser_runner.cleanup_orphans, work_id)
+            for path in self.root.glob(f"{valid_work_id(work_id)}.browser-*.json"):
+                if re.fullmatch(re.escape(work_id) + r"\.browser-[a-f0-9]{64}\.json", path.name):
+                    path.unlink()
             await asyncio.to_thread(self._remove_workspace_volume, work_id)
             self._metadata_path(work_id).unlink(missing_ok=True)
             self._snapshot_path(work_id).unlink(missing_ok=True)
@@ -897,6 +908,12 @@ class ExecutorClient:
 
     async def cleanup(self, work_id: str) -> None:
         await self._request("DELETE", f"/workspaces/{valid_work_id(work_id)}")
+
+    async def browser_qa(self, work_id: str, request: BrowserJob) -> dict:
+        return await self._request("POST", f"/workspaces/{valid_work_id(work_id)}/browser-qa", request.model_dump(mode="json"))
+
+    async def cancel_browser_jobs(self, work_id: str) -> None:
+        await self._request("POST", f"/workspaces/{valid_work_id(work_id)}/browser-cancel")
 
     async def aclose(self):
         await self.client.aclose()
@@ -992,6 +1009,17 @@ async def execute_gate(work_id: str, body: GateCommand):
 @app.post("/workspaces/{work_id}/scan", dependencies=[Depends(authenticate)])
 async def scan(work_id: str, body: ScanRequest):
     return await get_broker().scan_snapshot(work_id, body.digest, body.baseline)
+
+
+@app.post("/workspaces/{work_id}/browser-qa", dependencies=[Depends(authenticate)])
+async def browser_qa(work_id: str, body: BrowserJob):
+    return await get_broker().browser_runner.run(valid_work_id(work_id), body)
+
+
+@app.post("/workspaces/{work_id}/browser-cancel", dependencies=[Depends(authenticate)])
+async def cancel_browser(work_id: str):
+    get_broker().browser_runner.cancel(valid_work_id(work_id))
+    return {"cancel_requested": True}
 
 
 @app.get("/workspaces/{work_id}/security-version", dependencies=[Depends(authenticate)])

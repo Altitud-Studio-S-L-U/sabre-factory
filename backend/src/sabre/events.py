@@ -16,6 +16,7 @@ class ExecutionEvent(StrictContract):
     phase: str
     correlation_id: str
     parent_id: str | None = None
+    agent_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$", exclude_if=lambda value: value is None)
     kind: Literal["stage", "agent", "tool", "status"]
     state: Literal["started", "completed", "failed", "interrupted"]
     name: str = Field(min_length=1, max_length=200)

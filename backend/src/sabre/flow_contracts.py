@@ -4,12 +4,15 @@ from typing import Literal
 
 from pydantic import Field, model_validator
 
+from sabre.agent_contracts import AgentDefinitionSnapshot
+from sabre.budget_contracts import BudgetPolicy
 from sabre.contracts import StrictContract
 from sabre.model_selection import ModelSelection
 
-Phase = Literal["analysis", "design", "planning", "implementation", "verification", "review", "security"]
+Phase = Literal["analysis", "design", "planning", "implementation", "verification", "review", "security", "ux", "delivery_preparation"]
 PHASE_ROLES: dict[Phase, str] = {"analysis": "analyst", "design": "architect", "planning": "supervisor",
-               "implementation": "developer", "verification": "qa", "review": "reviewer", "security": "security"}
+               "implementation": "developer", "verification": "qa", "review": "reviewer", "security": "security",
+               "ux": "designer", "delivery_preparation": "devops"}
 FLOW_VERSION: Literal["sabre-factory-v1"] = "sabre-factory-v1"
 
 
@@ -30,6 +33,7 @@ class FlowConfiguration(StrictContract):
     phase_models: dict[Phase, ModelSelection] = Field(default_factory=dict)
     permissions: FlowPermissions = Field(default_factory=FlowPermissions)
     repair_cycles: int = Field(default=2, ge=0, le=2)
+    budget_policy: BudgetPolicy | None = Field(default=None, exclude_if=lambda value: value is None)
 
     @model_validator(mode="after")
     def unique_skills(self):
@@ -44,6 +48,7 @@ class ResolvedPhase(StrictContract):
     model: ModelSelection
     credential_target: str | None
     skills: dict[str, str]
+    definition: AgentDefinitionSnapshot | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 class ResolvedFlow(StrictContract):

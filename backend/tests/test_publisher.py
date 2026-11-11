@@ -51,7 +51,7 @@ async def test_lost_pr_response_is_reconciled_instead_of_creating_another():
         if request.method == "GET":
             return httpx.Response(200, json=[remote["pr"]] if remote["pr"] else [])
         remote["creations"] += 1
-        remote["pr"] = {"head": {"sha": commit}, "draft": True, "html_url": "https://github.com/owner/project/pull/12"}
+        remote["pr"] = {"head": {"sha": commit, "ref": f"fix/sabre-{work.id}/r1", "repo": {"full_name": "owner/project"}}, "base": {"ref": "main", "repo": {"full_name": "owner/project"}}, "draft": True, "state": "open", "html_url": "https://github.com/owner/project/pull/12"}
         remote["base"] = "f" * 40
         raise httpx.ReadTimeout("Response lost", request=request)
 
@@ -167,7 +167,7 @@ async def test_legacy_effect_keeps_its_branch_when_resumed(completed, remote_pr)
             return httpx.Response(200, json={"object": {"sha": "e" * 40}})
         if request.url.path.endswith("/pulls"):
             assert request.url.params["head"] == f"owner:{branch}"
-            return httpx.Response(200, json=[{"head": {"sha": work.evidence.commit}, "draft": True, "state": "open", "html_url": expected["pr_url"]}] if remote_pr else [])
+            return httpx.Response(200, json=[{"head": {"sha": work.evidence.commit, "ref": branch, "repo": {"full_name": "owner/project"}}, "base": {"ref": "main", "repo": {"full_name": "owner/project"}}, "draft": True, "state": "open", "html_url": expected["pr_url"]}] if remote_pr else [])
         assert request.url.path.endswith(f"/git/ref/heads/{branch}")
         return httpx.Response(200, json={"object": {"sha": work.evidence.commit}}) if remote_pr else httpx.Response(404)
 

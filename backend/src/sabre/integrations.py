@@ -97,13 +97,13 @@ class IntegrationService:
 
     def _definitions(self):
         definitions = [
-            ("github.read", "github", "GitHub · repositorios", "Browse repositories and import them as SABRE projects.", ["github.read"], [IntegrationTool(name="list_repositories", effect="read"), IntegrationTool(name="import_repository", effect="configuration")]),
-            ("github.publish", "github", "GitHub · entregas", "Publishes branches and draft PRs when the factory approves delivery.", ["github.publish"], [IntegrationTool(name="publish_draft_pr", effect="external_write")]),
+            ("github.read", "github", "GitHub · repositories", "Browse repositories and import them as SABRE projects.", ["github.read"], [IntegrationTool(name="list_repositories", effect="read"), IntegrationTool(name="import_repository", effect="configuration")]),
+            ("github.publish", "github", "GitHub · deliveries", "Publishes branches and draft PRs when the factory approves delivery.", ["github.publish"], [IntegrationTool(name="publish_draft_pr", effect="external_write")]),
             ("github.create", "github", "GitHub · creation", "Creates repositories only after a proposal and explicit owner approval.", ["github.create"], [IntegrationTool(name="create_repository", effect="external_write")]),
         ]
         for name, server in sorted(self.config.mcp_servers.items()):
             definitions.append((f"mcp.{name}", "mcp", f"MCP · {name}", "Authorized external tools for projects that select this server.", [self.credentials.mcp_ids[name]], [IntegrationTool(name=tool, effect=policy.effect, roles=sorted(policy.roles)) for tool, policy in sorted(server.tools.items())]))
-        definitions.append(("model", "model", "Modelos", "Model selection and limits are stored in factory configuration.", sorted(identifier for identifier in self.credentials.targets if identifier.startswith("model.")), []))
+        definitions.append(("model", "model", "Model providers", "Model selection and limits are stored in factory configuration.", sorted(identifier for identifier in self.credentials.targets if identifier.startswith("model.")), []))
         definitions.append(("slack", "slack", "Slack", "Owner channel; bot binding is configured on the instance.", ["slack.bot", "slack.app"], []))
         return definitions
 

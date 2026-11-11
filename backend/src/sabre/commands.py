@@ -5,6 +5,7 @@ from typing import Annotated, Literal
 
 from pydantic import Field
 
+from sabre.budget_contracts import BudgetAmendment, BudgetReconciliation
 from sabre.contracts import StrictContract
 from sabre.models import Answer, DomainError, WorkOrder, WorkOrderCreate
 from sabre.repository import digest
@@ -28,11 +29,23 @@ class Respond(StrictContract):
     answer: Answer
 
 
+class AmendBudget(StrictContract):
+    type: Literal["work.budget.amend"]
+    work_id: str = Field(min_length=1, max_length=128)
+    request: BudgetAmendment
+
+
+class ReconcileBudget(StrictContract):
+    type: Literal["work.budget.reconcile"]
+    work_id: str = Field(min_length=1, max_length=128)
+    request: BudgetReconciliation
+
+
 class CommandEnvelope(StrictContract):
     version: Literal[1]
     idempotency_key: str = Field(min_length=8, max_length=128, pattern=r"^[A-Za-z0-9:._-]+$")
     correlation_id: str = Field(min_length=8, max_length=128, pattern=r"^[A-Za-z0-9:._-]+$")
-    payload: Annotated[Submit | Control | Respond, Field(discriminator="type")]
+    payload: Annotated[Submit | Control | Respond | AmendBudget | ReconcileBudget, Field(discriminator="type")]
 
 
 class CommandResult(StrictContract):
@@ -70,6 +83,10 @@ async def dispatch(service, command: CommandEnvelope) -> CommandResult:
         if current.plan_revision != operation.expected_revision:
             raise DomainError("STALE_PLAN", "The plan changed; refresh before issuing this command", 409)
         work = await service.control(operation.work_id, operation.action)
+    elif isinstance(operation, AmendBudget):
+        work = await service.amend_budget(operation.work_id, operation.request)
+    elif isinstance(operation, ReconcileBudget):
+        work = await service.reconcile_budget_usage(operation.work_id, operation.request)
     else:
         work = await service.answer(operation.work_id, operation.answer)
     result = CommandResult(command_id=command.idempotency_key, correlation_id=command.correlation_id,

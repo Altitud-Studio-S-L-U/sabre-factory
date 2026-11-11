@@ -20,6 +20,10 @@ CREATE INDEX notification_outbox_due ON notification_outbox(state,next_attempt_a
 
 
 async def migrate(conn, baseline: str):
+    from sabre.console_configuration import CONSOLE_CONFIGURATION_SCHEMA
+    from sabre.delegation import DELEGATION_SCHEMA
+    from sabre.release_candidates import RELEASE_SCHEMA
+    from sabre.repository_ingestion import INGESTION_SCHEMA
     await conn.execute("SELECT pg_advisory_xact_lock(813774)")
     await conn.execute("""CREATE TABLE IF NOT EXISTS schema_migrations(
         version integer PRIMARY KEY, checksum text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())""")
@@ -44,7 +48,20 @@ async def migrate(conn, baseline: str):
             reply text, error_code text, created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
             UNIQUE(scope,request_key));
         CREATE INDEX operator_message_scope ON operator_messages(scope,created_at,id);
-        """}
+        """, 6: """
+        CREATE TABLE agent_definitions(
+            id text PRIMARY KEY, revision integer NOT NULL CHECK(revision>0),
+            draft jsonb NOT NULL, published jsonb NOT NULL);
+        CREATE TABLE agent_definition_versions(
+            agent_id text NOT NULL, version integer NOT NULL CHECK(version>0),
+            data jsonb NOT NULL, created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+            PRIMARY KEY(agent_id,version));
+        """, 7: DELEGATION_SCHEMA, 8: CONSOLE_CONFIGURATION_SCHEMA, 9: """
+        CREATE TABLE work_budget_authorizations(
+            work_id text NOT NULL REFERENCES work_orders(id) ON DELETE CASCADE,
+            revision integer NOT NULL, data jsonb NOT NULL,
+            created_at timestamptz NOT NULL DEFAULT clock_timestamp(), PRIMARY KEY(work_id,revision));
+        """, 10: INGESTION_SCHEMA, 11: RELEASE_SCHEMA}
     if set(applied) - set(migrations):
         raise DomainError("SCHEMA_NEWER_THAN_RUNTIME", "Restore the matching application version before opening this database", 503)
     for version, statement in migrations.items():

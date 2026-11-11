@@ -11,7 +11,7 @@ Count = Annotated[int, Field(ge=0, le=10**12, strict=True)]
 ByteCount = Annotated[int, Field(ge=0, le=67_108_864, strict=True)]
 Digest = Annotated[str, Field(pattern=r"^[a-f0-9]{64}$", strict=True)]
 ScopeId = Annotated[str, Field(pattern=r"^[A-Za-z0-9_-]{1,128}$", strict=True)]
-Role = Literal["supervisor", "analyst", "architect", "developer", "qa", "reviewer", "security"]
+Role = Literal["supervisor", "analyst", "architect", "developer", "qa", "reviewer", "security", "designer", "devops"]
 ModelProvider = Literal["openai", "local", "anthropic", "google", "codex_cli", "claude_cli"]
 
 

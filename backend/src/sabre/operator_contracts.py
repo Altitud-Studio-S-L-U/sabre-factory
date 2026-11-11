@@ -5,6 +5,7 @@ from typing import Literal
 
 from pydantic import Field, field_validator, model_validator
 
+from sabre.agent_contracts import AgentDefinitionSnapshot
 from sabre.contracts import StrictContract
 
 OperatorAction = Literal["register_project", "submit_work", "answer_question", "control_work", "change_scope", "propose_memory", "resolve_memory"]
@@ -36,6 +37,7 @@ class OperatorMessageRequest(StrictContract):
 class OperatorContext(OperatorMessageRequest):
     id: str
     source: Literal["web", "mcp"] = "web"
+    definition: AgentDefinitionSnapshot | None = None
 
     @property
     def event_id(self):

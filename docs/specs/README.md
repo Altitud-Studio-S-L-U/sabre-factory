@@ -1,6 +1,6 @@
 # Operator console implementation
 
-These specifications describe planned behavior, not completed capabilities. Preserve existing tests, active runs, credentials and repository history. The public-release gates in `../operations.md` still apply.
+These specifications define the operator console's behavior and acceptance contracts. Read them alongside the implementation and its tests; a listed deliverable is not evidence of production readiness. Preserve existing tests, active runs, credentials and repository history. Live-provider evidence and clean installation, execution, restart and restore on each advertised platform remain separate requirements under [09](09-validation.md) and [operations](../operations.md).
 
 | Spec | Dependency | Deliverable |
 | --- | --- | --- |

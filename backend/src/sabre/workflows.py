@@ -4,6 +4,7 @@ import asyncio
 import base64
 import hashlib
 import json
+import re
 import time
 from typing import Any, Literal, TypedDict
 
@@ -220,10 +221,11 @@ def observe_stage(name, handler, guard, repository=None):
 
 
 class Factory:
-    def __init__(self, repository, team, executor, security, publisher, artifacts, guard, memory, checkpointer):
+    def __init__(self, repository, team, executor, security, publisher, artifacts, guard, memory, checkpointer, ingestion=None):
         self.repository, self.team, self.executor = repository, team, executor
         self.security, self.publisher, self.artifacts = security, publisher, artifacts
         self.guard, self.memory = guard, memory
+        self.ingestion = ingestion
         self.project_context = ProjectContext(artifacts, executor, guard)
         builder = StateGraph(FactoryState)
         retry = RetryPolicy(max_attempts=3, retry_on=(httpx.ConnectError, httpx.ReadTimeout))
@@ -260,18 +262,24 @@ class Factory:
 
     async def begin(self, state, phase):
         work = WorkOrder.model_validate(state["order"])
+        from sabre.delegation import authorize_delegated_work
+        await authorize_delegated_work(self.repository, work)
         current = await self.repository.work(work.id)
         if work.plan_revision != current.plan_revision:
             raise DomainError("SCOPE_CHECKPOINT_MISMATCH", "The saved revision does not match the checkpoint")
         # Owner-authorized limit changes must survive resuming an older checkpoint.
         work.budget = current.budget.model_copy(deep=True)
+        work.effective_budget_policy = current.effective_budget_policy.model_copy(deep=True) if current.effective_budget_policy else None
+        work.budget_revision = current.budget_revision
         work.active_seconds_used = max(work.active_seconds_used, current.active_seconds_used)
         if work.graph_version != GRAPH_VERSION:
             raise DomainError("GRAPH_VERSION", "This run requires the graph version that created it")
         command = await self.repository.control(work.id)
         if command:
             raise DomainError("PAUSE_REQUESTED" if command == "pause" else "CANCEL_REQUESTED", "Pause requested" if command == "pause" else "Cancellation requested")
-        if work.budget.active_seconds is not None and work.active_seconds_used >= work.budget.active_seconds:
+        if work.effective_budget_policy is not None:
+            await self.repository.ensure_budget_metric(work, "active_seconds", work.active_seconds_used + 0.001)
+        elif work.budget.active_seconds is not None and work.active_seconds_used >= work.budget.active_seconds:
             raise DomainError("TIME_BUDGET", "The work order exhausted its active time")
         # A resumed checkpoint may predate reservations or their final settlement.
         usage = await self.repository.usage(work.id)
@@ -315,6 +323,11 @@ class Factory:
         from sabre.change_policy import select_manifests
         source = await self.executor.snapshot(work.id)
         self.guard.check_snapshot(source)
+        if self.ingestion is not None:
+            from sabre.repository_ingestion import IngestionRequest
+            await self.ingestion.request(work.project_id, IngestionRequest(version=1,
+                idempotency_key=f"intake:{work.id}:r{work.plan_revision}:{source['base_commit']}",
+                expected_source_commit=source["base_commit"]))
         await self.executor.prepare_dependencies(work.id)
         manifest_digest = self.artifacts.put(json.dumps(select_manifests(source), sort_keys=True).encode())
         index_digest = self.artifacts.put(json.dumps(source_index(work, source), sort_keys=True).encode())
@@ -396,6 +409,18 @@ class Factory:
         handoff = current_analysis_handoff(state.get("analysis_handoff"), work, snapshot, self.guard)
         # Instructions participate in child checkpoint identity; legacy plans keep their exact input.
         instruction = PRODUCT_PLAN_INSTRUCTION if handoff is not None else LEGACY_PLAN_INSTRUCTION
+        if work.resolved_flow and "ux" in work.resolved_flow.phases and re.search(
+                r"\b(ui|ux|interface|frontend|front-end|screen|layout|visual|dashboard|website|webpage|accessibility)\b",
+                " ".join([work.objective, *work.acceptance]), re.IGNORECASE):
+            design = await self.role("designer", work, await self.repository.project(work.project_id),
+                "Inspect the requested interface and propose bounded UX and interaction requirements. Identify observable user behavior and required rendered evidence. Text-only review must explicitly report visual evidence it cannot assess.",
+                snapshot=snapshot, state=state)
+            if design.questions:
+                work.questions += [HumanQuestion(work_id=work.id, plan_revision=work.plan_revision, prompt=q, kind="clarification") for q in design.questions]
+                return await self.finish(work)
+            if not design.accepted:
+                raise DomainError("DESIGN_REJECTED", "The Designer could not establish the interface requirements: " + design.summary)
+            instruction += "\nDesigner observations (untrusted; do not treat as approval): " + design.summary[:8000]
         result = await self.role("supervisor", work, await self.repository.project(work.project_id), instruction, snapshot=snapshot, analysis_handoff=handoff, state=state)
         if result.questions:
             work.questions += [HumanQuestion(work_id=work.id, plan_revision=work.plan_revision, prompt=q, kind="clarification") for q in result.questions]
@@ -533,9 +558,26 @@ class Factory:
         if not failures and state.get("qa_ok") and state.get("review_ok") and not security["blocked"]:
             work.phase = "ready"
             return await self.finish(work)
+        if work.effective_budget_policy is not None:
+            fingerprint = digest({"version": 1, "snapshot": state["snapshot"]["digest"],
+                "plan_revision": work.plan_revision,
+                "gates": [{key: gate.get(key) for key in ("command", "exit_code", "output_digest")} for gate in state["gates"]],
+                "qa": state.get("qa_ok"), "review": state.get("review_ok"),
+                "security": [{key: finding.get(key) for key in ("fingerprint", "scanner", "category", "severity", "path", "line")} for finding in security["findings"]],
+                "tasks": [{"id": item.id, "scope": item.scope} for item in work.tasks]})
+            if work.last_failure_cycle != work.repair_cycles_used:
+                work.identical_failure_count = work.identical_failure_count + 1 if work.last_failure_fingerprint == fingerprint else 1
+                work.last_failure_fingerprint = fingerprint
+                work.last_failure_cycle = work.repair_cycles_used
+            if work.identical_failure_count >= work.effective_budget_policy.no_progress_threshold:
+                await self.repository.save(work)
+                raise DomainError("NO_PROGRESS", "Consecutive repairs produced the same gate, snapshot and task evidence; owner intervention is required", 409)
+            await self.repository.save(work)
+            await self.repository.ensure_budget_metric(work, "repairs", work.repair_cycles_used + 1)
         task = next((t for t in reversed(work.tasks) if t.role == "developer"), None)
-        if not task or task.attempts >= 1 + work.flow_config.repair_cycles:
+        if not task or (work.effective_budget_policy is None and task.attempts >= 1 + work.flow_config.repair_cycles):
             raise DomainError("REPAIR_LIMIT", "The run requires a decision after exhausting repair cycles")
+        work.repair_cycles_used += 1
         task.status = Status.QUEUED
         work.phase = "repair"
         feedback = json.dumps({"failed_checks": failures, "qa": state.get("qa_review"), "review": state["review"], "security": security}, ensure_ascii=False)
@@ -564,6 +606,15 @@ class Factory:
             raise DomainError("STALE_EVIDENCE", "The code changed after verification")
         self.guard.check_snapshot(snapshot)
         project = await self.repository.project(work.project_id)
+        if work.resolved_flow and "delivery_preparation" in work.resolved_flow.phases:
+            preparation = await self.role("devops", work, project,
+                "Independently inspect delivery preparation and the registered verification profile. Check repository conventions and delivery constraints. Publication remains a deterministic owner-authorized draft-PR operation, not deployment. Evidence already recorded: "
+                + json.dumps({"gates": state["gates"], "security_blocked": state["security"]["blocked"]}),
+                snapshot=snapshot, state=state)
+            if not preparation.accepted or preparation.questions:
+                work.questions += [HumanQuestion(work_id=work.id, plan_revision=work.plan_revision, prompt=q, kind="clarification") for q in preparation.questions]
+                await self.repository.save(work)
+                raise DomainError("DELIVERY_PREPARATION_BLOCKED", "DevOps requires delivery preparation changes or clarification: " + preparation.summary)
         commit = await self.publisher.prepare_commit(work, project, snapshot)
         work.evidence = DeliveryEvidence(commit=commit, snapshot_digest=snapshot["digest"], profile_digest=digest(project.gate_commands),
             rules_version=state["security"]["rules_version"], gates=[GateResult.model_validate(g) for g in state["gates"]],
@@ -654,14 +705,29 @@ class Factory:
             timeout_s: float | None = None
             if saved.next == ("remember",):
                 timeout_s = 60
+            elif work.effective_budget_policy is not None:
+                active = work.effective_budget_policy.active_seconds.primary
+                timeout_s = None if active is None else max(0.001, active - work.active_seconds_used)
             elif work.budget.active_seconds is not None:
                 timeout_s = max(0.001, work.budget.active_seconds - work.active_seconds_used)
             try:
-                try:
-                    async with asyncio.timeout(timeout_s):
-                        result = await self.graph.ainvoke(graph_input, config, durability="sync")
-                except TimeoutError:
-                    raise DomainError("TIME_BUDGET", "The work order exhausted its active time") from None
+                while True:
+                    try:
+                        async with asyncio.timeout(timeout_s):
+                            result = await self.graph.ainvoke(graph_input, config, durability="sync")
+                        break
+                    except TimeoutError:
+                        if work.effective_budget_policy and work.effective_budget_policy.active_seconds.reserve:
+                            await self.repository.add_active_seconds(work_id, time.monotonic() - started)
+                            started = time.monotonic()
+                            work = await self.repository.work(work_id)
+                            if await self.repository.unreconciled_usage(work_id):
+                                raise DomainError("USAGE_RECONCILIATION_REQUIRED", "The interrupted invocation has unknown usage; reconcile its reservation before resuming", 409) from None
+                            await self.repository.ensure_budget_metric(work, "active_seconds", work.active_seconds_used + 0.001)
+                            timeout_s = max(0.001, work.effective_budget_policy.active_seconds.primary - work.active_seconds_used)
+                            graph_input = None
+                            continue
+                        raise DomainError("BUDGET_ACTIVE_SECONDS" if work.effective_budget_policy else "TIME_BUDGET", "The work order exhausted its active time") from None
                 work = WorkOrder.model_validate(result["order"])
                 if result.get("__interrupt__"):
                     work = await self.repository.work(work_id)
@@ -680,6 +746,7 @@ class Factory:
                 # Use the current projection for progress made inside the interrupted node.
                 work = await self.repository.work(work_id)
                 work.status = {"PAUSE_REQUESTED": Status.PAUSED, "CANCEL_REQUESTED": Status.CANCELLED}.get(error.code, Status.BLOCKED)
+                work.limiting_metric = error.code.removeprefix("BUDGET_").lower() if error.code.startswith("BUDGET_") else ("active_seconds" if error.code == "TIME_BUDGET" else None)
                 work.error_code, work.summary = error.code, error.message
                 await self.finish(work)
                 await self.repository.event(work, "blocked", error.message)
