@@ -1,6 +1,6 @@
 import asyncio
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import httpx
 import pytest
@@ -11,6 +11,7 @@ from sabre.models import DomainError
 from sabre.operator_contracts import OperatorContext, OperatorMessageRequest
 from sabre.security import SecretGuard
 from sabre.slack import conversation_tools
+from sabre.supervisor import SupervisorConversation
 
 
 def request(**changes):
@@ -32,6 +33,18 @@ def test_conversation_is_read_only_without_explicit_action_grants():
     event = OperatorContext.model_validate({**request(work_id="run-a", allowed_actions=["control_work"]), "id": "message-1"})
     names = {tool.name for tool in conversation_tools(service, None, event)}
     assert names == {"get_work", "control_work"}
+
+
+async def test_missing_explicit_model_blocks_before_model_construction_or_network():
+    config = SimpleNamespace(model_name="", model_ready=lambda: True)
+    service = SimpleNamespace(config=SimpleNamespace(for_role=lambda _: config), guard=SecretGuard(), repository=object())
+    model = Mock()
+    conversation = SupervisorConversation(service, None, None, model_factory=model)
+    event = OperatorContext.model_validate({**request(), "id": "message-1"})
+    with pytest.raises(DomainError) as caught:
+        await conversation.reply(event)
+    assert caught.value.code == "MODEL_NOT_READY"
+    model.assert_not_called()
 
 
 async def test_run_scope_cannot_control_another_run_even_when_message_names_it():

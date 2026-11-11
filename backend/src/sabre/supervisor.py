@@ -246,6 +246,8 @@ class SupervisorConversation:
         self.service.guard.check(event)
         cfg = self.service.config.for_role("supervisor")
         cfg = cfg.model_copy(deep=True) if credentials else cfg
+        if isinstance(event, OperatorContext) and (not cfg.model_name or not cfg.model_ready()):
+            raise DomainError("MODEL_NOT_READY", "Choose an explicit Supervisor model and connect its provider before resuming", 409)
         middleware = ChatGuard(self.service.repository, cfg, self.service.guard, event.event_id, credential_check,
             surface="operator" if isinstance(event, OperatorContext) else "slack")
         tools = conversation_tools(self.service, self.store, event)
