@@ -106,6 +106,10 @@ The owner MCP exposes `sabre_talk_supervisor`, `sabre_supervisor_messages` and `
 
 This feature introduces migration 5. Back up before upgrading and retain the exact previously running images and protected bootstrap/master volumes. Returning to a runtime that only understands migration 4 requires restoring its matching backup; do not point that older runtime at the upgraded database.
 
+## Operating from the terminal
+
+`sabre runs [--state active|attention|closed|all]` lists runs; `sabre run <run>` shows one with its usage, pending questions (current revision only) and tasks; `sabre watch <run>` follows recorded phase, agent and tool events until the run settles. `sabre ask "<message>" [--run <run>]` sends a read-only message to the Supervisor and prints its reply. `sabre answer <run> <question> "<answer>"` records an answer; `sabre pause|resume <run>` and `sabre cancel <run> --yes` control a run. Runs and questions accept a unique prefix or suffix of their identifier. These commands call the same MCP tools as the console through the in-container client: the owner credential never reaches the host, arguments or output. `access-token` is deliberately not a `sabre` command; it remains a terminal-only `node infra/ops.mjs` action.
+
 ## MCP access
 
 The authenticated Streamable HTTP endpoint is `/mcp/`. Register that endpoint and its bearer-token environment variable through the client's supported configuration UI. No setup helper edits the owner's Codex home.
