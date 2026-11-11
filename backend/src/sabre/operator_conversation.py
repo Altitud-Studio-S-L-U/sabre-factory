@@ -27,6 +27,14 @@ class OperatorConversationStore:
     def __init__(self, repository, guard, enqueue):
         self.repository, self.guard, self.enqueue = repository, guard, enqueue
 
+    async def _lock_scope(self, conn, scope):
+        await conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,7))", (f"operator-admission:{scope}",))
+
+    async def _check_capacity(self, conn, scope):
+        count = await (await conn.execute("SELECT count(*) AS n FROM operator_messages WHERE scope=%s AND state IN ('queued','running')", (scope,))).fetchone()
+        if count["n"] >= 8:
+            raise DomainError("OPERATOR_CONVERSATION_BUSY", "Wait for pending supervisor messages before sending more", 429)
+
     async def admit(self, request: OperatorMessageRequest, *, source: Literal["web", "mcp"] = "web"):
         self.guard.check(request)
         if request.work_id:
@@ -35,15 +43,13 @@ class OperatorConversationStore:
         content = request.model_dump(mode="json")
         fingerprint = digest(content)
         async with self.repository.connection() as conn:
-            await conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,7))", (f"{scope}:{request.idempotency_key}",))
+            await self._lock_scope(conn, scope)
             row = await (await conn.execute("SELECT * FROM operator_messages WHERE scope=%s AND request_key=%s", (scope, request.idempotency_key))).fetchone()
             if row:
                 if row["request_digest"] != fingerprint:
                     raise DomainError("OPERATOR_MESSAGE_CONFLICT", "This message key was already used for different content", 409)
                 return view(row)
-            count = await (await conn.execute("SELECT count(*) AS n FROM operator_messages WHERE scope=%s AND state IN ('queued','running')", (scope,))).fetchone()
-            if count["n"] >= 8:
-                raise DomainError("OPERATOR_CONVERSATION_BUSY", "Wait for pending supervisor messages before sending more", 429)
+            await self._check_capacity(conn, scope)
             identifier = new_id()
             row = await (await conn.execute("""INSERT INTO operator_messages(id,scope,request_key,request_digest,data)
                 VALUES(%s,%s,%s,%s,%s) RETURNING *""", (identifier, scope, request.idempotency_key, fingerprint, Jsonb({**content, "source": source})))).fetchone()
@@ -65,13 +71,16 @@ class OperatorConversationStore:
 
     async def resume(self, identifier, request: OperatorMessageResume):
         async with self.repository.connection() as conn:
-            row = await (await conn.execute("SELECT * FROM operator_messages WHERE id=%s FOR UPDATE", (identifier,))).fetchone()
+            row = await (await conn.execute("SELECT * FROM operator_messages WHERE id=%s", (identifier,))).fetchone()
             if not row:
                 raise DomainError("OPERATOR_MESSAGE_NOT_FOUND", "The supervisor message does not exist", 404)
+            await self._lock_scope(conn, row["scope"])
+            row = await (await conn.execute("SELECT * FROM operator_messages WHERE id=%s FOR UPDATE", (identifier,))).fetchone()
             if row["state"] in {"queued", "running", "completed"}:
                 return view(row)
             if row["error_code"] != request.expected_error_code:
                 raise DomainError("OPERATOR_MESSAGE_CHANGED", "Refresh this message before resuming", 409)
+            await self._check_capacity(conn, row["scope"])
             row = await (await conn.execute("UPDATE operator_messages SET state='queued',error_code=NULL WHERE id=%s RETURNING *", (identifier,))).fetchone()
             await self.enqueue(conn, identifier, row["scope"])
         return view(row)
