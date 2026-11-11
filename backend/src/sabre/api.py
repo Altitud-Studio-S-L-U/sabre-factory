@@ -106,7 +106,7 @@ def create_app(service=None, config=None) -> FastAPI:
             application.state.service, application.state.config = runtime.service, cfg
             if cfg.web_dir.is_dir():
                 application.mount("/", ConsoleFiles(directory=cfg.web_dir, html=True), name="web")
-            async with mcp_app.router.lifespan_context(mcp_app):
+            async with mcp_app.router.lifespan_context(mcp_app), delegated_app.router.lifespan_context(delegated_app):
                 yield
 
     application = FactoryAPI(title="SABRE", version=__version__, lifespan=lifespan)
@@ -118,6 +118,14 @@ def create_app(service=None, config=None) -> FastAPI:
                              timedelta(days=getattr(cfg, "panel_session_days", 30)))
 
     async def authorize_request(request: Request, call_next):
+        if request.url.path.startswith("/delegated/"):
+            # Remote agents: a delegated grant only. Browsers have no place here, and the owner
+            # credential is refused so it is never sent to a remote client.
+            if request.headers.get("origin"):
+                return JSONResponse({"code": "ORIGIN_DENIED", "message": "Origin not allowed"}, status_code=403)
+            from sabre.delegation import Delegations
+            await Delegations(svc()).authenticate(request.headers.get("authorization", ""))
+            return await call_next(request)
         if request.url.path.startswith(("/api/", "/mcp", "/internal/")):
             cfg = application.state.config
             expected = cfg.auth_token.get_secret_value() if cfg else ""
@@ -155,7 +163,7 @@ def create_app(service=None, config=None) -> FastAPI:
         response.headers["Content-Security-Policy"] = "frame-ancestors 'none'"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "no-referrer"
-        if request.url.path.startswith(("/api/", "/mcp", "/internal/")):
+        if request.url.path.startswith(("/api/", "/mcp", "/internal/", "/delegated/")):
             response.headers["Cache-Control"] = "no-store"
         return response
 
@@ -547,6 +555,11 @@ def create_app(service=None, config=None) -> FastAPI:
     mcp_app = mcp.streamable_http_app(streamable_http_path="/")
     application.mount("/mcp", mcp_app)
     application.state.mcp = mcp
+    from sabre.mcp_delegated import build_delegated_mcp
+    delegated_mcp = build_delegated_mcp(svc)
+    delegated_app = delegated_mcp.streamable_http_app(streamable_http_path="/")
+    application.mount("/delegated/mcp", delegated_app)
+    application.state.delegated_mcp = delegated_mcp
     from sabre.a2a import install_a2a
     from sabre.browser_qa import install_browser_routes
     from sabre.console_configuration import install_console_routes
