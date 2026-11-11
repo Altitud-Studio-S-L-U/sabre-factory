@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import type { Project, WorkOrder } from './api';
 import Select from './components/Select';
+import { ACTIVE_STATUSES, ATTENTION_STATUSES, isClosed } from './runState';
 import './RunsWorkspace.css';
 
 export default function RunsWorkspace({
@@ -31,9 +32,9 @@ export default function RunsWorkspace({
           .toLocaleLowerCase()
           .includes(query.toLocaleLowerCase())) &&
       (state === 'all' ||
-        (state === 'active' && ['queued', 'running'].includes(order.status)) ||
-        (state === 'attention' && ['blocked', 'failed', 'waiting_input', 'paused'].includes(order.status)) ||
-        (state === 'finished' && ['completed', 'cancelled'].includes(order.status))),
+        (state === 'active' && ACTIVE_STATUSES.includes(order.status)) ||
+        (state === 'attention' && ATTENTION_STATUSES.includes(order.status)) ||
+        (state === 'finished' && isClosed(order))),
   );
   return (
     <div className="runs-workspace">

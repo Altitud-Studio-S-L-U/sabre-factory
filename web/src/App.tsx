@@ -60,6 +60,13 @@ import BudgetFields, { defaultBudgetPolicy } from './components/BudgetFields';
 import ReleasesPanel from './ReleasesPanel';
 import RemoteTasksPanel from './RemoteTasksPanel';
 import RunReport from './RunReport';
+import {
+  currentBlocker,
+  historicalError,
+  isBudgetCode,
+  isClosed,
+  pendingQuestions,
+} from './runState';
 
 type View =
   | 'work'
@@ -246,12 +253,6 @@ function useAction() {
     }
   };
   return { busy, error, run };
-}
-
-function pendingQuestions(order: WorkOrder) {
-  return order.questions.filter(
-    (question) => question.answer === null && question.plan_revision === order.plan_revision,
-  );
 }
 
 export default function App() {
@@ -1387,7 +1388,12 @@ function WorkDetail({
     });
   };
   const pending = pendingQuestions(order);
-  const terminal = ['completed', 'cancelled'].includes(order.status) || order.phase === 'security_watch';
+  const terminal = isClosed(order) || order.phase === 'security_watch';
+  // The status decides what is current: a code retained on a closed run is history, not a pending decision.
+  const blocker = currentBlocker(order);
+  const history = historicalError(order);
+  const budgetDecision =
+    isBudgetCode(blocker) && ['blocked', 'paused'].includes(order.status) && order.control !== 'cancel';
   const pr = externalUrl(order.evidence?.pr_url);
   const perAgent =
     order.budget.max_calls === null &&
@@ -1418,15 +1424,25 @@ function WorkDetail({
             {order.phase === 'security_watch' ? 'Monitoring' : modeLabels[order.mode]}{' '}
             {project?.name || 'project'}
           </Heading>
-          {!order.error_code && <p>{order.summary}</p>}
+          {!blocker && <p>{order.summary}</p>}
         </div>
         <Badge value={order.status} />
       </div>
-      {order.error_code && (
+      {history && (
+        <div className="notice neutral" role="note" aria-label="Retained run history">
+          <strong>History · {history}</strong>
+          <p>
+            Last recorded stop reason before this run was{' '}
+            {order.status === 'cancelled' ? 'cancelled' : 'closed'}. No decision is pending and it cannot be
+            resumed. The recorded evidence remains available for inspection.
+          </p>
+        </div>
+      )}
+      {blocker && (
         <div className="notice warning">
-          <strong>{order.error_code}</strong>
+          <strong>{blocker}</strong>
           <p>{order.summary}</p>
-          {order.error_code === 'BUDGET_EXHAUSTED' && (
+          {budgetDecision && (
             <div className="budget-next-step">
               <p>
                 The run is waiting for your budget decision. Set a new ceiling or remove a ceiling, then
@@ -1460,11 +1476,9 @@ function WorkDetail({
             <Button
               className="button small"
               disabled={action.busy || !connected}
-              onClick={() =>
-                order.error_code === 'BUDGET_EXHAUSTED' ? setDetailTab('Limits & scope') : control('resume')
-              }
+              onClick={() => (budgetDecision ? setDetailTab('Limits & scope') : control('resume'))}
             >
-              {order.error_code === 'BUDGET_EXHAUSTED' ? 'Resolve budget' : 'Resume'}
+              {budgetDecision ? 'Resolve budget' : 'Resume'}
             </Button>
           )}
           {!terminal && (
@@ -1863,7 +1877,7 @@ function WorkDetail({
                   )}
                   {!order.effective_budget_policy &&
                     !order.budget.policy &&
-                    order.error_code === 'BUDGET_EXHAUSTED' && (
+                    isBudgetCode(order.error_code) && (
                       <BudgetPanel
                         connected={connected}
                         api={api}

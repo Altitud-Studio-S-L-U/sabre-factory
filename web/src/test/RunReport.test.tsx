@@ -4,6 +4,7 @@ import type { ComponentProps } from 'react';
 import RunReport from '../RunReport';
 
 const work: ComponentProps<typeof RunReport>['work'] = {
+  status: 'blocked',
   mode: 'audit',
   summary: 'Waiting for verification',
   updated_at: '2026-11-11T12:00:00Z',
@@ -20,6 +21,14 @@ it('keeps an incomplete audit and absent security evidence explicit', () => {
   expect(screen.getByText(/Zero findings does not establish/)).toBeInTheDocument();
   expect(screen.getByText(/a draft PR is not expected/)).toBeInTheDocument();
   expect(screen.queryByText('Passed')).not.toBeInTheDocument();
+});
+
+it('reports a cancelled run as cancelled instead of blocked while keeping its recorded error', () => {
+  render(<RunReport work={{ ...work, status: 'cancelled', summary: 'Work order cancelled' }} />);
+  expect(screen.queryByText(/Progress is blocked/)).not.toBeInTheDocument();
+  const note = screen.getByText(/This run was cancelled after/);
+  expect(note).toHaveTextContent('This run was cancelled after BUDGET_EXHAUSTED was recorded.');
+  expect(note).toHaveTextContent('not a completed report');
 });
 
 it('does not count a successful check from another snapshot as passed', () => {

@@ -277,6 +277,37 @@ it('offers a budget decision without changing a ceiling or resuming automaticall
   expect(writes).toHaveLength(0);
 });
 
+it('presents a cancelled run that retains a budget error as a final record without a decision', async () => {
+  const { api, writes } = connect();
+  vi.spyOn(api, 'workBudget').mockResolvedValue({
+    ...snapshot,
+    denial: {
+      version: 1,
+      metric: 'tokens',
+      basis: 'next_reservation',
+      used: 237197,
+      reserved: 0,
+      requested: 80000,
+      required: 317197,
+      limit: 300000,
+    },
+  });
+  render(
+    <BudgetPanel
+      api={api}
+      work={{ ...work, status: 'cancelled', control: 'cancel', error_code: 'BUDGET_EXHAUSTED', summary: 'Work order cancelled' }}
+    />,
+  );
+  await screen.findByText('Authorization revision 7');
+  expect(screen.queryByRole('region', { name: 'Budget decision' })).not.toBeInTheDocument();
+  expect(screen.getByText(/Next step did not fit/)).toBeInTheDocument();
+  expect(screen.getByText(/Limits and usage are a final record/)).toBeInTheDocument();
+  expect(screen.getByText('Last phase: implementation')).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Amend limits' })).not.toBeInTheDocument();
+  expect(screen.queryByText(/Pause the run before changing/)).not.toBeInTheDocument();
+  expect(writes).toHaveLength(0);
+});
+
 it('requires explicit authorization to remove one ceiling and blocks resume with unsettled usage', async () => {
   const user = userEvent.setup();
   const { api, writes } = connect();

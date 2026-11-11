@@ -1,9 +1,11 @@
 import type { WorkOrder } from './api';
 import JsonView from './components/JsonView';
+import { currentBlocker, historicalError } from './runState';
 import './RunReport.css';
 
 type ReportRun = Pick<
   WorkOrder,
+  | 'status'
   | 'mode'
   | 'summary'
   | 'updated_at'
@@ -26,6 +28,8 @@ export default function RunReport({ work }: { work: ReportRun }) {
       (gate) => Boolean(gate.snapshot_digest) && gate.snapshot_digest === evidence.snapshot_digest,
     ) ?? [];
   const passed = matched.filter((gate) => gate.exit_code === 0).length;
+  const blocker = currentBlocker(work);
+  const history = historicalError(work);
   return (
     <div className="run-report" aria-label="Review and security report">
       <header>
@@ -56,9 +60,21 @@ export default function RunReport({ work }: { work: ReportRun }) {
       <section aria-label="Run report">
         <h3>Run report</h3>
         <p className="report-prose">{work.summary}</p>
-        {work.error_code && (
+        {blocker && (
           <p className="notice warning">
-            Progress is blocked: <code>{work.error_code}</code>. This summary is not a completed report.
+            Progress is blocked: <code>{blocker}</code>. This summary is not a completed report.
+          </p>
+        )}
+        {work.status === 'cancelled' && (
+          <p className="notice neutral">
+            {history ? (
+              <>
+                This run was cancelled after <code>{history}</code> was recorded.{' '}
+              </>
+            ) : (
+              'This run was cancelled. '
+            )}
+            This summary is not a completed report.
           </p>
         )}
         {work.mode === 'audit' && !evidence && (
