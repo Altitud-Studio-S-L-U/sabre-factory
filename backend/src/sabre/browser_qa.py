@@ -16,7 +16,7 @@ from sabre.models import DomainError
 from sabre.repository import digest
 
 MAX_RESULT = 40_000_000
-SECCOMP_DIGEST = "91c80e325ff4db148a2a17288fbfaa68a289d0496239491167002493c71050a3"
+SECCOMP_DIGEST = "7ccb7b4fdd100c367beaebe91504dd12b39b8f0c702dff7255b460b5e255e09c"
 CONTAINER_TEMP = "/tmp"  # noqa: S108 - private bounded tmpfs in disposable jobs
 
 
