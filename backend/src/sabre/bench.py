@@ -191,6 +191,12 @@ class ReferenceModel(BaseChatModel):
             passed = isinstance(outcome, dict) and outcome.get("exit_code") == 0
             return [], AgentResult(accepted=passed, summary="Implemented and checked" if passed else "The check still fails")
         if role == "qa":
+            # Recorded gate evidence is enough when present; otherwise run the checks itself.
+            evidence = (self._trace.first_inputs.get("qa", {}).get("task_context") or {}).get("evidence") or {}
+            recorded = evidence.get("results") if evidence.get("kind") == "deterministic_gate_results" else None
+            if recorded:
+                passed = all(item.get("exit_code") == 0 for item in recorded)
+                return [], AgentResult(accepted=passed, summary="Recorded gates pass" if passed else "Recorded gates fail")
             if rounds == 0:
                 return [call("execute", {"argv": argv}, f"gate-{i}") for i, argv in enumerate(task.gate_commands)], None
             passed = all(isinstance(value, dict) and value.get("exit_code") == 0 for key, value in replies.items() if key.startswith("qa-gate-"))
