@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import { openPanelAccess, requireClaudeOwnerTerminal, runClaudeOwnerLogin } from './ops.mjs';
+import { prepareScannerImages, openPanelAccess, requireClaudeOwnerTerminal, runClaudeOwnerLogin } from './ops.mjs';
 
 test('Claude account login requires owner stdin and stdout terminals', () => {
   for (const [input, output] of [[{}, {}], [{ isTTY: true }, {}], [{}, { isTTY: true }]]) {
@@ -130,4 +130,19 @@ test('grant and opener failures expose fixed diagnostics without private details
 
 test('the operations launcher has no PowerShell or ShellExecute opener', () => {
   assert.doesNotMatch(readFileSync(new URL('./ops.mjs', import.meta.url), 'utf8'), /powershell|ShellExecute|Start-Process/i);
+});
+
+
+test('security preparation pulls rendered immutable scanners before execution', async () => {
+  const names = ['SABRE_GITLEAKS_IMAGE', 'SABRE_SEMGREP_IMAGE', 'SABRE_TRIVY_IMAGE'];
+  const images = names.map((name, index) => `registry.example/${name.toLowerCase()}:v1@sha256:${String(index).repeat(64)}`);
+  const calls = [];
+  await prepareScannerImages({ services: { executor: { environment: Object.fromEntries(names.map((name, index) => [name, images[index]])) } } }, async (image) => calls.push(image));
+  assert.deepEqual(calls, images);
+  for (const invalid of [undefined, 'scanner:latest', `scanner@sha256:${'x'.repeat(64)}`]) {
+    const environment = Object.fromEntries(names.map((name, index) => [name, images[index]]));
+    environment.SABRE_TRIVY_IMAGE = invalid;
+    await assert.rejects(prepareScannerImages({ services: { executor: { environment } } }, async () => assert.fail('Validation must precede every pull')), /digest-pinned/);
+  }
+  await assert.rejects(prepareScannerImages({}, async () => assert.fail()), /digest-pinned/);
 });

@@ -63,7 +63,7 @@ async function build(file, tag, buildArgs = []) {
   archive.stdout.pipe(builder.stdin);
   await Promise.all([done(archive), done(builder)]);
 }
-async function compose(args, document) {
+async function compose(args, document, capture = false) {
   const creates = args.some((arg) => ['up', 'run', 'create'].includes(arg));
   let profilePath = '/sabre-codex-policy-not-prepared.json';
   if (creates && document === undefined) await prepareCodexPolicy();
@@ -71,9 +71,21 @@ async function compose(args, document) {
   catch (error) { if (creates && document === undefined) throw error; }
   const composeEnvironment = safeEnvironment({ ...config, SABRE_CODEX_SECCOMP_FILE: profilePath });
   const child = start(executable, [...prefix, 'compose', '--project-name', 'sabre-factory', '-f', '-', ...args],
-    ['pipe', 'inherit', 'inherit'], composeEnvironment);
+    ['pipe', capture ? 'pipe' : 'inherit', 'inherit'], composeEnvironment);
+  const chunks = [];
+  if (capture) child.stdout.on('data', (chunk) => chunks.push(chunk));
   child.stdin.end(document ?? readFileSync(resolve(root, 'infra/compose.yml')));
   await done(child);
+  return capture ? Buffer.concat(chunks).toString('utf8') : '';
+}
+
+export async function prepareScannerImages(document, pull) {
+  const environment = document?.services?.executor?.environment;
+  const images = ['SABRE_GITLEAKS_IMAGE', 'SABRE_SEMGREP_IMAGE', 'SABRE_TRIVY_IMAGE'].map((key) => environment?.[key]);
+  if (images.some((image) => typeof image !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9./:_-]*@sha256:[a-f0-9]{64}$/.test(image))) {
+    throw new Error('All security scanner images must be immutable digest-pinned references');
+  }
+  for (const image of images) await pull(image);
 }
 function rulesDigest() {
   const sum = createHash('sha256');
@@ -318,6 +330,7 @@ except Exception:
     postgres: ['infra/Dockerfile.postgres', 'sabre-factory-postgres:local'],
     python: ['infra/Dockerfile.python-runner', 'sabre-factory-python:local'],
     node: ['infra/Dockerfile.node-runner', 'sabre-factory-node:local'],
+    browser: ['infra/Dockerfile.browser-runner', 'sabre-factory-browser:local'],
     proxy: ['infra/Dockerfile.proxy', 'sabre-factory-proxy:local'],
     'security-proxy': ['infra/Dockerfile.security-proxy', 'sabre-factory-security-proxy:local'],
     api: ['infra/Dockerfile.backend', 'sabre-factory-api:local'],
@@ -350,6 +363,11 @@ except Exception:
       if (!/^sha256:[a-f0-9]{64}$/.test(runner)) throw new Error('Invalid Claude runner image digest');
       runtime.SABRE_CLAUDE_RUNNER_IMAGE = runner;
     } catch { if (component === 'all' || component === 'claude-runner') throw new Error('Missing pinned Claude runner image'); }
+    try {
+      const browser = await docker(['image', 'inspect', 'sabre-factory-browser:local', '--format', '{{.Id}}'], true);
+      if (!/^sha256:[a-f0-9]{64}$/.test(browser)) throw new Error('Invalid browser image digest');
+      runtime.SABRE_BROWSER_IMAGE = browser;
+    } catch { if (component === 'all' || component === 'browser') throw new Error('Missing pinned browser image'); }
     runtime.SABRE_RULES_VOLUME = `sabre-factory-rules-${rulesDigest().slice(0, 20)}`;
     if (component === 'api' || component === 'all') {
       runtime.SABRE_RULES_VOLUME = await prepareRules();
@@ -372,10 +390,13 @@ except Exception:
     'up', '-d', '--wait', '--wait-timeout', '90', ...(component === 'all' ? [] : [component]), ...rest]);
 } else if (action === 'prepare') {
   const volume = await prepareRules();
+  const rendered = JSON.parse(await compose(['config', '--format', 'json'], undefined, true));
+  await prepareScannerImages(rendered, (image) => docker(['pull', image]));
   const runtime = Object.fromEntries(['SABRE_PYTHON_IMAGE', 'SABRE_NODE_IMAGE', 'SABRE_HELPER_IMAGE']
     .map((key) => [key, config[key]]));
   if (Object.values(runtime).some((value) => !value)) throw new Error('Build python and node before preparing security');
   runtime.SABRE_RULES_VOLUME = volume;
+  if (config.SABRE_BROWSER_IMAGE) runtime.SABRE_BROWSER_IMAGE = config.SABRE_BROWSER_IMAGE;
   if (config.SABRE_CODEX_RUNNER_IMAGE) runtime.SABRE_CODEX_RUNNER_IMAGE = config.SABRE_CODEX_RUNNER_IMAGE;
   if (config.SABRE_CLAUDE_RUNNER_IMAGE) runtime.SABRE_CLAUDE_RUNNER_IMAGE = config.SABRE_CLAUDE_RUNNER_IMAGE;
   writeFileSync(resolve(root, '.env.runtime'), Object.entries(runtime).map(([key, value]) => `${key}=${value}\n`).join(''), { mode: 0o600 });
