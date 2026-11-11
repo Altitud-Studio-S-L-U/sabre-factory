@@ -351,7 +351,8 @@ class AgentTeam:
             config.context_archive_enabled = config.context_archive_enabled and policy.get("archive_reads", True)
         model = self.model(config)
         context = RoleContext(work, project, self.executor, self.guard)
-        catalog = catalog_workspace_tools(context.executor, work.id, self.guard, project.gate_commands, source_context=source_context, role=authorization_role)
+        catalog = catalog_workspace_tools(context.executor, work.id, self.guard, project.gate_commands, source_context=source_context,
+                                          role=authorization_role, artifacts=self.artifacts)
         catalog.credential_check = credential_check
         catalog.observer = lambda name: observe(self.repository, work, "tool", name, parent_id=child_id, agent_id=public_id(child_id))
         archive = ContextArchive(self.artifacts, self.guard) if self.artifacts is not None else None

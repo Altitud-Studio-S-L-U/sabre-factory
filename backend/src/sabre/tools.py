@@ -1,6 +1,7 @@
 """Role-scoped tools and the small MCP-to-LangChain boundary."""
 
 import asyncio
+import hashlib
 import json
 from collections.abc import Awaitable, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager, nullcontext
@@ -178,16 +179,69 @@ class MCPToolAdapter:
         return definitions
 
 
+# Tool results return to the model on every later turn, so each one is bounded. A bounded
+# result says what was omitted and how to continue; full command output stays recoverable.
+MAX_READ_BYTES = 32768
+MAX_LISTED_FILES = 500
+MAX_OUTPUT_HEAD_BYTES = 4096
+MAX_OUTPUT_TAIL_BYTES = 12288
+
+
+def prefix_at_line(text: str, limit: int) -> str:
+    raw = text.encode()
+    if len(raw) <= limit:
+        return text
+    head = raw[:limit].decode("utf-8", errors="ignore")
+    cut = head.rfind("\n")
+    return head[:cut + 1] if cut > 0 else head
+
+
+def bounded_read(path: str, content: str):
+    raw = content.encode()
+    if len(raw) <= MAX_READ_BYTES:
+        return content
+    shown = prefix_at_line(content, MAX_READ_BYTES)
+    lines = shown.count("\n")
+    return {"path": path, "content": shown, "truncated": True, "total_bytes": len(raw),
+            "total_lines": content.count("\n") + (not content.endswith("\n")), "shown_lines": lines,
+            "content_digest": hashlib.sha256(raw).hexdigest(),
+            "next": f"Continue with read_file_range from line {lines + 1} using this content_digest, or search_source for a symbol."}
+
+
+def bounded_files(files: list[str]):
+    if len(files) <= MAX_LISTED_FILES:
+        return files
+    return {"files": files[:MAX_LISTED_FILES], "truncated": True, "total_files": len(files),
+            "next": "Use search_source with path_prefix to narrow the listing."}
+
+
+def bounded_execution(value: dict, artifacts=None) -> dict:
+    output = value.get("output")
+    if not isinstance(output, str):
+        return value
+    raw = output.encode()
+    if len(raw) <= MAX_OUTPUT_HEAD_BYTES + MAX_OUTPUT_TAIL_BYTES:
+        return value
+    head = raw[:MAX_OUTPUT_HEAD_BYTES].decode("utf-8", errors="ignore")
+    tail = raw[-MAX_OUTPUT_TAIL_BYTES:].decode("utf-8", errors="ignore")
+    omitted = len(raw) - len(head.encode()) - len(tail.encode())
+    bounded = {**value, "output": f"{head}\n[... {omitted} bytes omitted ...]\n{tail}", "output_truncated": True, "output_bytes": len(raw)}
+    if artifacts is not None:
+        bounded["output_digest"] = artifacts.put(raw)
+    return bounded
+
+
 def workspace_tools(executor, work_id: str, guard: SecretGuard | None = None,
-                    gate_commands: list[list[str]] | None = None, *, source_context=None, role: str = "developer") -> ToolCatalog:
+                    gate_commands: list[list[str]] | None = None, *, source_context=None, role: str = "developer",
+                    artifacts=None) -> ToolCatalog:
     catalog = ToolCatalog(guard)
     readers = frozenset({"supervisor", "analyst", "architect", "developer", "qa", "reviewer", "security"})
 
     async def list_files():
-        return await executor.list_files(work_id)
+        return bounded_files(await executor.list_files(work_id))
 
     async def read_file(path: str):
-        return await executor.read_file(work_id, path)
+        return bounded_read(path, await executor.read_file(work_id, path))
 
     async def write_file(path: str, content: str):
         await executor.write_file(work_id, path, content)
@@ -199,7 +253,7 @@ def workspace_tools(executor, work_id: str, guard: SecretGuard | None = None,
             result = await executor.execute_gate(work_id, argv, snapshot["digest"])
         else:
             result = await executor.execute(work_id, argv)
-        return result.model_dump(mode="json")
+        return bounded_execution(result.model_dump(mode="json"), artifacts)
 
     async def prepare_dependencies():
         await executor.prepare_dependencies(work_id)
