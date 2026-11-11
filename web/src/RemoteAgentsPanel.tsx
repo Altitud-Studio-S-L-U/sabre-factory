@@ -411,7 +411,7 @@ export default function RemoteAgentsPanel({
             >
               <input
                 required
-                pattern="[A-Za-z0-9_-]+"
+                pattern={'[A-Za-z0-9_\\-]+'}
                 maxLength={40}
                 disabled={!!current || busy}
                 value={name}

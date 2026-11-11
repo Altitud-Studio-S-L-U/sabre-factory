@@ -293,7 +293,7 @@ export default function InboundAccessPanel({
               <input
                 required
                 maxLength={100}
-                pattern="[A-Za-z0-9_.-]+"
+                pattern={'[A-Za-z0-9_.\\-]+'}
                 value={draft.principal}
                 onChange={(event) => setDraft({ ...draft, principal: event.target.value })}
               />

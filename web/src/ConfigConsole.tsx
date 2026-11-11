@@ -410,7 +410,7 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
                           required
                           value={selection.name}
                           maxLength={128}
-                          pattern="[A-Za-z0-9._:/-]+"
+                          pattern={'[A-Za-z0-9._:\\/\\-]+'}
                           onChange={(event) => changeDefault({ ...selection, name: event.target.value })}
                         />
                       </Field>
@@ -1180,7 +1180,7 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
               <Field label="Stable identifier">
                 <input
                   required
-                  pattern="[a-z][a-z0-9_.-]*"
+                  pattern={'[a-z][a-z0-9_.\\-]*'}
                   maxLength={100}
                   value={preference.id}
                   onChange={(event) => setPreference({ ...preference, id: event.target.value })}

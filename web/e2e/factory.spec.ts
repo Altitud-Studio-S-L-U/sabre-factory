@@ -234,6 +234,11 @@ test.beforeEach(async ({ page }) => {
 test('inbound agent access requires explicit scope and revocation and never restores the one-time credential', async ({
   page,
 }) => {
+  const errors: string[] = [];
+  page.on('console', (message) => {
+    if (message.type() === 'error') errors.push(message.text());
+  });
+  page.on('pageerror', (error) => errors.push(error.message));
   const requests: DelegationCreate[] = [];
   let grant: DelegationGrant | null = null;
   let revoked = false;
@@ -322,6 +327,7 @@ test('inbound agent access requires explicit scope and revocation and never rest
   await revoke.getByRole('button', { name: 'Confirm revocation' }).click();
   await expect(panel.getByText('Revoked', { exact: true })).toBeVisible();
   expect(writes).toBe(2);
+  expect(errors).toEqual([]);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 

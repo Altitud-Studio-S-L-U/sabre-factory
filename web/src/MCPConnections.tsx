@@ -266,7 +266,7 @@ export default function MCPConnections({
                   value={name}
                   required
                   maxLength={40}
-                  pattern="[A-Za-z0-9_-]+"
+                  pattern={'[A-Za-z0-9_\\-]+'}
                   disabled={busy || !!current}
                   onChange={(event) => setName(event.target.value)}
                 />

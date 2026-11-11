@@ -71,7 +71,7 @@ export function SelectionFields({
         <input
           value={value.name}
           maxLength={128}
-          pattern="[A-Za-z0-9._:/-]*"
+          pattern={'[A-Za-z0-9._:\\/\\-]*'}
           required={!cli}
           autoComplete="off"
           onChange={(event) => onChange({ ...value, name: event.target.value })}

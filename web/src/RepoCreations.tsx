@@ -170,7 +170,7 @@ export default function RepoCreations({ api }: { api: Api }) {
             <Field label="GitHub owner">
               <input
                 required
-                pattern="[A-Za-z0-9][A-Za-z0-9-]{0,38}"
+                pattern={'[A-Za-z0-9][A-Za-z0-9\\-]{0,38}'}
                 maxLength={39}
                 value={owner}
                 disabled={busy}
@@ -180,7 +180,7 @@ export default function RepoCreations({ api }: { api: Api }) {
             <Field label="Repository name">
               <input
                 required
-                pattern="[A-Za-z0-9_.-]+"
+                pattern={'[A-Za-z0-9_.\\-]+'}
                 maxLength={100}
                 value={name}
                 disabled={busy}
