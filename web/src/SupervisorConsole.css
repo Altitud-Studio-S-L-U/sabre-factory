@@ -467,4 +467,14 @@
       line-height: 1.5;
     }
   }
+  /* Below the lg breakpoint the bottom navigation bar occupies the lower edge. */
+  @media (max-width: 1023px) {
+    .supervisor-launcher.button {
+      right: 16px;
+      bottom: calc(4.25rem + env(safe-area-inset-bottom));
+    }
+    .supervisor-drawer {
+      z-index: 45;
+    }
+  }
 }
