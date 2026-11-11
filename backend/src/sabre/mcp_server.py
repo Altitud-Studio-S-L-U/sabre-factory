@@ -86,7 +86,7 @@ def build_mcp(service):
     @server.tool(structured_output=True)
     async def sabre_talk_supervisor(request: OperatorMessageRequest) -> OperatorMessageView:
         """Send an authenticated owner's durable message. Mutations require explicit allowed_actions; messages never grant budget or policy increases."""
-        return await service().queue.operator_conversation.admit(request)
+        return await service().queue.operator_conversation.admit(request, source="mcp")
 
     @server.tool(structured_output=True)
     async def sabre_supervisor_messages(work_id: str | None = None) -> OperatorMessagePage:

@@ -18,7 +18,7 @@ def request(**changes):
 
 
 def test_identity_and_authority_are_not_accepted_from_message_content():
-    for change in ({"principal": "owner"}, {"sender": "owner"}, {"allowed_actions": ["increase_token_budget"]},
+    for change in ({"principal": "owner"}, {"sender": "owner"}, {"source": "mcp"}, {"allowed_actions": ["increase_token_budget"]},
                    {"version": True}, {"work_id": "run-a", "allowed_actions": ["submit_work"]}):
         with pytest.raises(ValidationError):
             OperatorMessageRequest.model_validate(request(**change))

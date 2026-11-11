@@ -248,7 +248,7 @@ export default function SupervisorConsole({
             {truncated && <p className="hint">Showing the latest 100 messages.</p>}
             {conversation.map((item) => (
               <article className="supervisor-exchange" key={item.id}>
-                <strong>Operator</strong>
+                <strong>Operator · {item.source === 'mcp' ? 'MCP' : 'Console'}</strong>
                 <time className="supervisor-message-time" dateTime={item.created_at}>
                   {new Date(item.created_at).toLocaleString()}
                 </time>

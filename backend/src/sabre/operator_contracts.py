@@ -35,6 +35,7 @@ class OperatorMessageRequest(StrictContract):
 
 class OperatorContext(OperatorMessageRequest):
     id: str
+    source: Literal["web", "mcp"] = "web"
 
     @property
     def event_id(self):
@@ -52,6 +53,7 @@ class OperatorContext(OperatorMessageRequest):
 class OperatorMessageView(StrictContract):
     version: Literal[1] = 1
     id: str
+    source: Literal["web", "mcp"] = "web"
     work_id: str | None
     text: str
     allowed_actions: list[OperatorAction]

@@ -150,7 +150,7 @@ def conversation_tools(service, store, event: ConversationMessage | OperatorCont
         if request.budget.max_cost_usd > 0 and Decimal(str(request.budget.max_cost_usd)) not in explicit_budgets(event.text):
             raise DomainError("BUDGET_CONFIRMATION_REQUIRED", "Specify the maximum budget for this work order, for example 5 USD")
         request = request.model_copy(update={"idempotency_key": f"{'operator' if isinstance(event, OperatorContext) else 'slack'}:{event.event_id}",
-            "channel": "web" if isinstance(event, OperatorContext) else "slack", "channel_thread": event.binding})
+            "channel": event.source if isinstance(event, OperatorContext) else "slack", "channel_thread": event.binding})
         return await checked(await service.submit(request))
 
     @tool

@@ -1894,6 +1894,12 @@ export interface components {
             version: 1;
             /** Id */
             id: string;
+            /**
+             * Source
+             * @default web
+             * @enum {string}
+             */
+            source: "web" | "mcp";
             /** Work Id */
             work_id: string | null;
             /** Text */

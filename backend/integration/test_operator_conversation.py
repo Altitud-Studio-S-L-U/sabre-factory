@@ -19,6 +19,9 @@ async def test_durable_admission_deduplicates_and_restores_history(repository):
         first, second = await asyncio.gather(store.admit(request), store.admit(request))
         assert first.id == second.id
         enqueue.assert_awaited_once()
+        cross_channel = await store.admit(request, source="mcp")
+        assert cross_channel.id == first.id and cross_channel.source == "web"
+        enqueue.assert_awaited_once()
         with pytest.raises(DomainError) as caught:
             await store.admit(request.model_copy(update={"text": "Different request"}))
         assert caught.value.code == "OPERATOR_MESSAGE_CONFLICT"

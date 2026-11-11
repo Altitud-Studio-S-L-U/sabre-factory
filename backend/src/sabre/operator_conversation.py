@@ -1,6 +1,7 @@
 """Durable owner messages, serialized by context and processed by the worker."""
 
 import asyncio
+from typing import Literal
 
 from psycopg.types.json import Jsonb
 
@@ -17,7 +18,7 @@ from sabre.repository import digest
 
 def view(row):
     data = row["data"]
-    return OperatorMessageView(id=row["id"], work_id=data.get("work_id"), text=data["text"],
+    return OperatorMessageView(id=row["id"], source=data.get("source", "web"), work_id=data.get("work_id"), text=data["text"],
         allowed_actions=data.get("allowed_actions", []), state=row["state"], reply=row["reply"],
         error_code=row["error_code"], created_at=row["created_at"])
 
@@ -26,7 +27,7 @@ class OperatorConversationStore:
     def __init__(self, repository, guard, enqueue):
         self.repository, self.guard, self.enqueue = repository, guard, enqueue
 
-    async def admit(self, request: OperatorMessageRequest):
+    async def admit(self, request: OperatorMessageRequest, *, source: Literal["web", "mcp"] = "web"):
         self.guard.check(request)
         if request.work_id:
             await self.repository.work(request.work_id)
@@ -45,7 +46,7 @@ class OperatorConversationStore:
                 raise DomainError("OPERATOR_CONVERSATION_BUSY", "Wait for pending supervisor messages before sending more", 429)
             identifier = new_id()
             row = await (await conn.execute("""INSERT INTO operator_messages(id,scope,request_key,request_digest,data)
-                VALUES(%s,%s,%s,%s,%s) RETURNING *""", (identifier, scope, request.idempotency_key, fingerprint, Jsonb(content)))).fetchone()
+                VALUES(%s,%s,%s,%s,%s) RETURNING *""", (identifier, scope, request.idempotency_key, fingerprint, Jsonb({**content, "source": source})))).fetchone()
             await self.enqueue(conn, identifier, scope)
         return view(row)
 
