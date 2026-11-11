@@ -55,6 +55,96 @@ test('cancelled runs remain inspectable in Closed with a readable final-state ba
   await captureSource(page, 'cancelled-history');
 });
 
+test('cancelled run with a retained budget error shows history instead of a pending decision', async ({ page }) => {
+  const base = syntheticRun();
+  const order: WorkOrder = {
+    ...base,
+    status: 'cancelled',
+    control: 'cancel',
+    phase: 'verification',
+    summary: 'Work order cancelled',
+    error_code: 'BUDGET_EXHAUSTED',
+    limiting_metric: 'tokens',
+    budget_denial: {
+      version: 1,
+      metric: 'tokens',
+      basis: 'next_reservation',
+      used: 237197,
+      reserved: 0,
+      requested: 80000,
+      required: 317197,
+      limit: 300000,
+    },
+    questions: [
+      {
+        id: 'synthetic-open-question',
+        work_id: base.id,
+        plan_revision: base.plan_revision,
+        prompt: 'Synthetic question left open before cancellation',
+        kind: 'clarification',
+        options: [],
+        subject_digest: null,
+        answer: null,
+        answered_at: null,
+      },
+    ],
+  };
+  const failedStage: SequencedEvent = {
+    sequence: 1,
+    event: {
+      version: 1,
+      id: 'synthetic-failed-checks',
+      work_id: order.id,
+      plan_revision: 1,
+      phase: 'checks',
+      correlation_id: 'synthetic-checks',
+      parent_id: null,
+      agent_id: null,
+      kind: 'stage',
+      state: 'failed',
+      name: 'checks',
+      timestamp: '2026-11-10T11:00:05Z',
+      duration_ms: 4000,
+      error_code: 'BUDGET_EXHAUSTED',
+      provider: null,
+      model: null,
+      trace_id: null,
+      span_id: null,
+    },
+  };
+  const writes: string[] = [];
+  page.on('request', (request) => {
+    if (request.method() !== 'GET' && request.url().includes('/api/v1/work')) writes.push(request.url());
+  });
+  await page.route('**/api/v1/work**', async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path.endsWith('/work')) return route.fulfill({ json: [order] });
+    if (path.endsWith('/work/synthetic-run')) return route.fulfill({ json: order });
+    if (path.endsWith('/execution-events'))
+      return route.fulfill({ json: { items: [failedStage], next_cursor: 1, has_more: false } });
+    await route.fallback();
+  });
+  await page.goto('/work');
+  await page.getByRole('button', { name: 'Closed', exact: true }).click();
+  await page.getByRole('button', { name: /Correct the synthetic example/ }).first().click();
+  await expect(page).toHaveURL(/\/work\/synthetic-run/);
+  const history = page.getByRole('note', { name: 'Retained run history' });
+  await expect(history).toContainText('History · BUDGET_EXHAUSTED');
+  await expect(history).toContainText('No decision is pending');
+  await expect(page.getByText(/waiting for your budget decision/)).toHaveCount(0);
+  for (const name of ['Review budget options', 'Resume', 'Resolve budget', 'Pause', 'Cancel run'])
+    await expect(page.getByRole('button', { name, exact: true })).toHaveCount(0);
+  await expect(page.getByText('Your decision unlocks the next step')).toHaveCount(0);
+  const inspector = page.getByRole('region', { name: 'Execution inspector' });
+  await expect(inspector.getByText(/Historical record · BUDGET_EXHAUSTED · event #1/)).toBeVisible();
+  await expect(inspector.getByText('Work order cancelled')).toHaveCount(0);
+  await page.getByRole('tab', { name: 'Review & security' }).click();
+  await expect(page.getByText(/Progress is blocked/)).toHaveCount(0);
+  await expect(page.getByText(/This run was cancelled after/)).toBeVisible();
+  expect(writes).toEqual([]);
+  await captureSource(page, 'cancelled-retained-error');
+});
+
 test('connection action links open the registered setup surface without saving', async ({ page }) => {
   const writes: string[] = [];
   page.on('request', (request) => {
