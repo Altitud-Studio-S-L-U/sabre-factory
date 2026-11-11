@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import math
 import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, replace
@@ -58,9 +59,18 @@ PLATFORM_CONTRACT = (
 )
 
 
-def input_reservation_tokens(sent_bytes: int) -> int:
-    """Input tokens reserved before a call: one token per sent byte plus a fixed margin."""
-    return sent_bytes + 2048
+# Reservation estimate. Code, JSON and English text average about 4 UTF-8 bytes per
+# token; 2.5 stays above the measured count for dense or non-ASCII content. CLI runners
+# add their own instructions and tool definitions to every turn, hence the larger margin.
+# Settlement always replaces the estimate with the provider-reported count.
+BYTES_PER_TOKEN_FLOOR = 2.5
+API_INPUT_MARGIN_TOKENS = 2048
+CLI_INPUT_MARGIN_TOKENS = 16384
+
+
+def input_reservation_tokens(sent_bytes: int, *, cli: bool = False) -> int:
+    """Input tokens reserved before a call, estimated from the bytes sent."""
+    return math.ceil(sent_bytes / BYTES_PER_TOKEN_FLOOR) + (CLI_INPUT_MARGIN_TOKENS if cli else API_INPUT_MARGIN_TOKENS)
 
 
 def cache_read_tokens(usage: dict) -> int:
@@ -151,10 +161,10 @@ class GuardedCalls(AgentMiddleware):
         if sent_bytes > limit:
             raise DomainError("CONTEXT_BUDGET_EXHAUSTED", "Required context exceeds the input limit; narrow the task or review its configuration before continuing", 409)
         observation.set(context_request_original_bytes=original_bytes, context_request_sent_bytes=sent_bytes)
-        input_bound = input_reservation_tokens(sent_bytes)
-        output_bound = self.settings.model_max_output_tokens
         provider = getattr(self.settings, "model_provider", None)
         cli = provider in {"codex_cli", "claude_cli"}
+        input_bound = input_reservation_tokens(sent_bytes, cli=cli)
+        output_bound = self.settings.model_max_output_tokens
         input_rate = 0 if cli else self.settings.model_input_usd_per_million
         output_rate = 0 if cli else self.settings.model_output_usd_per_million
         reserve = (input_bound * input_rate + output_bound * output_rate) / 1_000_000

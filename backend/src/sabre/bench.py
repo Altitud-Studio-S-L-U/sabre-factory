@@ -462,9 +462,9 @@ def probes(task: BenchTask, trace: Trace) -> dict:
 
 
 def budget_feasibility(work: WorkOrder) -> dict:
-    """Whether one call at the configured context ceiling can ever be reserved under the default token budget."""
+    """Whether one CLI call (the largest margin) at the context ceiling fits the default token budget."""
     settings = bench_settings()
-    reservation = input_reservation_tokens(settings.context_input_max_bytes) + settings.model_max_output_tokens
+    reservation = input_reservation_tokens(settings.context_input_max_bytes, cli=True) + settings.model_max_output_tokens
     return {"reservation_at_context_limit": reservation, "budget_max_tokens": work.budget.max_tokens,
             "fits": work.budget.max_tokens is None or reservation <= work.budget.max_tokens}
 
