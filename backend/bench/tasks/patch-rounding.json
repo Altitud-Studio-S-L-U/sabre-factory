@@ -1,0 +1,19 @@
+{
+  "id": "patch-rounding",
+  "repo": "pricing",
+  "mode": "patch",
+  "objective": "Totals must round half a cent up instead of to the nearest even cent.",
+  "acceptance": ["total([('0.125', 1)], tax_rate='0') returns Decimal('0.13')", "Existing pricing tests still pass"],
+  "gate_commands": [["python", "-m", "unittest"]],
+  "grader": {"kind": "tests", "files": {"tests/test_bench_grader.py": "graders/test_bench_rounding.py"},
+             "argv": ["python", "-m", "unittest", "tests.test_bench_grader"]},
+  "reference": {
+    "inspect": ["pricing.py", "tests/test_pricing.py"],
+    "plan": {"title": "Round totals half up to cents", "scope": ["pricing.py"],
+             "acceptance": ["Half a cent rounds up", "Existing pricing tests still pass"]},
+    "edits": [
+      {"path": "pricing.py", "old": "from decimal import Decimal\n", "new": "from decimal import ROUND_HALF_UP, Decimal\n"},
+      {"path": "pricing.py", "old": "    return taxed.quantize(CENT)\n", "new": "    return taxed.quantize(CENT, rounding=ROUND_HALF_UP)\n"}
+    ]
+  }
+}
