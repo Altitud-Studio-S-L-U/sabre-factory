@@ -15,10 +15,9 @@ node bin/sabre.mjs config
 node bin/sabre.mjs build all
 node bin/sabre.mjs prepare
 node bin/sabre.mjs up
-node bin/sabre.mjs open
 ```
 
-On Windows, run `open` in your own interactive terminal and follow the single-use local link. Do not redirect or share it. The panel never receives the permanent control credential.
+`up` opens the panel in your default browser, already signed in, on Windows, macOS and Linux. The browser stays paired while you use it and signs out after 30 days without use. To pair another browser, or after signing out, run `node bin/sabre.mjs open`. Use `up --no-open` on machines without a desktop. Run `npm link` once in this directory to use `sabre <command>` instead of `node bin/sabre.mjs <command>`. No link or token is displayed, and the panel never receives the permanent control credential.
 
 `init` creates protected, service-specific bootstrap files and a master key in Docker volumes. The ignored `.env` contains public configuration. API keys entered in the write-only panel are encrypted in a separate PostgreSQL vault. Coding and verification containers receive no integration credentials.
 
