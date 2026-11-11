@@ -158,6 +158,18 @@ PostgreSQL checks create private, disposable databases and bootstrap files per i
 
 Real-provider, real Slack and desktop-client connection checks require the owner's integration setup. Unit or mocked HTTP tests are not evidence that those live integrations are configured.
 
+## SABRE Bench
+
+`sabre bench` (or `node bin/sabre.mjs bench [--task <id>]`) runs the harness bench in the development image with no network and no model provider. It drives the real factory graph, agent loop, tool policies, context projection, budget reservation and checkpoints over the fixture repositories in `backend/bench/repos`. Only the language model is replaced, by a reference policy that inspects, edits and verifies the way a competent agent would. Each task in `backend/bench/tasks` has a deterministic grader: hidden tests run against the delivered snapshot for PATCH tasks; AUDIT tasks require an unchanged source and a report naming the expected paths and risks.
+
+The JSON report is saved under `work/bench/`. Per task it records the outcome and grade, model calls by role, estimated and reserved tokens, sent context bytes, tool calls, result sizes and time, the completed stages and the action order. Tokens are estimated as UTF-8 bytes divided by four because no provider is called; they are comparable between bench runs, not with provider invoices. `probes` describe harness behaviour (whether the developer receives the task's scope and acceptance, whether deterministic gates run before model QA and reach it) and `budget_feasibility` says whether one call at the configured context ceiling can be reserved under the default token budget. Probes describe; they do not grade.
+
+The bench therefore measures the harness, not model quality. A bench pass is not evidence that a real model completes these tasks; that requires a real-provider run under an explicit owner budget. Keep the bench green before and after every harness change and compare the saved reports.
+
+## Per-call telemetry
+
+Each model call records its reservation, the provider-reported input, output and cached-input tokens, the sent and original context bytes and the time from reservation to settlement. Agent and tool boundaries record their measured duration, and tool completions record the size of the result handed back to the model, never its content. The run's Activity view shows tool time and a per-call table; the audit API (`GET /api/v1/work/{id}/audit`) returns the same fields as `calls` and `tool_timings`. Calls and runs recorded before this measurement report these values as unknown.
+
 ## Annotated evaluation
 
 Run the deterministic evaluator from the backend's Python 3.14 environment, using `SABRE_BOOTSTRAP_FILE` or `--bootstrap-file` to read owner authentication from a protected control file. Do not inject a raw token into the environment. It performs authenticated GET requests and needs no master-key mount or model access:
