@@ -1,3 +1,6 @@
+import Button from './components/Button';
+import Input from './components/Input';
+import Textarea from './components/Textarea';
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import {
@@ -248,9 +251,9 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
           <span className="operator-tag">
             {saved ? `Revision ${saved.revision}` : 'Loading configuration'}
           </span>
-          <button className="button" disabled={loading || busy || dirty} onClick={() => void load()}>
+          <Button className="button" disabled={loading || busy || dirty} onClick={() => void load()}>
             Refresh
-          </button>
+          </Button>
         </div>
       </header>
       {!connected && (
@@ -277,14 +280,14 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
         <>
           <div className="operator-tabs" aria-label="Configuration views">
             {['Guided setup', 'YAML / JSON', 'Policies & limits', 'Context & storage'].map((name) => (
-              <button
+              <Button
                 key={name}
                 disabled={busy}
                 aria-pressed={mode === name}
                 onClick={() => void switchMode(name)}
               >
                 {name}
-              </button>
+              </Button>
             ))}
           </div>
           {mode === 'Guided setup' && (
@@ -292,9 +295,9 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
               <div className="operator-steps" aria-label="Setup steps">
                 {['Connect provider', 'Choose model', 'Connect project', 'Review readiness'].map(
                   (name, index) => (
-                    <button key={name} aria-pressed={step === index} onClick={() => setStep(index)}>
+                    <Button key={name} aria-pressed={step === index} onClick={() => setStep(index)}>
                       {String(index + 1).padStart(2, '0')} · {name}
-                    </button>
+                    </Button>
                   ),
                 )}
               </div>
@@ -373,13 +376,13 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
                         )}
                         {!cli && providerTargetIds.length ? (
                           <p>
-                            <button
+                            <Button
                               className="button"
                               onClick={() => setCredentialIds(providerTargetIds)}
                               disabled={!connected}
                             >
                               Manage provider credential
-                            </button>
+                            </Button>
                           </p>
                         ) : null}
                       </div>
@@ -390,9 +393,9 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
                           ? 'Subscription limits are managed by the provider.'
                           : 'API spend requires separate run authorization.'}
                       </p>
-                      <button className="button primary" onClick={() => setStep(1)}>
+                      <Button className="button primary" onClick={() => setStep(1)}>
                         Continue to model
-                      </button>
+                      </Button>
                     </>
                   )}
                   {step === 1 && (
@@ -406,7 +409,7 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
                         label="Model identifier"
                         hint="Use an identifier available to your provider account. Saving a name does not prove model availability."
                       >
-                        <input
+                        <Input
                           required
                           value={selection.name}
                           maxLength={128}
@@ -421,7 +424,7 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
                         <summary>Advanced model settings</summary>
                         <div style={{ marginTop: 18 }}>
                           <Field label="Destination">
-                            <input
+                            <Input
                               type="url"
                               readOnly={selection.provider !== 'local'}
                               value={selection.destination}
@@ -431,7 +434,7 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
                             />
                           </Field>
                           <Field label="Maximum output tokens">
-                            <input
+                            <Input
                               type="number"
                               min={128}
                               max={32768}
@@ -444,7 +447,7 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
                           {!cli && (
                             <div className="operator-two">
                               <Field label="USD per million input tokens">
-                                <input
+                                <Input
                                   type="number"
                                   min={0}
                                   step="any"
@@ -458,7 +461,7 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
                                 />
                               </Field>
                               <Field label="USD per million output tokens">
-                                <input
+                                <Input
                                   type="number"
                                   min={0}
                                   step="any"
@@ -488,21 +491,21 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
                                     : `Inherits default · ${selection.name || 'Model required'}`}
                                 </small>
                               </div>
-                              <button className="button small" onClick={() => setRole(name)}>
+                              <Button className="button small" onClick={() => setRole(name)}>
                                 Edit
-                              </button>
+                              </Button>
                             </li>
                           ))}
                         </ul>
                       </details>
-                      <button
+                      <Button
                         className="button primary"
                         style={{ marginTop: 20 }}
                         disabled={!selection.name.trim()}
                         onClick={() => setStep(2)}
                       >
                         Continue to project
-                      </button>
+                      </Button>
                     </>
                   )}
                   {step === 2 && (
@@ -542,9 +545,9 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
                         <Link className="button" to="/tools">
                           Manage repository access
                         </Link>
-                        <button className="button primary" onClick={() => setStep(3)}>
+                        <Button className="button primary" onClick={() => setStep(3)}>
                           Review readiness
-                        </button>
+                        </Button>
                       </div>
                     </>
                   )}
@@ -618,7 +621,7 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
                 keys, unknown capabilities and input over 64 KiB are rejected.
               </p>
               <Field label="Configuration document">
-                <textarea
+                <Textarea
                   value={document}
                   maxLength={65536}
                   rows={24}
@@ -631,7 +634,7 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
                   }}
                 />
               </Field>
-              <button
+              <Button
                 className="button"
                 disabled={
                   document !== saved.yaml &&
@@ -650,7 +653,7 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
                 }}
               >
                 Download document
-              </button>
+              </Button>
               <p className="operator-readonly">
                 Exports use the saved or server-validated secret-free contract. Validate draft edits before
                 downloading.
@@ -668,9 +671,9 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
                       review.
                     </p>
                   </div>
-                  <button className="button" onClick={() => setNewPreference(true)}>
+                  <Button className="button" onClick={() => setNewPreference(true)}>
                     Add preference
-                  </button>
+                  </Button>
                 </div>
                 <ul className="operator-checks">
                   {draft.policies.map((policy, index) => (
@@ -687,7 +690,7 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
                         {policy.mode === 'required' ? (
                           <p>{policy.value}</p>
                         ) : (
-                          <textarea
+                          <Textarea
                             aria-label={`Preference ${policy.id}`}
                             value={policy.value}
                             maxLength={4000}
@@ -732,7 +735,7 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
                       label="Repair cycles"
                       hint="Legacy bounded flow limit. Enable a versioned budget policy to configure cumulative bounds and reserve."
                     >
-                      <input
+                      <Input
                         type="number"
                         min={0}
                         max={2}
@@ -753,7 +756,7 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
                     <p>Flow permissions</p>
                     {(['architecture', 'dependency_changes', 'draft_pull_request'] as const).map((name) => (
                       <label className="check-line" key={name}>
-                        <input
+                        <Input
                           type="checkbox"
                           checked={draft.flows[flow].permissions?.[name] ?? name !== 'dependency_changes'}
                           onChange={(event) =>
@@ -780,7 +783,7 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
                 <details className="operator-section-divider">
                   <summary>Run budgets and recovery</summary>
                   <label className="check-line" style={{ marginTop: 18 }}>
-                    <input
+                    <Input
                       type="checkbox"
                       checked={!!draft.flows[flow].budget_policy}
                       onChange={(event) =>
@@ -846,7 +849,7 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
                           </summary>
                           <div style={{ marginTop: 16 }}>
                             <label className="check-line">
-                              <input
+                              <Input
                                 type="checkbox"
                                 checked={!!override}
                                 onChange={(event) => {
@@ -882,7 +885,7 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
                               <legend>Registered skills</legend>
                               {skills.map((skill) => (
                                 <label className="check-line" key={skill}>
-                                  <input
+                                  <Input
                                     type="checkbox"
                                     checked={phaseValue?.skills?.includes(skill) ?? false}
                                     onChange={(event) => {
@@ -926,7 +929,7 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
                   permissions.
                 </p>
                 <label className="check-line">
-                  <input
+                  <Input
                     type="checkbox"
                     checked={draft.context.deduplicate}
                     onChange={(event) =>
@@ -936,7 +939,7 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
                   Deduplicate repeated context
                 </label>
                 <label className="check-line">
-                  <input
+                  <Input
                     type="checkbox"
                     checked={draft.context.archive_reads}
                     onChange={(event) =>
@@ -949,7 +952,7 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
                   label="Maximum input bytes"
                   hint="Between 4,096 and 98,304 bytes. Retrieval remains project scoped."
                 >
-                  <input
+                  <Input
                     type="number"
                     min={4096}
                     max={98304}
@@ -989,17 +992,17 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
               agents, grant permissions or publish.
             </p>
             <div className="operator-actions">
-              <button
+              <Button
                 className="button primary"
                 disabled={busy || !connected}
                 onClick={() => void validate()}
               >
                 {busy ? 'Checking…' : 'Validate & preview'}
-              </button>
+              </Button>
               {dirty && (
-                <button className="button" disabled={busy} onClick={() => accept(saved)}>
+                <Button className="button" disabled={busy} onClick={() => accept(saved)}>
                   Discard draft
-                </button>
+                </Button>
               )}
             </div>
             {preview && (
@@ -1066,14 +1069,14 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
                         ))}
                       </ul>
                       <label className="check-line">
-                        <input
+                        <Input
                           type="checkbox"
                           checked={approved}
                           onChange={(event) => setApproved(event.target.checked)}
                         />
                         I approve the listed model data destinations for this configuration.
                       </label>
-                      <button
+                      <Button
                         className="button primary"
                         disabled={
                           !connected ||
@@ -1085,7 +1088,7 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
                         onClick={() => void save()}
                       >
                         {busy ? 'Saving…' : 'Save configuration'}
-                      </button>
+                      </Button>
                     </div>
                   </>
                 )}
@@ -1102,7 +1105,7 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
             {role && (
               <>
                 <label className="check-line">
-                  <input
+                  <Input
                     type="checkbox"
                     checked={!draft.models.roles[role as keyof typeof draft.models.roles]}
                     onChange={(event) =>
@@ -1178,7 +1181,7 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
               }}
             >
               <Field label="Stable identifier">
-                <input
+                <Input
                   required
                   pattern={'[a-z][a-z0-9_.\\-]*'}
                   maxLength={100}
@@ -1199,7 +1202,7 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
                 </Select>
               </Field>
               <Field label="Preference">
-                <textarea
+                <Textarea
                   rows={4}
                   required
                   maxLength={4000}
@@ -1207,7 +1210,7 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
                   onChange={(event) => setPreference({ ...preference, value: event.target.value })}
                 />
               </Field>
-              <button className="button primary">Add to draft</button>
+              <Button className="button primary">Add to draft</Button>
             </form>
           </Dialog>
         </>

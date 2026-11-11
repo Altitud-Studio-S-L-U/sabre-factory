@@ -410,6 +410,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/operator/messages/{message_id}/tools": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Operator Message Tools */
+        get: operations["operator_message_tools_api_v1_operator_messages__message_id__tools_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/operator/messages/{message_id}/resume": {
         parameters: {
             query?: never;
@@ -3618,6 +3635,54 @@ export interface components {
              */
             created_at: string;
         };
+        /** OperatorToolTrace */
+        OperatorToolTrace: {
+            /** Call Id */
+            call_id: string;
+            /** Name */
+            name: string;
+            /** Input */
+            input: string;
+            /** Output */
+            output: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "pending" | "completed" | "error";
+            /**
+             * Redacted
+             * @default false
+             */
+            redacted: boolean;
+            /**
+             * Truncated
+             * @default false
+             */
+            truncated: boolean;
+        };
+        /** OperatorToolTracePage */
+        OperatorToolTracePage: {
+            /**
+             * Version
+             * @default 1
+             * @constant
+             */
+            version: 1;
+            /** Message Id */
+            message_id: string;
+            /** Available */
+            available: boolean;
+            /** Checkpoint Id */
+            checkpoint_id: string | null;
+            /**
+             * Truncated
+             * @default false
+             */
+            truncated: boolean;
+            /** Tools */
+            tools: components["schemas"]["OperatorToolTrace"][];
+        };
         /** PackageVersion */
         PackageVersion: {
             /** Distribution */
@@ -5644,6 +5709,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OperatorMessageView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    operator_message_tools_api_v1_operator_messages__message_id__tools_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                message_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperatorToolTracePage"];
                 };
             };
             /** @description Validation Error */

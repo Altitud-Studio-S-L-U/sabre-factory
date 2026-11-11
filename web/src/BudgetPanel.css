@@ -88,6 +88,38 @@
 .budget-usage-list code {
   overflow-wrap: anywhere;
 }
+.budget-decision {
+  display: grid;
+  gap: 18px;
+  padding: 20px;
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--line));
+  border-radius: var(--radius);
+  background: var(--active-bg);
+}
+.budget-decision h3 {
+  margin: 6px 0 10px;
+  font-size: 16px;
+}
+.budget-decision p {
+  max-width: 78ch;
+  color: var(--muted);
+  font-size: 13px;
+}
+.budget-resume-choice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+}
+.budget-resume-choice input {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent);
+}
 @media (max-width: 600px) {
   .budget-panel-heading {
     flex-direction: column;

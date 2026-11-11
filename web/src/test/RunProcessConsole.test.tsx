@@ -98,6 +98,44 @@ function event(sequence: number, name: string, correlation: string): SequencedEv
   };
 }
 describe('Recorded process console', () => {
+  it('expands the existing workspace, retains inspection and zoom, then restores operator focus', async () => {
+    const user = userEvent.setup();
+    const view = render(
+      <>
+        <button>Outside the workspace</button>
+        <RunProcessConsole
+          order={order('paused')}
+          topology={topology}
+          entries={[event(1, 'analyze', 'first')]}
+        />
+      </>,
+    );
+    const outside = screen.getByRole('button', { name: 'Outside the workspace' });
+    await user.click(screen.getByRole('button', { name: 'analyze · completed' }));
+    await user.click(screen.getByRole('tab', { name: 'JSON' }));
+    await user.click(screen.getByRole('button', { name: 'Zoom in timeline' }));
+    await user.click(screen.getByRole('button', { name: 'Expand workspace' }));
+    const expanded = screen.getByRole('dialog', { name: 'Expanded run workspace' });
+    expect(outside.inert).toBe(true);
+    expect(document.body.style.overflow).toBe('hidden');
+    expect(within(expanded).getByRole('tab', { name: 'JSON' })).toHaveAttribute('aria-selected', 'true');
+    expect(within(expanded).getByRole('button', { name: 'analyze · completed' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    expect(within(expanded).getByText('200%')).toBeVisible();
+    fireEvent.keyDown(expanded, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(outside.inert).toBeFalsy();
+    expect(document.body.style.overflow).toBe('');
+    expect(screen.getByRole('button', { name: 'Expand workspace' })).toHaveFocus();
+    expect(screen.getByRole('tab', { name: 'JSON' })).toHaveAttribute('aria-selected', 'true');
+    await user.click(screen.getByRole('button', { name: 'Fit timeline' }));
+    expect(screen.getByText('100%')).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Expand workspace' }));
+    view.unmount();
+    expect(document.body.style.overflow).toBe('');
+  });
   it('keeps expected phases separate from observed steps and labels only actual repeated steps as attempts', () => {
     render(
       <RunProcessConsole

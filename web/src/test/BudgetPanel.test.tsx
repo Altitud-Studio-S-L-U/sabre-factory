@@ -261,3 +261,83 @@ it('preserves the inspected snapshot and draft while disabling mutations on disc
   expect(screen.getByText(/Disconnected. Budget changes are unavailable/)).toBeInTheDocument();
   expect(writes).toHaveLength(0);
 });
+
+it('offers a budget decision without changing a ceiling or resuming automatically', async () => {
+  const user = userEvent.setup();
+  const { api, writes } = connect();
+  render(<BudgetPanel api={api} work={{ ...work, error_code: 'BUDGET_EXHAUSTED' }} />);
+  const decision = await screen.findByRole('region', { name: 'Budget decision' });
+  expect(within(decision).getByText('Budget reached — choose how to continue')).toBeInTheDocument();
+  await user.click(within(decision).getByRole('button', { name: 'Set a new limit' }));
+  const dialog = screen.getByRole('dialog', { name: 'Amend run limits' });
+  expect(within(dialog).getByLabelText('Cumulative limit policy')).toHaveValue('bounded');
+  expect(within(dialog).getByLabelText('Resume this run after saving the limits')).not.toBeChecked();
+  expect(writes).toHaveLength(0);
+});
+
+it('requires explicit authorization to remove one ceiling and blocks resume with unsettled usage', async () => {
+  const user = userEvent.setup();
+  const { api, writes } = connect();
+  render(<BudgetPanel api={api} work={work} />);
+  await user.click(await screen.findByRole('button', { name: 'Remove a ceiling' }));
+  const dialog = screen.getByRole('dialog', { name: 'Amend run limits' });
+  expect(within(dialog).getByText(/This removes the cumulative tokens ceiling/)).toBeInTheDocument();
+  expect(within(dialog).getByLabelText('Resume this run after saving the limits')).toBeDisabled();
+  expect(within(dialog).getByRole('button', { name: 'Save limits' })).toBeDisabled();
+  await user.type(
+    within(dialog).getByLabelText('Reason for this authorization'),
+    'Remove the synthetic token cap',
+  );
+  await user.click(within(dialog).getByRole('button', { name: 'Save limits' }));
+  await screen.findByText('Limits saved. The run was not resumed.');
+  expect(writes).toHaveLength(1);
+  expect(writes[0]).toMatchObject({
+    payload: {
+      request: {
+        metric: 'tokens',
+        policy: { primary: null, reserve: 0, absolute: null },
+        resume: false,
+      },
+    },
+  });
+});
+
+it('requests a resume only when the owner opts in after reviewing a new limit', async () => {
+  const user = userEvent.setup();
+  const { api, writes } = connect();
+  vi.spyOn(api, 'workBudget').mockResolvedValue({
+    ...snapshot,
+    unsettled_usage_ids: [],
+    unreconciled_calls: 0,
+  });
+  render(<BudgetPanel api={api} work={work} />);
+  await user.click(await screen.findByRole('button', { name: 'Set a new limit' }));
+  const dialog = screen.getByRole('dialog', { name: 'Amend run limits' });
+  fireEvent.change(within(dialog).getByLabelText('Primary ceiling'), { target: { value: '5000' } });
+  await user.type(
+    within(dialog).getByLabelText('Reason for this authorization'),
+    'Authorize another bounded attempt',
+  );
+  await user.click(within(dialog).getByLabelText('Resume this run after saving the limits'));
+  expect(writes).toHaveLength(0);
+  await user.click(within(dialog).getByRole('button', { name: 'Save limits and resume' }));
+  await screen.findByText('Limits saved. Resume requested; the run remains subject to its other controls.');
+  expect(writes).toHaveLength(1);
+  expect(writes[0]).toMatchObject({
+    payload: {
+      request: {
+        expected_revision: 7,
+        metric: 'tokens',
+        policy: { primary: 5000, reserve: 0, absolute: 5000 },
+        resume: true,
+      },
+    },
+  });
+});
+
+it('does not suggest removing cumulative ceilings for a context-size failure', async () => {
+  const { api } = connect();
+  render(<BudgetPanel api={api} work={{ ...work, error_code: 'CONTEXT_BUDGET_EXHAUSTED' }} />);
+  await screen.findByText('Authorization revision 7');
+  expect(screen.queryByRole('region', { name: 'Budget decision' })).not.toBeInTheDocument();
+});

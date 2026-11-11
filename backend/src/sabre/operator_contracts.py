@@ -73,3 +73,22 @@ class OperatorMessagePage(StrictContract):
 class OperatorMessageResume(StrictContract):
     version: Literal[1]
     expected_error_code: str | None = Field(max_length=100)
+
+
+class OperatorToolTrace(StrictContract):
+    call_id: str
+    name: str
+    input: str
+    output: str | None = None
+    status: Literal["pending", "completed", "error"]
+    redacted: bool = False
+    truncated: bool = False
+
+
+class OperatorToolTracePage(StrictContract):
+    version: Literal[1] = 1
+    message_id: str
+    available: bool
+    checkpoint_id: str | None = None
+    truncated: bool = False
+    tools: list[OperatorToolTrace] = Field(default_factory=list, max_length=50)

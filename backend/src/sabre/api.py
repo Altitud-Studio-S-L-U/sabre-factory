@@ -61,6 +61,7 @@ from sabre.operator_contracts import (
     OperatorMessageRequest,
     OperatorMessageResume,
     OperatorMessageView,
+    OperatorToolTracePage,
 )
 from sabre.panel_sessions import (
     COOKIE,
@@ -334,6 +335,11 @@ def create_app(service=None, config=None) -> FastAPI:
     @application.post("/api/v1/operator/messages", response_model=OperatorMessageView, status_code=202)
     async def operator_message(body: OperatorMessageRequest):
         return await svc().queue.operator_conversation.admit(body)
+
+    @application.get("/api/v1/operator/messages/{message_id}/tools", response_model=OperatorToolTracePage)
+    async def operator_message_tools(message_id: str):
+        from sabre.operator_inspection import inspect_operator_tools
+        return await inspect_operator_tools(svc(), message_id)
 
     @application.post("/api/v1/operator/messages/{message_id}/resume", response_model=OperatorMessageView, status_code=202)
     async def resume_operator_message(message_id: str, body: OperatorMessageResume):

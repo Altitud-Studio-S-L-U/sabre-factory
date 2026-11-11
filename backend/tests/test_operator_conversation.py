@@ -29,10 +29,10 @@ def test_conversation_is_read_only_without_explicit_action_grants():
     service = SimpleNamespace(repository=SimpleNamespace(), guard=SecretGuard())
     event = OperatorContext.model_validate({**request(), "id": "message-1"})
     names = {tool.name for tool in conversation_tools(service, None, event)}
-    assert names == {"list_projects", "list_work", "get_work", "security_findings", "search_memory"}
+    assert names == {"list_projects", "list_work", "get_work", "get_work_budget", "security_findings", "search_memory"}
     event = OperatorContext.model_validate({**request(work_id="run-a", allowed_actions=["control_work"]), "id": "message-1"})
     names = {tool.name for tool in conversation_tools(service, None, event)}
-    assert names == {"get_work", "control_work"}
+    assert names == {"get_work", "get_work_budget", "control_work"}
 
 
 async def test_missing_explicit_model_blocks_before_model_construction_or_network():

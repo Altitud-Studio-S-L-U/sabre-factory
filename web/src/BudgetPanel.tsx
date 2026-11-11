@@ -1,3 +1,6 @@
+import Button from './components/Button';
+import Input from './components/Input';
+import Textarea from './components/Textarea';
 import { useCallback, useEffect, useState } from 'react';
 import {
   ApiError,
@@ -30,6 +33,7 @@ type Editor = {
   reserve: string;
   reason: string;
   usageIds: string[];
+  resume: boolean;
 };
 type Candidate =
   | { key: string; type: 'amend'; request: BudgetAmendment }
@@ -73,6 +77,11 @@ export default function BudgetPanel({
   const [candidate, setCandidate] = useState<Candidate | null>(null);
   const [busy, setBusy] = useState(false);
   const canAmend = connected && ['paused', 'blocked'].includes(work.status) && work.control !== 'cancel';
+  const budgetBlocked =
+    work.status === 'blocked' &&
+    !!work.error_code &&
+    (work.error_code.startsWith('BUDGET_') || work.error_code.endsWith('_BUDGET_EXHAUSTED')) &&
+    work.error_code !== 'CONTEXT_BUDGET_EXHAUSTED';
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -122,7 +131,7 @@ export default function BudgetPanel({
         : null,
     );
   };
-  const open = (type: Editor['type']) => {
+  const open = (type: Editor['type'], mode?: Mode) => {
     if (!budget || !connected) return;
     const metric = metrics.includes(budget.limiting_metric as BudgetMetric)
       ? (budget.limiting_metric as BudgetMetric)
@@ -132,11 +141,12 @@ export default function BudgetPanel({
       type,
       revision: budget.revision,
       metric,
-      mode: policy.primary === null ? 'uncapped' : policy.reserve > 0 ? 'reserve' : 'bounded',
+      mode: mode ?? (policy.primary === null ? 'uncapped' : policy.reserve > 0 ? 'reserve' : 'bounded'),
       primary: String(policy.primary ?? 0),
       reserve: String(policy.reserve),
       reason: '',
       usageIds: [],
+      resume: false,
     });
     setCandidate(null);
     setError('');
@@ -175,7 +185,7 @@ export default function BudgetPanel({
             metric: editor.metric,
             policy: { primary, reserve, absolute: primary === null ? null : primary + reserve },
             reason: editor.reason.trim(),
-            resume: false,
+            resume: editor.resume,
           },
         };
       } else
@@ -200,7 +210,9 @@ export default function BudgetPanel({
           : await api.reconcileBudget(work.id, selected.request, selected.key);
       setNotice(
         selected.type === 'amend'
-          ? 'Limits saved. The run was not resumed.'
+          ? selected.request.resume
+            ? 'Limits saved. Resume requested; the run remains subject to its other controls.'
+            : 'Limits saved. The run was not resumed.'
           : 'Selected reservations retained as unknown usage. The run was not resumed.',
       );
       setEditor(null);
@@ -229,9 +241,9 @@ export default function BudgetPanel({
           <h3>Run limits</h3>
           <p>Independent ceilings and recorded owner authorizations.</p>
         </div>
-        <button type="button" className="button small" disabled={loading || busy} onClick={() => void load()}>
+        <Button type="button" className="button small" disabled={loading || busy} onClick={() => void load()}>
           Refresh limits
-        </button>
+        </Button>
       </header>
       {!connected && (
         <p className="notice warning" role="status">
@@ -254,6 +266,38 @@ export default function BudgetPanel({
         <p>No budget snapshot available.</p>
       ) : (
         <>
+          {budgetBlocked && (
+            <section className="budget-decision" aria-label="Budget decision">
+              <div>
+                <span className="eyebrow">Operator decision required</span>
+                <h3>Budget reached — choose how to continue</h3>
+                <p>
+                  The run is blocked before its next model call. Set a new cumulative ceiling or remove a
+                  selected ceiling. Other limits, paid API spending and factory policies still apply. Nothing
+                  changes until you review and save the authorization.
+                </p>
+              </div>
+              <div className="budget-panel-actions">
+                <Button
+                  type="button"
+                  className="button primary"
+                  disabled={!canAmend || busy}
+                  onClick={() => open('amend', 'bounded')}
+                >
+                  Set a new limit
+                </Button>
+                <Button
+                  type="button"
+                  className="button"
+                  disabled={!canAmend || busy}
+                  onClick={() => open('amend', 'uncapped')}
+                >
+                  Remove a ceiling
+                </Button>
+                <span className="budget-explanation">Or leave this run blocked and decide later.</span>
+              </div>
+            </section>
+          )}
           <div className="budget-snapshot">
             <span>Authorization revision {budget.revision}</span>
             <span>Pending step: {budget.pending_step}</span>
@@ -316,22 +360,22 @@ export default function BudgetPanel({
             Paid API spend remains separately authorized.
           </p>
           <div className="budget-panel-actions">
-            <button
+            <Button
               type="button"
               className="button"
               disabled={!canAmend || busy}
               onClick={() => open('amend')}
             >
               Amend limits
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
               className="button"
               disabled={!canAmend || busy || !budget.unsettled_usage_ids.length}
               onClick={() => open('reconcile')}
             >
               Review unsettled usage{budget.unreconciled_calls ? ` (${budget.unreconciled_calls})` : ''}
-            </button>
+            </Button>
             {connected && !canAmend && (
               <small>Pause the run before changing authorizations or reconciling usage.</small>
             )}
@@ -364,13 +408,13 @@ export default function BudgetPanel({
           title={editor.type === 'amend' ? 'Amend run limits' : 'Review unsettled usage'}
           busy={busy}
           dirty={!!editor.reason && !candidate}
-          description={`Run ${work.id} · authorization revision ${editor.revision}. This command does not resume execution.`}
+          description={`Run ${work.id} · authorization revision ${editor.revision}. ${editor.resume ? 'You are authorizing a resume after these limits are saved.' : 'The run stays paused unless you explicitly request a resume.'}`}
           footer={
             <>
-              <button type="button" className="button" disabled={busy} onClick={() => void inspect()}>
+              <Button type="button" className="button" disabled={busy} onClick={() => void inspect()}>
                 Inspect current limits
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
                 className="button primary"
                 disabled={!connected || busy || (!candidate && !valid)}
@@ -381,9 +425,11 @@ export default function BudgetPanel({
                   : candidate
                     ? 'Retry exact command'
                     : editor.type === 'amend'
-                      ? 'Save limits'
+                      ? editor.resume
+                        ? 'Save limits and resume'
+                        : 'Save limits'
                       : 'Retain selected reservations'}
-              </button>
+              </Button>
             </>
           }
         >
@@ -431,7 +477,7 @@ export default function BudgetPanel({
                 ) : (
                   <>
                     <Field label="Primary ceiling">
-                      <input
+                      <Input
                         type="number"
                         min={0}
                         max={1000000000}
@@ -442,7 +488,7 @@ export default function BudgetPanel({
                     </Field>
                     {editor.mode === 'reserve' && (
                       <Field label="Authorized finite reserve">
-                        <input
+                        <Input
                           type="number"
                           min={0}
                           max={1000000000}
@@ -467,6 +513,20 @@ export default function BudgetPanel({
                   A reserve is granted once and never replenishes automatically. Zero repair cycles permits no
                   repair attempts.
                 </p>
+                <label className="budget-resume-choice">
+                  <Input
+                    type="checkbox"
+                    checked={editor.resume}
+                    disabled={!!budget?.unreconciled_calls}
+                    onChange={(event) => setEditor({ ...editor, resume: event.target.checked })}
+                  />
+                  <span>Resume this run after saving the limits</span>
+                </label>
+                <p className="budget-explanation">
+                  {budget?.unreconciled_calls
+                    ? 'Review unsettled usage before requesting a resume. You can still save limits now.'
+                    : 'Resuming may invoke the configured models and consume usage. Other ceilings can block the run again.'}
+                </p>
               </>
             ) : (
               <>
@@ -477,7 +537,7 @@ export default function BudgetPanel({
                 <div className="budget-usage-list">
                   {budget?.unsettled_usage_ids.map((id) => (
                     <label key={id}>
-                      <input
+                      <Input
                         type="checkbox"
                         checked={editor.usageIds.includes(id)}
                         onChange={(event) =>
@@ -502,7 +562,7 @@ export default function BudgetPanel({
               </>
             )}
             <Field label="Reason for this authorization">
-              <textarea
+              <Textarea
                 minLength={5}
                 maxLength={2000}
                 value={editor.reason}

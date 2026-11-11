@@ -1,3 +1,5 @@
+import Button from './components/Button';
+import Input from './components/Input';
 import { useCallback, useEffect, useState } from 'react';
 import {
   ApiError,
@@ -158,12 +160,12 @@ export default function ToolsConsole({ api, projects, connected = true, onRefres
           </p>
         </div>
         <div className="operator-actions">
-          <button className="button" disabled={loading || busy} onClick={() => void load()}>
+          <Button className="button" disabled={loading || busy} onClick={() => void load()}>
             Refresh
-          </button>
-          <button className="button primary" disabled={!connected} onClick={() => setEditor({ name: null })}>
+          </Button>
+          <Button className="button primary" disabled={!connected} onClick={() => setEditor({ name: null })}>
             Add MCP connection
-          </button>
+          </Button>
         </div>
       </header>
       {!connected && (
@@ -189,7 +191,7 @@ export default function ToolsConsole({ api, projects, connected = true, onRefres
           ['mcp', 'MCP'],
           ['slack', 'Notifications'],
         ].map(([id, label]) => (
-          <button
+          <Button
             key={id}
             aria-pressed={filter === id}
             onClick={() => {
@@ -200,7 +202,7 @@ export default function ToolsConsole({ api, projects, connected = true, onRefres
             }}
           >
             {label}
-          </button>
+          </Button>
         ))}
       </div>
       {loading && !items.length && (
@@ -211,7 +213,7 @@ export default function ToolsConsole({ api, projects, connected = true, onRefres
       <div className="operator-split">
         <div className="operator-catalog" aria-label="Connection catalog">
           {filtered.map((item) => (
-            <button
+            <Button
               className="operator-catalog-row"
               key={item.id}
               aria-pressed={!builtin && selected?.id === item.id}
@@ -238,10 +240,10 @@ export default function ToolsConsole({ api, projects, connected = true, onRefres
               <span className={`operator-tag ${item.enabled ? 'good' : 'warning'}`}>
                 {item.enabled ? 'Enabled' : 'Disabled'}
               </span>
-            </button>
+            </Button>
           ))}
           {filter === 'all' && builtins.length > 0 && (
-            <button
+            <Button
               className="operator-catalog-row"
               onClick={() => {
                 setFilter('builtin');
@@ -257,11 +259,11 @@ export default function ToolsConsole({ api, projects, connected = true, onRefres
                 </small>
               </div>
               <span className="operator-tag">Inspect</span>
-            </button>
+            </Button>
           )}
           {filter === 'builtin' &&
             builtins.map((item) => (
-              <button
+              <Button
                 className="operator-catalog-row"
                 key={item.name}
                 aria-pressed={builtin?.name === item.name}
@@ -277,7 +279,7 @@ export default function ToolsConsole({ api, projects, connected = true, onRefres
                   <small>{item.roles.join(' · ')}</small>
                 </div>
                 <span className="operator-tag">{item.effect.replaceAll('_', ' ')}</span>
-              </button>
+              </Button>
             ))}
           {!loading && !filtered.length && !(['all', 'builtin'].includes(filter) && builtins.length) && (
             <div className="operator-empty">
@@ -325,9 +327,9 @@ export default function ToolsConsole({ api, projects, connected = true, onRefres
               <h2 style={{ marginTop: 16 }}>{selected.title}</h2>
               <div className="operator-tabs" aria-label="Connection details">
                 {['Overview', 'Access', 'Credentials', 'Diagnostics'].map((name) => (
-                  <button key={name} aria-pressed={tab === name} onClick={() => setTab(name)}>
+                  <Button key={name} aria-pressed={tab === name} onClick={() => setTab(name)}>
                     {name}
-                  </button>
+                  </Button>
                 ))}
               </div>
               {tab === 'Overview' && (
@@ -363,23 +365,23 @@ export default function ToolsConsole({ api, projects, connected = true, onRefres
                   </dl>
                   <div className="operator-actions">
                     {selected.toggleable && (
-                      <button className="button" disabled={busy || !connected} onClick={() => void toggle()}>
+                      <Button className="button" disabled={busy || !connected} onClick={() => void toggle()}>
                         {busy ? 'Saving…' : selected.enabled ? 'Disable connection' : 'Enable connection'}
-                      </button>
+                      </Button>
                     )}
                     {server?.source === 'dynamic' && (
-                      <button
+                      <Button
                         className="button"
                         disabled={!connected}
                         onClick={() => setEditor({ name: server.name })}
                       >
                         Edit connection
-                      </button>
+                      </Button>
                     )}
                     {selected.kind === 'github' && (
-                      <button className="button" onClick={() => setRepositories(true)} disabled={!connected}>
+                      <Button className="button" onClick={() => setRepositories(true)} disabled={!connected}>
                         Browse repositories
-                      </button>
+                      </Button>
                     )}
                   </div>
                 </>
@@ -405,14 +407,14 @@ export default function ToolsConsole({ api, projects, connected = true, onRefres
                     <p className="muted">No authorized tools are registered for this connection.</p>
                   )}
                   {server && (
-                    <button
+                    <Button
                       className="button"
                       style={{ marginTop: 18 }}
                       disabled={!connected}
                       onClick={() => setProjectDialog(true)}
                     >
                       Review project access
-                    </button>
+                    </Button>
                   )}
                   <p className="operator-readonly">
                     Enabling a connection does not expand any project or run grant.
@@ -439,13 +441,13 @@ export default function ToolsConsole({ api, projects, connected = true, onRefres
                   </p>
                   {server ? (
                     <>
-                      <button
+                      <Button
                         className="button"
                         disabled={busy || !connected}
                         onClick={() => void diagnose()}
                       >
                         {busy ? 'Checking catalog…' : 'Inspect remote manifest'}
-                      </button>
+                      </Button>
                       {diagnostic && (
                         <div className="operator-section-divider">
                           <span className="operator-tag good">Catalog received</span>
@@ -540,7 +542,7 @@ export default function ToolsConsole({ api, projects, connected = true, onRefres
               <legend>Allowed MCP servers</legend>
               {servers.map((item) => (
                 <label className="check-line" key={item.name}>
-                  <input
+                  <Input
                     type="checkbox"
                     checked={allowed.includes(item.name)}
                     onChange={(event) =>
@@ -555,12 +557,12 @@ export default function ToolsConsole({ api, projects, connected = true, onRefres
                 </label>
               ))}
             </fieldset>
-            <button
+            <Button
               className="button primary"
               disabled={busy || !connected || JSON.stringify(allowed) === JSON.stringify(policy.servers)}
             >
               Save project access
-            </button>
+            </Button>
           </form>
         )}
       </Dialog>

@@ -1,3 +1,7 @@
+import Button from './components/Button';
+import Input from './components/Input';
+import Textarea from './components/Textarea';
+import MessageContent from './components/MessageContent';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { Api, OperatorMessageView, OperatorAction, WorkOrder } from './api';
 import Select from './components/Select';
@@ -22,6 +26,86 @@ const blockedReasons: Record<string, string> = {
     'The response reached its time limit. Its checkpoint and uncertain reservations are retained.',
 };
 
+function RecordedSupervisorTools({ api, message }: { api: Api; message: OperatorMessageView }) {
+  const [open, setOpen] = useState(false);
+  const [page, setPage] = useState<Awaited<ReturnType<Api['supervisorMessageTools']>> | null>(null);
+  const [error, setError] = useState('');
+  const [revision, setRevision] = useState(0);
+  useEffect(() => {
+    if (!open) return;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const load = async () => {
+      try {
+        const result = await api.supervisorMessageTools(message.id);
+        if (stopped) return;
+        setPage(result);
+        setError('');
+        if (message.state === 'queued' || message.state === 'running') timer = setTimeout(load, 2500);
+      } catch (reason) {
+        if (!stopped)
+          setError(reason instanceof Error ? reason.message : 'Recorded tools could not be loaded.');
+      }
+    };
+    void load();
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
+  }, [api, message.id, message.state, open, revision]);
+  return (
+    <details className="supervisor-tools" onToggle={(event) => setOpen(event.currentTarget.open)}>
+      <summary>Recorded tool invocations{page ? ` · ${page.tools.length}` : ''}</summary>
+      {open && (
+        <>
+          {error && (
+            <p role="alert">
+              {error}{' '}
+              <Button className="button small" onClick={() => setRevision((value) => value + 1)}>
+                Retry recorded tools
+              </Button>
+            </p>
+          )}
+          {!page && !error && <p role="status">Loading retained tool records…</p>}
+          {page && !page.available && (
+            <p className="hint">
+              No retained checkpoint is available for this message. Tool activity cannot be reconstructed.
+            </p>
+          )}
+          {page?.available && (
+            <>
+              <p className="hint">
+                Recorded checkpoint · {page.checkpoint_id ?? 'Not identified'}. Refreshes while this message
+                is active.
+              </p>
+              {!page.tools.length && <p className="hint">No tool calls recorded for this message.</p>}
+              {page.tools.map((tool) => (
+                <details className="supervisor-tool" key={tool.call_id}>
+                  <summary>
+                    {tool.name} · {tool.status}
+                  </summary>
+                  <p className="hint">Call {tool.call_id}</p>
+                  <strong>Input</strong>
+                  <pre>{tool.input}</pre>
+                  <strong>Result</strong>
+                  <pre>{tool.output ?? 'No result recorded.'}</pre>
+                  {(tool.redacted || tool.truncated) && (
+                    <p className="hint">
+                      {tool.redacted ? 'Sensitive content redacted. ' : ''}
+                      {tool.truncated ? 'Content truncated to the inspection limit.' : ''}
+                    </p>
+                  )}
+                </details>
+              ))}
+              {page.truncated && <p className="hint">Only the bounded retained tool records are shown.</p>}
+            </>
+          )}
+        </>
+      )}
+    </details>
+  );
+}
+
 export default function SupervisorConsole({
   api,
   orders,
@@ -29,11 +113,12 @@ export default function SupervisorConsole({
   disconnected,
 }: {
   api: Api;
-  orders: WorkOrder[];
+  orders: Pick<WorkOrder, 'id' | 'objective' | 'questions' | 'plan_revision' | 'status' | 'error_code'>[];
   selectedId: string | null;
   disconnected: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const [scope, setScope] = useState('');
   const [history, setHistory] = useState<Record<string, OperatorMessageView[]>>({});
   const [drafts, setDrafts] = useState<Record<string, string>>({});
@@ -45,12 +130,45 @@ export default function SupervisorConsole({
   const receiptKeys = useRef(new Map<string, string>());
   const launcher = useRef<HTMLButtonElement>(null);
   const composer = useRef<HTMLTextAreaElement>(null);
+  const drawer = useRef<HTMLElement>(null);
+  const historyPanel = useRef<HTMLDivElement>(null);
+  const followHistory = useRef(true);
+  const expansionControl = useRef<HTMLButtonElement>(null);
   const scopeChosen = useRef(false);
   useEffect(() => {
     if (open) composer.current?.focus();
   }, [open]);
   const conversation = history[scope] ?? [];
   const message = drafts[scope] ?? '';
+  const responding = conversation.some((item) => item.state === 'queued' || item.state === 'running');
+  useEffect(() => {
+    if (followHistory.current && historyPanel.current)
+      historyPanel.current.scrollTop = historyPanel.current.scrollHeight;
+  }, [conversation]);
+  useEffect(() => {
+    if (!open || !expanded || !drawer.current) return;
+    const previous = document.activeElement;
+    const overflow = document.body.style.overflow;
+    const siblings: { element: HTMLElement; inert: boolean }[] = [];
+    let ancestor: HTMLElement = drawer.current;
+    while (ancestor.parentElement) {
+      for (const element of ancestor.parentElement.children) {
+        if (element !== ancestor && element instanceof HTMLElement) {
+          siblings.push({ element, inert: element.inert });
+          element.inert = true;
+        }
+      }
+      if (ancestor.parentElement === document.body) break;
+      ancestor = ancestor.parentElement;
+    }
+    document.body.style.overflow = 'hidden';
+    composer.current?.focus();
+    return () => {
+      for (const sibling of siblings) sibling.element.inert = sibling.inert;
+      document.body.style.overflow = overflow;
+      if (previous instanceof HTMLElement && previous.isConnected) previous.focus();
+    };
+  }, [expanded, open]);
   useEffect(() => {
     if (!open) return;
     let stopped = false;
@@ -122,6 +240,21 @@ export default function SupervisorConsole({
   }
 
   const scopes = [...new Set([...orders.map((order) => order.id), ...(selectedId ? [selectedId] : [])])];
+  const attention = orders
+    .map((order) => ({
+      order,
+      questions: order.questions.filter(
+        (question) => question.answer === null && question.plan_revision === order.plan_revision,
+      ),
+    }))
+    .filter(({ order, questions }) => questions.length > 0 || ['blocked', 'failed'].includes(order.status));
+  const chooseScope = (id: string) => {
+    setScope(id);
+    followHistory.current = true;
+    scopeChosen.current = true;
+    setGrants([]);
+    setError('');
+  };
   async function resume(item: OperatorMessageView) {
     if (busy || disconnected) return;
     setBusy(true);
@@ -147,7 +280,7 @@ export default function SupervisorConsole({
   }
   return (
     <>
-      <button
+      <Button
         type="button"
         ref={launcher}
         className="supervisor-launcher button"
@@ -159,51 +292,88 @@ export default function SupervisorConsole({
             scopeChosen.current = true;
           }
           setOpen(!open);
+          setExpanded(false);
         }}
       >
         Supervisor <span aria-hidden="true">↗</span>
-      </button>
+      </Button>
       {open && (
         <section
+          ref={drawer}
           id="supervisor-conversation"
-          className="supervisor-drawer"
+          className={`supervisor-drawer${expanded ? ' is-expanded' : ''}`}
+          role={expanded ? 'dialog' : 'region'}
+          aria-modal={expanded ? true : undefined}
           aria-label="Supervisor conversation"
           onKeyDown={(event) => {
             if (event.key === 'Escape') {
-              setOpen(false);
-              launcher.current?.focus();
+              event.preventDefault();
+              if (expanded) setExpanded(false);
+              else {
+                setOpen(false);
+                launcher.current?.focus();
+              }
+            }
+            if (expanded && event.key === 'Tab') {
+              const controls = Array.from(
+                event.currentTarget.querySelectorAll<HTMLElement>(
+                  'button,input,textarea,select,a[href],[tabindex]',
+                ),
+              ).filter(
+                (element) =>
+                  !element.matches(':disabled,[type="hidden"]') &&
+                  element.tabIndex >= 0 &&
+                  element.getClientRects().length > 0,
+              );
+              const first = controls[0];
+              const last = controls.at(-1);
+              if (event.shiftKey && document.activeElement === first) {
+                event.preventDefault();
+                last?.focus();
+              } else if (!event.shiftKey && document.activeElement === last) {
+                event.preventDefault();
+                first?.focus();
+              }
             }
           }}
         >
           <div className="section-heading">
             <div>
-              <span className="eyebrow">Authenticated owner</span>
-              <h2>Supervisor</h2>
+              <h2>
+                Supervisor{' '}
+                <span className="supervisor-presence" data-offline={disconnected}>
+                  {disconnected ? 'Offline' : responding ? 'Working' : 'Connected'}
+                </span>
+              </h2>
+              <span className="eyebrow">Your factory coordination agent</span>
             </div>
-            <button
-              type="button"
-              className="icon-button"
-              aria-label="Close supervisor"
-              onClick={() => {
-                setOpen(false);
-                launcher.current?.focus();
-              }}
-            >
-              ×
-            </button>
+            <div className="supervisor-window-controls">
+              <Button
+                ref={expansionControl}
+                type="button"
+                className="button small"
+                aria-expanded={expanded}
+                onClick={() => setExpanded((value) => !value)}
+              >
+                {expanded ? 'Restore chat' : 'Expand chat'}
+              </Button>
+              <Button
+                type="button"
+                className="icon-button"
+                aria-label="Close supervisor"
+                onClick={() => {
+                  setExpanded(false);
+                  setOpen(false);
+                  launcher.current?.focus();
+                }}
+              >
+                ×
+              </Button>
+            </div>
           </div>
           <label className="supervisor-scope">
             Conversation context
-            <Select
-              value={scope}
-              disabled={busy}
-              onChange={(event) => {
-                setScope(event.target.value);
-                scopeChosen.current = true;
-                setGrants([]);
-                setError('');
-              }}
-            >
+            <Select value={scope} disabled={busy} onChange={(event) => chooseScope(event.target.value)}>
               <option value="">Factory · process coordination</option>
               {scopes.map((id) => (
                 <option key={id} value={id}>
@@ -223,6 +393,34 @@ export default function SupervisorConsole({
               Execution budgets and permissions cannot be increased through these tools.
             </p>
           </details>
+          <details className="supervisor-attention">
+            <summary>
+              Attention inbox · {attention.length} {attention.length === 1 ? 'run' : 'runs'}
+            </summary>
+            <div className="supervisor-attention-list">
+              {!attention.length && <p>No pending questions or blocked runs in the current run list.</p>}
+              {attention.map(({ order, questions }) => (
+                <article key={order.id}>
+                  <strong>{order.objective}</strong>
+                  <small>
+                    {order.status.replaceAll('_', ' ')}
+                    {order.error_code ? ` · ${order.error_code}` : ''} · {questions.length} pending{' '}
+                    {questions.length === 1 ? 'question' : 'questions'}
+                  </small>
+                  {questions.map((question) => (
+                    <p key={question.id}>{question.prompt}</p>
+                  ))}
+                  <Button className="button small" disabled={busy} onClick={() => chooseScope(order.id)}>
+                    Discuss run · {order.id.slice(-8)}
+                  </Button>
+                </article>
+              ))}
+            </div>
+            <p className="hint">
+              Based on the loaded run states. Selecting a run changes chat context; it does not answer, resume
+              or resolve it.
+            </p>
+          </details>
           {disconnected && (
             <p className="notice warning">
               Connection interrupted. Stored messages remain available when the factory reconnects.
@@ -238,7 +436,18 @@ export default function SupervisorConsole({
               {loadError}
             </p>
           )}
-          <div className="supervisor-history" aria-live="polite" aria-relevant="additions text">
+          <div
+            ref={historyPanel}
+            className="supervisor-history"
+            aria-label="Recorded supervisor messages"
+            tabIndex={0}
+            onScroll={(event) => {
+              const panel = event.currentTarget;
+              followHistory.current = panel.scrollHeight - panel.scrollTop - panel.clientHeight < 80;
+            }}
+            aria-live="polite"
+            aria-relevant="additions text"
+          >
             {!conversation.length && (
               <p>
                 No messages yet. Ask about recorded progress, flag a concern or discuss the process. The
@@ -248,20 +457,25 @@ export default function SupervisorConsole({
             {truncated && <p className="hint">Showing the latest 100 messages.</p>}
             {conversation.map((item) => (
               <article className="supervisor-exchange" key={item.id}>
-                <strong>Operator · {item.source === 'mcp' ? 'MCP' : 'Console'}</strong>
-                <time className="supervisor-message-time" dateTime={item.created_at}>
-                  {new Date(item.created_at).toLocaleString()}
-                </time>
-                <p>{item.text}</p>
-                <small>
-                  {item.allowed_actions.length
-                    ? `Authorized tools: ${item.allowed_actions.join(', ')}`
-                    : 'Read-only message'}
-                </small>
+                <div className="supervisor-owner-message">
+                  <strong>Operator · {item.source === 'mcp' ? 'MCP' : 'Console'}</strong>
+                  <time className="supervisor-message-time" dateTime={item.created_at}>
+                    {new Date(item.created_at).toLocaleString()}
+                  </time>
+                  <p>{item.text}</p>
+                  <small>
+                    {item.allowed_actions.length
+                      ? `Authorized tools: ${item.allowed_actions.join(', ')}`
+                      : 'Read-only message'}
+                  </small>
+                </div>
                 <div className="supervisor-reply">
-                  <strong>Supervisor</strong>
+                  <strong>
+                    Supervisor{' '}
+                    <span className={`supervisor-message-state state-${item.state}`}>{item.state}</span>
+                  </strong>
                   {item.reply ? (
-                    <p>{item.reply}</p>
+                    <MessageContent text={item.reply} />
                   ) : (
                     <p>
                       {item.state === 'blocked'
@@ -273,28 +487,29 @@ export default function SupervisorConsole({
                   )}
                   {item.state === 'blocked' && (
                     <>
-                      <button
+                      <Button
                         type="button"
                         className="button small"
                         disabled={busy || disconnected}
                         onClick={() => void resume(item)}
                       >
                         Reconcile and resume message
-                      </button>
+                      </Button>
                       <p className="hint">
                         Resumes this message with its original action grants. A model invocation may consume
                         the separately configured conversation budget.
                       </p>
                     </>
                   )}
+                  <RecordedSupervisorTools api={api} message={item} />
                 </div>
               </article>
             ))}
           </div>
-          <form onSubmit={(event) => void send(event)}>
+          <form className="supervisor-composer" onSubmit={(event) => void send(event)}>
             <label className="supervisor-compose">
               Message
-              <textarea
+              <Textarea
                 ref={composer}
                 rows={3}
                 maxLength={12000}
@@ -303,6 +518,12 @@ export default function SupervisorConsole({
                 disabled={busy}
                 onChange={(event) => setDrafts((prior) => ({ ...prior, [scope]: event.target.value }))}
                 placeholder="Watch out: preserve the existing public API…"
+                onKeyDown={(event) => {
+                  if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+                    event.preventDefault();
+                    if (!busy && !disconnected && message.trim()) event.currentTarget.form?.requestSubmit();
+                  }
+                }}
               />
             </label>
             <details className="supervisor-grants">
@@ -318,7 +539,7 @@ export default function SupervisorConsole({
                 .filter((action) => !scope || action.run)
                 .map((action) => (
                   <label key={action.id}>
-                    <input
+                    <Input
                       type="checkbox"
                       disabled={busy}
                       checked={grants.includes(action.id)}
@@ -334,13 +555,19 @@ export default function SupervisorConsole({
                   </label>
                 ))}
             </details>
-            <button
-              type="submit"
-              className="button primary"
-              disabled={busy || disconnected || !message.trim()}
-            >
-              {busy ? 'Submitting…' : 'Send message'}
-            </button>
+            <div className="supervisor-sendbar">
+              <small>
+                {grants.length ? `${grants.length} actions authorized` : 'Read-only by default'} · Ctrl / ⌘ +
+                Enter
+              </small>
+              <Button
+                type="submit"
+                className="button primary"
+                disabled={busy || disconnected || !message.trim()}
+              >
+                {busy ? 'Submitting…' : 'Send message'}
+              </Button>
+            </div>
           </form>
         </section>
       )}

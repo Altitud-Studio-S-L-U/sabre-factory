@@ -1,3 +1,6 @@
+import Button from './components/Button';
+import Input from './components/Input';
+import Textarea from './components/Textarea';
 import {
   Fragment,
   useCallback,
@@ -53,6 +56,7 @@ import BudgetPanel from './BudgetPanel';
 import BudgetFields, { defaultBudgetPolicy } from './components/BudgetFields';
 import ReleasesPanel from './ReleasesPanel';
 import RemoteTasksPanel from './RemoteTasksPanel';
+import RunReport from './RunReport';
 
 type View =
   | 'work'
@@ -103,6 +107,13 @@ function CliProgressPolicy() {
     </>
   );
 }
+const money = new Intl.NumberFormat('en-US', {
+  style: 'currency',
+  currency: 'USD',
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 4,
+});
+const integer = new Intl.NumberFormat('en-US');
 const statusLabels: Record<string, string> = {
   queued: 'Queued',
   running: 'Running',
@@ -174,13 +185,7 @@ const roleLabels: Record<string, string> = {
   qa: 'Verification',
   reviewer: 'Reviewer',
 };
-const money = new Intl.NumberFormat('en-US', {
-  style: 'currency',
-  currency: 'USD',
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 4,
-});
-const integer = new Intl.NumberFormat('en-US');
+
 function time(value: string) {
   return new Date(value).toLocaleString('en-US', {
     day: '2-digit',
@@ -587,7 +592,7 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
                 ? `Updated ${updated.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`
                 : 'Sincronizando'}
             </span>
-            <button
+            <Button
               className="icon-button"
               aria-label="Refresh data"
               title="Refresh data"
@@ -595,8 +600,8 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
               onClick={() => void reload()}
             >
               <Icon name="refresh" size={16} />
-            </button>
-            <button
+            </Button>
+            <Button
               className="icon-button"
               aria-label="Sign out"
               title="Sign out"
@@ -604,7 +609,7 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
               onClick={() => void logout()}
             >
               <Icon name="logout" size={17} />
-            </button>
+            </Button>
           </div>
         </header>
         <main id="main-content" className="main-content" ref={mainContent} tabIndex={-1}>
@@ -615,9 +620,9 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
                 <strong>Data could not be refreshed.</strong>
                 <p>{error} Visible data may be outdated.</p>
               </div>
-              <button className="button small" onClick={() => void reload()} disabled={refreshing}>
+              <Button className="button small" onClick={() => void reload()} disabled={refreshing}>
                 Retry
-              </button>
+              </Button>
             </div>
           )}
           {loading ? (
@@ -647,9 +652,9 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
                             connected={!error}
                             key={activeOrder.id}
                             api={api}
-                            cliMode={cliMode}
                             order={activeOrder}
                             project={projects.find((project) => project.id === activeOrder.project_id)}
+                            cliMode={cliMode}
                             onBack={() => changeView('work')}
                             onChanged={reload}
                             embedded
@@ -679,14 +684,14 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
                           ))}
                         </div>
                         <p>Process preview only. No execution has started.</p>
-                        <button
+                        <Button
                           type="button"
                           className="button primary"
                           disabled={!!error}
                           onClick={() => setForm('work')}
                         >
                           Create your first run
-                        </button>
+                        </Button>
                       </div>
                     )}
                   </RunsWorkspace>
@@ -752,7 +757,7 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
                     title="Projects"
                     description="Repositories, conventions and checks registered with the factory."
                     action={
-                      <button
+                      <Button
                         className="button primary"
                         onClick={(event) => {
                           if (form !== 'project') returnFocus.current = event.currentTarget;
@@ -760,7 +765,7 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
                         }}
                       >
                         + Register project
-                      </button>
+                      </Button>
                     }
                   />
                   <Dialog
@@ -810,7 +815,7 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
                               {orders.filter((order) => order.project_id === project.id).length} runs
                             </span>
                           </div>
-                          <button
+                          <Button
                             className="button"
                             onClick={() => {
                               returnFocus.current = null;
@@ -818,7 +823,7 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
                             }}
                           >
                             Create run <span aria-hidden="true">→</span>
-                          </button>
+                          </Button>
                         </article>
                       ))}
                     </div>
@@ -978,7 +983,7 @@ function CreateProject({
     <section className="form-panel">
       <div className="section-heading">
         <h2>Register project</h2>
-        <button
+        <Button
           className="text-button"
           onClick={(event) => {
             const dialog = event.currentTarget.closest('dialog');
@@ -987,15 +992,15 @@ function CreateProject({
           }}
         >
           Close
-        </button>
+        </Button>
       </div>
       <form onSubmit={submit} onChange={() => setDirty(true)}>
         <div className="form-grid">
           <Field label="Project name">
-            <input name="name" maxLength={100} required placeholder="My project" />
+            <Input name="name" maxLength={100} required placeholder="My project" />
           </Field>
           <Field label="Repository">
-            <input name="repository" required placeholder="https://github.com/example/project" />
+            <Input name="repository" required placeholder="https://github.com/example/project" />
           </Field>
           <Field label="Ecosystem">
             <Select
@@ -1011,14 +1016,14 @@ function CreateProject({
             </Select>
           </Field>
           <Field label="Base branch">
-            <input name="branch" required defaultValue="main" />
+            <Input name="branch" required defaultValue="main" />
           </Field>
         </div>
         <Field
           label="Delivery checks"
           hint="One JSON argument array per line. Use the actual repository verification commands."
         >
-          <textarea
+          <Textarea
             name="commands"
             required
             rows={3}
@@ -1030,7 +1035,7 @@ function CreateProject({
         <fieldset>
           <legend>Browser QA preview</legend>
           <label className="inline-check">
-            <input
+            <Input
               type="checkbox"
               checked={previewEnabled}
               onChange={(event) => setPreviewEnabled(event.target.checked)}
@@ -1044,17 +1049,17 @@ function CreateProject({
           {previewEnabled && (
             <>
               <Field label="Preview command · JSON argv">
-                <input
+                <Input
                   name="previewCommand"
                   required
                   placeholder='["npm", "run", "dev", "--", "--host", "0.0.0.0"]'
                 />
               </Field>
               <Field label="Preview port">
-                <input name="previewPort" type="number" min={1024} max={65535} required defaultValue={5173} />
+                <Input name="previewPort" type="number" min={1024} max={65535} required defaultValue={5173} />
               </Field>
               <label className="inline-check">
-                <input type="checkbox" name="synthetic" required />
+                <Input type="checkbox" name="synthetic" required />
                 This preview uses synthetic data and contains no production credentials.
               </label>
             </>
@@ -1064,19 +1069,19 @@ function CreateProject({
           <summary>External tools and security baseline</summary>
           <div className="form-grid">
             <Field label="Allowed MCP servers" hint="One per line; leave empty if unnecessary.">
-              <textarea name="mcp" rows={3} />
+              <Textarea name="mcp" rows={3} />
             </Field>
             <Field
               label="Accepted existing findings"
               hint="Fingerprints you have reviewed, one per line. This cannot approve new secrets."
             >
-              <textarea name="baseline" rows={3} />
+              <Textarea name="baseline" rows={3} />
             </Field>
           </div>
         </details>
         {action.error && <ErrorNotice>{action.error}</ErrorNotice>}
         <div className="form-actions">
-          <button
+          <Button
             type="button"
             className="button"
             onClick={(event) => {
@@ -1087,10 +1092,10 @@ function CreateProject({
             disabled={action.busy}
           >
             Cancel
-          </button>
-          <button className="button primary" disabled={action.busy || !connected}>
+          </Button>
+          <Button className="button primary" disabled={action.busy || !connected}>
             {action.busy ? 'Registering…' : 'Register project'}
-          </button>
+          </Button>
         </div>
       </form>
     </section>
@@ -1151,9 +1156,9 @@ function CreateWork({
       <section className="form-panel">
         <Empty title="Register a project to get started">
           Register the repository SABRE is authorized to work on.
-          <button className="button primary" onClick={onCreateProject}>
+          <Button className="button primary" onClick={onCreateProject}>
             Register project
-          </button>
+          </Button>
         </Empty>
       </section>
     );
@@ -1187,7 +1192,7 @@ function CreateWork({
     <section className="form-panel">
       <div className="section-heading">
         <h2>New run</h2>
-        <button
+        <Button
           className="text-button"
           onClick={(event) => {
             const dialog = event.currentTarget.closest('dialog');
@@ -1196,14 +1201,14 @@ function CreateWork({
           }}
         >
           Close
-        </button>
+        </Button>
       </div>
       <form onSubmit={submit} onChange={() => setDirty(true)}>
         <fieldset className="mode-picker">
           <legend>Work type</legend>
           {(['create', 'maintain', 'patch', 'audit'] as const).map((item) => (
             <label key={item} className={mode === item ? 'mode-option selected' : 'mode-option'}>
-              <input
+              <Input
                 type="radio"
                 name="mode"
                 value={item}
@@ -1233,7 +1238,7 @@ function CreateWork({
           </Select>
         </Field>
         <Field label="What do you need?" hint="Describe the outcome and the context the team needs.">
-          <textarea
+          <Textarea
             name="objective"
             required
             minLength={5}
@@ -1244,7 +1249,7 @@ function CreateWork({
         </Field>
         <div className="form-grid">
           <Field label="Acceptance criteria" hint="One verifiable outcome per line.">
-            <textarea
+            <Textarea
               name="acceptance"
               required
               rows={4}
@@ -1252,7 +1257,7 @@ function CreateWork({
             />
           </Field>
           <Field label="Constraints" hint="One per line, if needed.">
-            <textarea name="constraints" rows={4} placeholder="Compatibility, scope, conventions…" />
+            <Textarea name="constraints" rows={4} placeholder="Compatibility, scope, conventions…" />
           </Field>
         </div>
         {configurationError && <ErrorNotice>{configurationError}</ErrorNotice>}
@@ -1264,7 +1269,7 @@ function CreateWork({
             label="Maximum paid API spend · USD"
             hint="CLI subscription usage is recorded separately. Zero does not authorize paid API calls."
           >
-            <input name="cost" type="number" min="0" max="1000" step="0.01" required defaultValue="0" />
+            <Input name="cost" type="number" min="0" max="1000" step="0.01" required defaultValue="0" />
           </Field>
           <BudgetFields
             value={{ ...defaultBudgetPolicy, ...flowConfig.budget_policy }}
@@ -1277,7 +1282,7 @@ function CreateWork({
         </fieldset>
         {action.error && <ErrorNotice>{action.error}</ErrorNotice>}
         <div className="form-actions">
-          <button
+          <Button
             className="button"
             type="button"
             onClick={(event) => {
@@ -1288,13 +1293,13 @@ function CreateWork({
             disabled={action.busy}
           >
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button
             className="button primary"
             disabled={action.busy || !connected || !defaults[mode] || Boolean(configurationError)}
           >
             {action.busy ? 'Sending…' : 'Launch flow'}
-          </button>
+          </Button>
         </div>
       </form>
     </section>
@@ -1305,25 +1310,25 @@ function WorkDetail({
   api,
   connected = true,
   order,
-  cliMode,
   project,
   onBack,
   onChanged,
+  cliMode,
   embedded = false,
 }: {
   api: Api;
   connected?: boolean;
   order: WorkOrder;
-  cliMode: boolean;
   project?: Project;
   onBack: () => void;
   onChanged: () => Promise<void>;
+  cliMode: boolean;
   embedded?: boolean;
 }) {
   const action = useAction();
-  const [detailTab, setDetailTab] = useState<'Process' | 'Tasks & evidence' | 'Activity' | 'Limits & scope'>(
-    'Process',
-  );
+  const [detailTab, setDetailTab] = useState<
+    'Process' | 'Tasks & evidence' | 'Review & security' | 'Activity' | 'Limits & scope'
+  >('Process');
   const Heading = embedded ? 'h2' : 'h1';
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [events, setEvents] = useState<Record<string, unknown>[]>([]);
@@ -1392,12 +1397,13 @@ function WorkDetail({
     ['paused', 'blocked'].includes(order.status) &&
     order.control !== 'cancel' &&
     order.budget.max_cost_usd === 0;
+
   return (
     <>
       {!embedded && (
-        <button className="back-link" onClick={onBack}>
+        <Button className="back-link" onClick={onBack}>
           ← All runs
-        </button>
+        </Button>
       )}
       <div className="detail-header">
         <div>
@@ -1417,6 +1423,17 @@ function WorkDetail({
         <div className="notice warning">
           <strong>{order.error_code}</strong>
           <p>{order.summary}</p>
+          {order.error_code === 'BUDGET_EXHAUSTED' && (
+            <div className="budget-next-step">
+              <p>
+                The run is waiting for your budget decision. Set a new ceiling or remove a ceiling, then
+                choose whether to resume. Other permissions and checks remain in force.
+              </p>
+              <Button type="button" className="button primary" onClick={() => setDetailTab('Limits & scope')}>
+                Review budget options
+              </Button>
+            </div>
+          )}
         </div>
       )}
       <div className="detail-toolbar">
@@ -1428,31 +1445,33 @@ function WorkDetail({
         </details>
         <div className="toolbar-actions">
           {!terminal && ['running', 'queued', 'waiting_input', 'failed'].includes(order.status) && (
-            <button
+            <Button
               className="button small"
               disabled={!connected || action.busy || order.control === 'pause'}
               onClick={() => control('pause')}
             >
               Pause
-            </button>
+            </Button>
           )}
           {!terminal && ['paused', 'blocked', 'failed'].includes(order.status) && (
-            <button
+            <Button
               className="button small"
               disabled={action.busy || !connected}
-              onClick={() => control('resume')}
+              onClick={() =>
+                order.error_code === 'BUDGET_EXHAUSTED' ? setDetailTab('Limits & scope') : control('resume')
+              }
             >
-              Resume
-            </button>
+              {order.error_code === 'BUDGET_EXHAUSTED' ? 'Resolve budget' : 'Resume'}
+            </Button>
           )}
           {!terminal && (
-            <button
+            <Button
               className="button small danger-quiet"
               disabled={action.busy || !connected}
               onClick={() => setConfirmCancel(!confirmCancel)}
             >
               Cancel run
-            </button>
+            </Button>
           )}
           {pr && (
             <a className="button primary small" href={pr} target="_blank" rel="noreferrer">
@@ -1475,22 +1494,22 @@ function WorkDetail({
         busy={action.busy}
       >
         <div className="dialog-actions">
-          <button
+          <Button
             type="button"
             className="button"
             disabled={action.busy}
             onClick={() => setConfirmCancel(false)}
           >
             Keep running
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
             className="button danger"
             disabled={action.busy || !connected}
             onClick={() => control('cancel')}
           >
             Confirm cancellation
-          </button>
+          </Button>
         </div>
       </Dialog>
       {action.error && <ErrorNotice>{action.error}</ErrorNotice>}
@@ -1513,7 +1532,9 @@ function WorkDetail({
         </section>
       )}
       <Tabs
-        items={(['Process', 'Tasks & evidence', 'Activity', 'Limits & scope'] as const).map((value) => ({
+        items={(
+          ['Process', 'Tasks & evidence', 'Review & security', 'Activity', 'Limits & scope'] as const
+        ).map((value) => ({
           value,
           label: value,
         }))}
@@ -1544,7 +1565,15 @@ function WorkDetail({
                 />
               </>
             )}
-            {activeTab !== 'Process' && (
+            {activeTab === 'Review & security' && (
+              <>
+                <RunReport work={order} />
+                {order.security_snapshot_digest && (
+                  <SecurityExceptions api={api} order={order} onChanged={onChanged} connected={connected} />
+                )}
+              </>
+            )}
+            {activeTab !== 'Process' && activeTab !== 'Review & security' && (
               <div
                 className={`detail-grid detail-view-${activeTab === 'Tasks & evidence' ? 'evidence' : activeTab === 'Activity' ? 'activity' : 'limits'}`}
               >
@@ -1728,7 +1757,7 @@ function WorkDetail({
                   <section>
                     <div className="section-heading">
                       <h2>Activity</h2>
-                      <button
+                      <Button
                         className="button small"
                         onClick={() => {
                           setAuditLoading(true);
@@ -1737,7 +1766,7 @@ function WorkDetail({
                         disabled={auditLoading}
                       >
                         Refresh audit
-                      </button>
+                      </Button>
                     </div>
                     <WorkAudit data={audit} loading={auditLoading} error={auditError} />
                     {eventsError ? (
@@ -1803,7 +1832,7 @@ function WorkDetail({
                             <summary>How per-agent controls work</summary>
                             <CliProgressPolicy />
                           </details>
-                          <button
+                          <Button
                             className="button small"
                             disabled={action.busy || !connected}
                             onClick={() =>
@@ -1818,11 +1847,24 @@ function WorkDetail({
                             }
                           >
                             Use per-agent controls
-                          </button>
+                          </Button>
                         </>
                       )}
                     </section>
                   )}
+                  {!order.effective_budget_policy &&
+                    !order.budget.policy &&
+                    order.error_code === 'BUDGET_EXHAUSTED' && (
+                      <BudgetPanel
+                        connected={connected}
+                        api={api}
+                        work={order}
+                        refreshKey={order.updated_at}
+                        onChanged={() => {
+                          void onChanged();
+                        }}
+                      />
+                    )}
                   <section className="aside-section">
                     <h2>Acceptance criteria</h2>
                     <ul className="criteria-list">
@@ -1948,7 +1990,7 @@ function SecurityExceptions({
           <p>{item.justification}</p>
           <p>{item.revoked_at ? `Revocada ${time(item.revoked_at)}` : `Caduca ${time(item.expires_at)}`}</p>
           {!item.revoked_at && (
-            <button
+            <Button
               className="text-button danger-quiet"
               disabled={action.busy || !connected}
               onClick={() =>
@@ -1961,15 +2003,15 @@ function SecurityExceptions({
               }
             >
               Revoke exception
-            </button>
+            </Button>
           )}
         </article>
       ))}
       {allowed && eligible.length > 0 && (
         <>
-          <button className="button small" disabled={!connected} onClick={() => setShowForm(!showForm)}>
+          <Button className="button small" disabled={!connected} onClick={() => setShowForm(!showForm)}>
             Temporary security exception
-          </button>
+          </Button>
           {showForm && (
             <form className="form-panel" onSubmit={submit}>
               <fieldset className="mutation-fields" disabled={!connected || action.busy}>
@@ -1991,14 +2033,14 @@ function SecurityExceptions({
                   </Select>
                 </Field>
                 <Field label="Exception justification">
-                  <textarea name="justification" required minLength={10} maxLength={4000} rows={3} />
+                  <Textarea name="justification" required minLength={10} maxLength={4000} rows={3} />
                 </Field>
                 <Field label="Expiry · local time" hint="Choose a future date within 30 days.">
-                  <input name="expiry" type="datetime-local" required />
+                  <Input name="expiry" type="datetime-local" required />
                 </Field>
-                <button className="button primary" disabled={action.busy}>
+                <Button className="button primary" disabled={action.busy}>
                   {action.busy ? 'Saving…' : 'Temporarily approve this risk'}
-                </button>
+                </Button>
               </fieldset>
             </form>
           )}
@@ -2052,7 +2094,7 @@ function QuestionForm({
           {question.options.length > 0 && (
             <div className="answer-options">
               {question.options.map((option) => (
-                <button
+                <Button
                   key={option}
                   type="button"
                   className={answer === option ? 'answer-option selected' : 'answer-option'}
@@ -2060,12 +2102,12 @@ function QuestionForm({
                   onClick={() => setAnswer(option)}
                 >
                   {option}
-                </button>
+                </Button>
               ))}
             </div>
           )}
           <Field label="Your answer">
-            <textarea
+            <Textarea
               required
               rows={2}
               maxLength={12000}
@@ -2077,9 +2119,9 @@ function QuestionForm({
           {action.error && <ErrorNotice>{action.error}</ErrorNotice>}
           <div className="form-actions">
             <span>Your answer will be bound to this decision.</span>
-            <button className="button primary" disabled={action.busy}>
+            <Button className="button primary" disabled={action.busy}>
               {action.busy ? 'Sending…' : 'Answer and continue'}
-            </button>
+            </Button>
           </div>
         </fieldset>
       </form>
@@ -2124,15 +2166,15 @@ function ScopeForm({
       >
         <fieldset className="mutation-fields" disabled={!connected || action.busy}>
           <Field label="New objective">
-            <textarea name="objective" required minLength={5} defaultValue={order.objective} rows={3} />
+            <Textarea name="objective" required minLength={5} defaultValue={order.objective} rows={3} />
           </Field>
           <Field label="Updated criteria">
-            <textarea name="acceptance" required defaultValue={order.acceptance.join('\n')} rows={3} />
+            <Textarea name="acceptance" required defaultValue={order.acceptance.join('\n')} rows={3} />
           </Field>
           {action.error && <ErrorNotice>{action.error}</ErrorNotice>}
-          <button className="button" disabled={action.busy || !canChange}>
+          <Button className="button" disabled={action.busy || !canChange}>
             {action.busy ? 'Updating…' : 'Update scope'}
-          </button>
+          </Button>
         </fieldset>
       </form>
     </details>
@@ -2218,9 +2260,9 @@ function SecurityView({ api, projects, orders }: { api: Api; projects: Project[]
         title="Security"
         description="Security findings and blockers, independent from the development team."
         action={
-          <button className="button" onClick={() => void load()} disabled={loading}>
+          <Button className="button" onClick={() => void load()} disabled={loading}>
             Refresh
-          </button>
+          </Button>
         }
       />
       <div className="filter-row">

@@ -14,6 +14,51 @@ async function captureSource(page: Page, section: string) {
     scale: 'css',
   });
 }
+test('expanded run preserves inspection and exposes review and security without page overflow', async ({
+  page,
+}) => {
+  const order = syntheticRun();
+  await page.route('**/api/v1/work**', async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path.endsWith('/work')) return route.fulfill({ json: [order] });
+    if (path.endsWith('/work/synthetic-run')) return route.fulfill({ json: order });
+    await route.fallback();
+  });
+  await page.goto('/work/synthetic-run');
+  const timeline = page.getByRole('region', { name: 'Execution timeline' });
+  const expand = timeline.getByRole('button', { name: 'Expand workspace' });
+  await timeline.getByRole('tab', { name: 'JSON', exact: true }).click();
+  await expand.click();
+  const workspace = page.getByRole('dialog', { name: 'Expanded run workspace' });
+  await expect(workspace).toBeVisible();
+  const box = await workspace.boundingBox();
+  expect(Math.round(box!.width)).toBe(page.viewportSize()!.width);
+  await workspace.getByRole('button', { name: 'Zoom in timeline' }).click();
+  await expect(workspace.getByText('200%', { exact: true })).toBeVisible();
+  await expect(workspace.getByRole('tab', { name: 'JSON', exact: true })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  const scroll = workspace.locator('.observed-scroll');
+  expect(await scroll.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
+  await scroll.evaluate((el) => {
+    el.scrollLeft = 120;
+  });
+  expect(await scroll.evaluate((el) => el.scrollLeft)).toBeGreaterThan(0);
+  await captureSource(page, 'expanded-run');
+  await page.keyboard.press('Escape');
+  await expect(workspace).not.toBeVisible();
+  await expect(expand).toBeFocused();
+  await page.getByRole('tab', { name: 'Review & security', exact: true }).click();
+  await expect(page.getByRole('region', { name: 'Security results' })).toContainText(
+    'Zero findings does not establish',
+  );
+  await expect(page.getByRole('region', { name: 'Independent review' })).toContainText(
+    'No independent review result',
+  );
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await captureSource(page, 'review-security');
+});
 function syntheticRun(): WorkOrder {
   return {
     id: 'synthetic-run',
@@ -65,6 +110,138 @@ function syntheticRun(): WorkOrder {
     control: null,
   };
 }
+
+test('legacy blocked runs expose explicit budget decisions without resuming', async ({ page }) => {
+  const order = { ...syntheticRun(), status: 'blocked', error_code: 'BUDGET_EXHAUSTED' };
+  let writes = 0;
+  await page.route('**/api/v1/work**', async (route) => {
+    if (route.request().method() === 'POST') writes++;
+    const path = new URL(route.request().url()).pathname;
+    if (path.endsWith('/work')) return route.fulfill({ json: [order] });
+    if (path.endsWith('/work/synthetic-run')) return route.fulfill({ json: order });
+    if (path.endsWith('/audit'))
+      return route.fulfill({
+        json: {
+          work_id: order.id,
+          plan_revision: 1,
+          status: 'blocked',
+          phase: order.phase,
+          usage: runUsageSnapshot(order.id).usage,
+          models: [],
+          agents: [],
+          tools: [],
+          context: null,
+          checkpoint_count: 0,
+          checkpoint_threads: 0,
+          truncated: false,
+        },
+      });
+    if (path.endsWith('/budget'))
+      return route.fulfill({
+        json: {
+          version: 1,
+          revision: 0,
+          metrics: Object.fromEntries(
+            ['tokens', 'invocations', 'active_seconds', 'repairs'].map((metric) => [
+              metric,
+              {
+                policy: { primary: 1000, reserve: 0, absolute: 1000 },
+                used: 100,
+                reserved: 0,
+                remaining: 900,
+                unknown: false,
+              },
+            ]),
+          ),
+          authorizations: [],
+          limiting_metric: 'tokens',
+          pending_step: 'implementation',
+          token_prevention: 'reservation_bound',
+          unsettled_usage_ids: [],
+          unreconciled_calls: 0,
+        },
+      });
+    await route.fallback();
+  });
+  await page.goto('/work/synthetic-run');
+  await page.getByRole('button', { name: 'Review budget options' }).click();
+  await expect(page.getByRole('region', { name: 'Budget decision' })).toBeVisible();
+  await page.getByRole('button', { name: 'Remove a ceiling', exact: true }).click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await expect(
+    page.getByRole('checkbox', { name: 'Resume this run after saving the limits' }),
+  ).not.toBeChecked();
+  expect(writes).toBe(0);
+});
+
+test('supervisor expands, retains per-run context and reveals recorded tools', async ({ page }) => {
+  const orders = [
+    { ...syntheticRun(), status: 'blocked', error_code: 'BUDGET_EXHAUSTED' },
+    { ...syntheticRun(), id: 'synthetic-second', objective: 'Synthetic second run', status: 'failed' },
+  ];
+  await page.route('**/api/v1/work', (route) => route.fulfill({ json: orders }));
+  await page.route('**/api/v1/operator/messages**', (route) =>
+    route.fulfill({
+      json: new URL(route.request().url()).pathname.endsWith('/tools')
+        ? {
+            version: 1,
+            message_id: 'synthetic-budget-message',
+            available: true,
+            checkpoint_id: 'synthetic-checkpoint',
+            truncated: false,
+            tools: [
+              {
+                call_id: 'synthetic-call',
+                name: 'get_work_budget',
+                input: '{"work_id":"synthetic-run"}',
+                output: '{"measured_tokens":1200}',
+                status: 'completed',
+                redacted: false,
+                truncated: false,
+              },
+            ],
+          }
+        : {
+            items: [
+              {
+                version: 1,
+                id: 'synthetic-budget-message',
+                work_id: null,
+                text: 'Read the run budget',
+                allowed_actions: [],
+                state: 'completed',
+                reply: 'Synthetic response: usage is recorded per run.',
+                error_code: null,
+                created_at: '2026-11-11T10:00:00Z',
+              },
+            ],
+            truncated: false,
+          },
+    }),
+  );
+  await page.goto('/work');
+  await page.getByRole('button', { name: 'Supervisor', exact: true }).click();
+  const drawer = page.getByRole('region', { name: 'Supervisor conversation' });
+  await drawer.getByRole('button', { name: 'Expand chat' }).click();
+  const chat = page.getByRole('dialog', { name: 'Supervisor conversation' });
+  await expect(chat).toBeVisible();
+  await chat.locator('summary').filter({ hasText: 'Recorded tool invocations' }).click();
+  await expect(chat.getByText('get_work_budget', { exact: false }).first()).toBeVisible();
+  await chat.locator('summary').filter({ hasText: 'get_work_budget' }).click();
+  await expect(chat.getByText('{"measured_tokens":1200}', { exact: true })).toBeVisible();
+  await captureSource(page, 'supervisor-expanded');
+  await chat.locator('summary').filter({ hasText: 'Attention inbox' }).click();
+  await expect(chat.getByText('Synthetic second run', { exact: true })).toBeVisible();
+  await chat.getByRole('button', { name: 'Discuss run · c-second' }).click();
+  await expect(chat.getByRole('combobox', { name: /Conversation context/ })).toHaveValue('synthetic-second');
+  await chat.getByRole('textbox', { name: 'Message', exact: true }).fill('Synthetic draft stays in this run');
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('region', { name: 'Supervisor conversation' })).toBeVisible();
+  await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toHaveValue(
+    'Synthetic draft stays in this run',
+  );
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
 
 // These browser journeys use explicitly synthetic API responses. PostgreSQL and
 // execution recovery are verified separately by backend integration tests.

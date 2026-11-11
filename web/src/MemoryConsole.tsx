@@ -1,3 +1,6 @@
+import Button from './components/Button';
+import Input from './components/Input';
+import Textarea from './components/Textarea';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ApiError,
@@ -179,14 +182,14 @@ export default function MemoryConsole({ api, projects, connected = true }: Memor
           </p>
         </div>
         <div className="operator-actions">
-          <button
+          <Button
             className="button"
             disabled={loading || busy || !effectiveProjectId}
             onClick={() => void load()}
           >
             Refresh
-          </button>
-          <button
+          </Button>
+          <Button
             className="button primary"
             disabled={!connected || !effectiveProjectId}
             onClick={() => {
@@ -201,7 +204,7 @@ export default function MemoryConsole({ api, projects, connected = true }: Memor
             }}
           >
             Propose memory
-          </button>
+          </Button>
         </div>
       </header>
       <div className="operator-filter">
@@ -262,7 +265,7 @@ export default function MemoryConsole({ api, projects, connected = true }: Memor
                     : 'No repository ingestion has been recorded.'}
                 </p>
               </div>
-              <button
+              <Button
                 className="button"
                 disabled={!connected || busy || !!pendingIndex}
                 onClick={() => {
@@ -287,7 +290,7 @@ export default function MemoryConsole({ api, projects, connected = true }: Memor
                 }}
               >
                 {pendingIndex ? 'Indexing queued' : sourceIndex ? 'Reconcile repository' : 'Index repository'}
-              </button>
+              </Button>
             </div>
             {latestJob?.error_code && (
               <p className="notice warning" role="status">
@@ -332,9 +335,9 @@ export default function MemoryConsole({ api, projects, connected = true }: Memor
           </div>
           <div className="operator-tabs" aria-label="Knowledge views">
             {['Facts', 'Sources', 'Proposals', 'Relations', 'Context', 'History'].map((name) => (
-              <button key={name} aria-pressed={tab === name} onClick={() => setTab(name)}>
+              <Button key={name} aria-pressed={tab === name} onClick={() => setTab(name)}>
                 {name}
-              </button>
+              </Button>
             ))}
           </div>
           {loading && (
@@ -376,13 +379,13 @@ export default function MemoryConsole({ api, projects, connected = true }: Memor
                                 </span>
                               </td>
                               <td>
-                                <button
+                                <Button
                                   className="button small"
                                   onClick={() => setSelected(item)}
                                   aria-label={`Inspect memory ${item.id}`}
                                 >
                                   Inspect
-                                </button>
+                                </Button>
                               </td>
                             </tr>
                           ))}
@@ -501,9 +504,9 @@ export default function MemoryConsole({ api, projects, connected = true }: Memor
                       {items.map((item) => (
                         <li key={item.id}>
                           <div>
-                            <button className="text-button" onClick={() => setSelected(item)}>
+                            <Button className="text-button" onClick={() => setSelected(item)}>
                               Memory {item.id}
-                            </button>
+                            </Button>
                             <small>
                               {item.kind} · {validity(item)}
                             </small>
@@ -677,22 +680,22 @@ export default function MemoryConsole({ api, projects, connected = true }: Memor
             )}
             <div className="operator-actions">
               {!selected.active && !selected.invalidated_at && (
-                <button
+                <Button
                   className="button primary"
                   disabled={busy || !connected}
                   onClick={() => void action(selected, 'approve')}
                 >
                   Approve memory
-                </button>
+                </Button>
               )}
               {!selected.invalidated_at && (
-                <button
+                <Button
                   className="button"
                   disabled={busy || !connected}
                   onClick={() => void action(selected, 'invalidate')}
                 >
                   Invalidate memory
-                </button>
+                </Button>
               )}
             </div>
           </>
@@ -737,7 +740,7 @@ export default function MemoryConsole({ api, projects, connected = true }: Memor
             </Select>
           </Field>
           <Field label="Content">
-            <textarea
+            <Textarea
               required
               rows={5}
               maxLength={8000}
@@ -746,7 +749,7 @@ export default function MemoryConsole({ api, projects, connected = true }: Memor
             />
           </Field>
           <Field label="Source commit">
-            <input
+            <Input
               required
               value={draft.source_commit}
               maxLength={128}
@@ -754,7 +757,7 @@ export default function MemoryConsole({ api, projects, connected = true }: Memor
             />
           </Field>
           <Field label="Source run">
-            <input
+            <Input
               required
               value={draft.source_work_id}
               maxLength={128}
@@ -765,7 +768,7 @@ export default function MemoryConsole({ api, projects, connected = true }: Memor
             label="Evidence digest"
             hint="Use the recorded digest if available; do not paste secrets or evidence payloads."
           >
-            <input
+            <Input
               value={draft.evidence_digest}
               maxLength={128}
               onChange={(event) => setDraft({ ...draft, evidence_digest: event.target.value })}
@@ -776,9 +779,9 @@ export default function MemoryConsole({ api, projects, connected = true }: Memor
               {error}
             </p>
           )}
-          <button className="button primary" disabled={busy || !connected}>
+          <Button className="button primary" disabled={busy || !connected}>
             {busy ? 'Saving…' : 'Save proposal'}
-          </button>
+          </Button>
         </form>
       </Dialog>
     </div>

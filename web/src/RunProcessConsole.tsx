@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import type { Api, AuditView, ProcessTopology, RunInspection, SequencedEvent, WorkOrder } from './api';
 import { projectExecution, type ObservedSpan } from './executionProjection';
 import RunInspector, { specialistNames } from './RunInspector';
@@ -36,6 +36,9 @@ export default function RunProcessConsole({
   onMore?: () => void;
 }) {
   const tooltipId = useId();
+  const workspaceRef = useRef<HTMLDivElement>(null);
+  const [wide, setWide] = useState(false);
+  const [zoom, setZoom] = useState(1);
   const [preview, setPreview] = useState<ObservedSpan | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [pinned, setPinned] = useState<ObservedSpan | null>(null);
@@ -45,6 +48,32 @@ export default function RunProcessConsole({
   const running = ['running', 'queued'].includes(order.status);
   const usage = liveUsage?.snapshot?.usage ?? (audit?.work_id === order.id ? audit.usage : undefined);
   const pendingUsage = (usage?.unsettled_calls ?? 0) > 0;
+  useEffect(() => {
+    if (!wide || !workspaceRef.current) return;
+    const root = workspaceRef.current;
+    const previous = document.activeElement;
+    const overflow = document.body.style.overflow;
+    const siblings: { element: HTMLElement; inert: boolean }[] = [];
+    // Isolate the existing workspace in place so inspection and scroll state survive expansion.
+    let ancestor: HTMLElement = root;
+    while (ancestor.parentElement) {
+      for (const element of ancestor.parentElement.children) {
+        if (element !== ancestor && element instanceof HTMLElement) {
+          siblings.push({ element, inert: element.inert });
+          element.inert = true;
+        }
+      }
+      if (ancestor.parentElement === document.body) break;
+      ancestor = ancestor.parentElement;
+    }
+    document.body.style.overflow = 'hidden';
+    root.querySelector<HTMLButtonElement>('.workspace-expand')?.focus();
+    return () => {
+      for (const sibling of siblings) sibling.element.inert = sibling.inert;
+      document.body.style.overflow = overflow;
+      if (previous instanceof HTMLElement && previous.isConnected) previous.focus();
+    };
+  }, [wide]);
   useEffect(() => {
     if (!running) return;
     const timer = setInterval(() => setNow(Date.now()), 1000);
@@ -132,7 +161,41 @@ export default function RunProcessConsole({
     );
   };
   return (
-    <div className="run-console">
+    <div
+      ref={workspaceRef}
+      className={`run-console${wide ? ' is-expanded' : ''}`}
+      role={wide ? 'dialog' : undefined}
+      aria-modal={wide ? true : undefined}
+      aria-label={wide ? 'Expanded run workspace' : undefined}
+      onKeyDown={(event) => {
+        if (!wide || event.defaultPrevented || (event.target as HTMLElement).closest('dialog[open]')) return;
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          setWide(false);
+          setPreview(null);
+        }
+        if (event.key !== 'Tab') return;
+        const controls = Array.from(
+          event.currentTarget.querySelectorAll<HTMLElement>(
+            'button,input,textarea,select,a[href],[tabindex]',
+          ),
+        ).filter(
+          (element) =>
+            !element.matches(':disabled,[type="hidden"]') &&
+            element.tabIndex >= 0 &&
+            element.getClientRects().length > 0,
+        );
+        const first = controls[0];
+        const last = controls.at(-1);
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last?.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first?.focus();
+        }
+      }}
+    >
       {liveUsage?.error && (
         <p role={liveUsage.canRetry ? 'alert' : 'status'}>
           {liveUsage.error}{' '}
@@ -208,6 +271,41 @@ export default function RunProcessConsole({
       </div>
       <div className="console-workspace">
         <section className="observed-timeline" aria-label="Project timeline">
+          <div className="workspace-toolbar" aria-label="Timeline display controls">
+            <span>Run workspace</span>
+            <div className="workspace-zoom" aria-label="Timeline zoom">
+              <button
+                type="button"
+                className="button small"
+                disabled={zoom <= 1}
+                aria-label="Zoom out timeline"
+                onClick={() => setZoom((value) => Math.max(1, value - 1))}
+              >
+                −
+              </button>
+              <output aria-live="polite">{zoom * 100}%</output>
+              <button
+                type="button"
+                className="button small"
+                disabled={zoom >= 4}
+                aria-label="Zoom in timeline"
+                onClick={() => setZoom((value) => Math.min(4, value + 1))}
+              >
+                +
+              </button>
+              <button type="button" className="button small" disabled={zoom === 1} onClick={() => setZoom(1)}>
+                Fit timeline
+              </button>
+            </div>
+            <button
+              type="button"
+              className="button small workspace-expand"
+              aria-expanded={wide}
+              onClick={() => setWide((value) => !value)}
+            >
+              {wide ? 'Exit full screen' : 'Expand workspace'}
+            </button>
+          </div>
           <div className="console-panel-heading">
             <div>
               <strong>Process timeline</strong>
@@ -230,8 +328,13 @@ export default function RunProcessConsole({
               </span>
             </div>
           </div>
-          <div className="observed-scroll">
-            <div className="observed-grid">
+          <div
+            className="observed-scroll"
+            tabIndex={0}
+            role="region"
+            aria-label="Scrollable process timeline"
+          >
+            <div className="observed-grid" style={{ width: `${zoom * 100}%` }}>
               <div className="observed-row ruler">
                 <div className="observed-label">PHASE / SPECIALIST</div>
                 <div className="observed-track">

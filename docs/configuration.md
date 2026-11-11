@@ -8,6 +8,10 @@
 
 Developer owns architecture and implementation. Designer advises explicit interface planning; DevOps independently inspects delivery preparation. Manager planning and independent review use different invocations. Each launch pins immutable published definitions. New owner messages separately pin the Supervisor definition at admission, preserving their original action grants through retries.
 
+The read-only Supervisor tool `get_work_budget(work_id)` reads persisted run limits, authorization revision, blockers and the live usage ledger. Factory conversations can resolve project names with `list_projects` and filter recent runs with `list_work(project_id)`. Allow `get_work_budget` when configuring an explicit Supervisor tool restriction; it does not grant budget changes or resume authority. There is no shared project allowance: each run has its own ceilings and API spending authorization. Measured consumption, pending reservations and unknown cost remain distinct.
+
+`GET /api/v1/operator/messages/{message_id}/tools` exposes bounded, secret-redacted tool calls and results from that message's persisted LangGraph checkpoint segment. The owner-authenticated endpoint returns recorded pending/completed/error status, not inferred activity, and excludes system instructions and hidden reasoning. Missing or pruned checkpoint data is explicitly unavailable; a completed reply alone does not prove a tool was invoked.
+
 ## Launch configuration
 
 The panel editor and YAML import use `FlowConfiguration`, defined in `backend/src/sabre/flow_contracts.py`. Retrieve its JSON Schema through `/api/v1/flows/schema` or the `sabre_flow_schema` MCP tool. JSON and YAML reject unknown fields, wrong types, duplicate keys and unsupported versions. YAML anchors and executable tags are rejected.

@@ -1,3 +1,6 @@
+import Button from './components/Button';
+import Input from './components/Input';
+import Textarea from './components/Textarea';
 import { useEffect, useState } from 'react';
 import type {
   AgentCatalogEntry,
@@ -124,7 +127,7 @@ export default function AgentsConsole({
     <>
       <label className="agent-field">
         Instructions
-        <textarea
+        <Textarea
           rows={8}
           value={value.instructions}
           readOnly={!editable}
@@ -136,7 +139,7 @@ export default function AgentsConsole({
         <legend>Versioned skills</legend>
         {skills.map((skill) => (
           <label className="agent-check" key={skill.name}>
-            <input
+            <Input
               type="checkbox"
               checked={value.skills.some((item) => item.name === skill.name)}
               onChange={(event) =>
@@ -159,22 +162,22 @@ export default function AgentsConsole({
   return (
     <>
       <div className="agent-source-switch" aria-label="Agent sources">
-        <button
+        <Button
           type="button"
           className="button"
           aria-pressed={source === 'local'}
           onClick={() => setSource('local')}
         >
           Local specialists
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
           className="button"
           aria-pressed={source === 'external'}
           onClick={() => setSource('external')}
         >
           External · MCP / A2A
-        </button>
+        </Button>
       </div>
       {source === 'external' ? (
         <>
@@ -188,14 +191,14 @@ export default function AgentsConsole({
               <h2>Specialist team</h2>
               <p>Published procedures are pinned to each run. Editing a draft never changes active work.</p>
             </div>
-            <button
+            <Button
               type="button"
               className="button small"
               disabled={busy || !connected}
               onClick={() => void perform(reload)}
             >
               Refresh catalog
-            </button>
+            </Button>
           </header>
           {error && !editing && (
             <p className="notice error" role="alert">
@@ -218,7 +221,7 @@ export default function AgentsConsole({
             <div className="agents-workspace">
               <aside className="specialist-list" aria-label="Local specialists">
                 {entries.map((entry) => (
-                  <button
+                  <Button
                     type="button"
                     key={entry.id}
                     aria-pressed={entry.id === agent.id}
@@ -235,7 +238,7 @@ export default function AgentsConsole({
                       <small>Local · published v{entry.published.version}</small>
                     </span>
                     <i className="agent-available" aria-label="Registered" />
-                  </button>
+                  </Button>
                 ))}
               </aside>
               <article className="specialist-detail">
@@ -245,7 +248,7 @@ export default function AgentsConsole({
                     <h2>{agent.label}</h2>
                     <p>{responsibilities[agent.id]}</p>
                   </div>
-                  <button
+                  <Button
                     type="button"
                     className="button"
                     disabled={!connected || busy}
@@ -255,7 +258,7 @@ export default function AgentsConsole({
                     }}
                   >
                     Edit draft
-                  </button>
+                  </Button>
                 </header>
                 <Tabs items={sections} value={section} onChange={setSection} label="Agent details">
                   {(active) => (
@@ -376,7 +379,7 @@ export default function AgentsConsole({
                         <>
                           <div className="agent-publish-toolbar">
                             <span>Draft revision {agent.revision}</span>
-                            <button
+                            <Button
                               type="button"
                               className="button small"
                               disabled={busy || !connected}
@@ -391,8 +394,8 @@ export default function AgentsConsole({
                               }
                             >
                               Validate draft
-                            </button>
-                            <button
+                            </Button>
+                            <Button
                               type="button"
                               className="button primary small"
                               disabled={busy || !connected || !agent.validation.valid}
@@ -407,7 +410,7 @@ export default function AgentsConsole({
                               }
                             >
                               Publish version
-                            </button>
+                            </Button>
                           </div>
                           {validation.map((item, index) => (
                             <p className="notice error" key={index}>
@@ -416,7 +419,7 @@ export default function AgentsConsole({
                           ))}
                           <div className="agent-versions">
                             {agent.versions.map((item) => (
-                              <button
+                              <Button
                                 type="button"
                                 className="agent-version"
                                 key={item.version}
@@ -425,7 +428,7 @@ export default function AgentsConsole({
                               >
                                 <strong>Version {item.version}</strong>
                                 <code>{item.digest}</code>
-                              </button>
+                              </Button>
                             ))}
                           </div>
                           {version != null && (
@@ -472,7 +475,7 @@ export default function AgentsConsole({
                   <fieldset disabled={busy}>
                     <legend>Model selection</legend>
                     <label className="agent-check">
-                      <input
+                      <Input
                         type="checkbox"
                         checked={draft.model === null}
                         onChange={(event) =>
@@ -495,7 +498,7 @@ export default function AgentsConsole({
                         {chain.steps.map((step, stepIndex) => (
                           <label className="agent-field" key={step.id}>
                             {step.capability} · {step.id}
-                            <textarea
+                            <Textarea
                               rows={3}
                               value={step.instructions}
                               maxLength={8000}
@@ -524,7 +527,7 @@ export default function AgentsConsole({
                   <fieldset disabled={busy}>
                     <legend>Tool restriction</legend>
                     <label className="agent-check">
-                      <input
+                      <Input
                         type="checkbox"
                         checked={draft.tools === null}
                         onChange={(event) => changeDraft({ tools: event.target.checked ? null : [] })}
@@ -534,7 +537,7 @@ export default function AgentsConsole({
                     {draft.tools !== null &&
                       availableTools.map((tool) => (
                         <label className="agent-check" key={tool.name}>
-                          <input
+                          <Input
                             type="checkbox"
                             checked={draft.tools!.includes(tool.name)}
                             onChange={(event) =>
@@ -553,7 +556,7 @@ export default function AgentsConsole({
                     <legend>Context policy</legend>
                     <label className="agent-field">
                       Maximum input bytes
-                      <input
+                      <Input
                         type="number"
                         min={4096}
                         max={98304}
@@ -566,7 +569,7 @@ export default function AgentsConsole({
                       />
                     </label>
                     <label className="agent-check">
-                      <input
+                      <Input
                         type="checkbox"
                         checked={draft.context.visual_review}
                         onChange={(event) =>
@@ -577,9 +580,9 @@ export default function AgentsConsole({
                     </label>
                   </fieldset>
                   <div className="dialog-actions">
-                    <button className="button primary" type="submit" disabled={busy || !dirty || !connected}>
+                    <Button className="button primary" type="submit" disabled={busy || !dirty || !connected}>
                       {busy ? 'Saving…' : 'Save draft'}
-                    </button>
+                    </Button>
                   </div>
                 </fieldset>
               </form>

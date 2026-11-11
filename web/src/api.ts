@@ -23,6 +23,7 @@ export type SecretUpsert = components['schemas']['SecretUpsert'];
 export type SecretDeactivate = components['schemas']['SecretDeactivate'];
 export type SystemInfo = components['schemas']['SystemInfo'];
 export type AuditView = components['schemas']['AuditView'];
+export type OperatorToolTracePage = components['schemas']['OperatorToolTracePage'];
 export type RunUsageSnapshot = components['schemas']['RunUsageSnapshot'];
 export type ProjectKnowledgeReport = components['schemas']['ProjectKnowledgeReport'];
 export type IntegrationInfo = components['schemas']['IntegrationInfo'];
@@ -312,6 +313,8 @@ export function createApi(csrfToken: string, onUnauthorized?: (message: string) 
       request<OperatorMessagePage>(
         `/operator/messages${workId ? `?work_id=${encodeURIComponent(workId)}` : ''}`,
       ),
+    supervisorMessageTools: (id: string) =>
+      request<OperatorToolTracePage>(`/operator/messages/${encodeURIComponent(id)}/tools`),
     talkSupervisor: (value: OperatorMessageRequest) =>
       request<OperatorMessageView>('/operator/messages', { method: 'POST', body: JSON.stringify(value) }),
     createWork: (value: WorkOrderCreate) =>
