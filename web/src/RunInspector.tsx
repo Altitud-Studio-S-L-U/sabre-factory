@@ -4,6 +4,7 @@ import type { ObservedSpan } from './executionProjection';
 import Tabs from './components/Tabs';
 import JsonView from './components/JsonView';
 import BrowserReportsPanel from './BrowserReportsPanel';
+import { isControlCode } from './runState';
 
 type InspectionTab = 'State' | 'Messages' | 'Tools' | 'Memory' | 'Evals' | 'Logs' | 'JSON' | 'Trace';
 const tabs: { value: InspectionTab; label: string }[] = [
@@ -31,6 +32,7 @@ const memoryTools = new Set(['read_memory', 'propose_memory', 'resolve_memory', 
 
 export default function RunInspector({
   api,
+  currentStop = false,
   historicalSelection = false,
   current,
   lane,
@@ -41,6 +43,8 @@ export default function RunInspector({
   onMore,
 }: {
   api?: Api;
+  /** The selected step's error is the run's current stop reason (computed by the timeline). */
+  currentStop?: boolean;
   historicalSelection?: boolean;
   current?: ObservedSpan;
   lane?: ProcessTopology['lanes'][number];
@@ -137,16 +141,29 @@ export default function RunInspector({
                   <dt>Event sequence</dt>
                   <dd>{current?.records.at(-1)?.sequence ?? 'Not recorded'}</dd>
                 </dl>
-                {current?.event.error_code && (
-                  <div className="notice error">
-                    <strong>{current.event.error_code}</strong>
-                    <p>
-                      {order.error_code === current.event.error_code
-                        ? order.summary
-                        : 'Inspect the saved logs and authorized recovery controls.'}
-                    </p>
-                  </div>
-                )}
+                {current?.event.error_code &&
+                  (isControlCode(current.event.error_code) ? (
+                    <div className="notice neutral">
+                      <strong>Owner control</strong>
+                      <p>Stopped by an owner pause or cancellation request. This is not a failure.</p>
+                    </div>
+                  ) : currentStop ? (
+                    <div className="notice error">
+                      <strong>Current stop reason · {current.event.error_code}</strong>
+                      <p>{order.summary}</p>
+                    </div>
+                  ) : (
+                    <div className="notice warning">
+                      <strong>
+                        Historical record · {current.event.error_code}
+                        {current.records.at(-1) ? ` · event #${current.records.at(-1)!.sequence}` : ''}
+                      </strong>
+                      <p>
+                        Recorded by this step. It is not the run&apos;s current state; inspect the saved logs
+                        for details.
+                      </p>
+                    </div>
+                  ))}
               </>
             )}
             {active === 'Messages' && (

@@ -54,3 +54,13 @@ test('reconstructs a missing start only from an actual measured duration', () =>
   const [span] = projectExecution([event(2, 'a', 'completed', '2026-11-11T10:00:02Z', 1200)]);
   expect(span.start).toBe(Date.parse('2026-11-11T10:00:00.800Z'));
 });
+test('projects a legacy owner-control failure as an interrupted step and keeps real failures', () => {
+  const stopped = event(1, 'a', 'failed', '2026-11-11T10:00:02Z', 2000);
+  const broken = event(2, 'b', 'failed', '2026-11-11T10:00:04Z', 1000);
+  stopped.event.error_code = 'CANCEL_REQUESTED';
+  broken.event.error_code = 'BUDGET_EXHAUSTED';
+  const [control, failure] = projectExecution([stopped, broken]);
+  expect(control.event.state).toBe('interrupted');
+  expect(control.event.error_code).toBe('CANCEL_REQUESTED');
+  expect(failure.event.state).toBe('failed');
+});
