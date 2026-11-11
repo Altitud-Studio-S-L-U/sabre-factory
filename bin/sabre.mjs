@@ -6,11 +6,11 @@ import { doctor } from '../infra/platform.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const [command = 'help', ...args] = process.argv.slice(2);
-const operations = new Set(['init', 'config', 'build', 'prepare', 'up', 'open', 'down', 'status',
+const operations = new Set(['init', 'config', 'build', 'prepare', 'prepare-codex', 'prepare-claude', 'up', 'open', 'down', 'status',
   'logs', 'slack', 'telemetry', 'stop', 'codex-login', 'claude-login', 'migrate-credentials']);
 try {
   if (command === 'help' || command === '--help') {
-    console.log('SABRE Factory\n\nnode bin/sabre.mjs <command>\n\nCommands: doctor, init, config, build, prepare, up, open, down, status, logs, backup, verify, restore, mcp, mcp-stdio, slack, telemetry, codex-login, claude-login');
+    console.log('SABRE Factory\n\nnode bin/sabre.mjs <command>\n\nCommands: doctor, init, config, build, prepare, prepare-codex, prepare-claude, up, open, down, status, logs, backup, verify, restore, mcp, mcp-stdio, slack, telemetry, codex-login, claude-login');
   } else {
     const report = await doctor();
     if (command === 'doctor') console.log(JSON.stringify(report, null, 2));
