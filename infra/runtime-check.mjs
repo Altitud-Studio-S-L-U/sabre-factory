@@ -103,6 +103,32 @@ if (value.source_digest !== hostDigest) throw new Error('The running application
 if (value.console_build !== buildId()) throw new Error('The served console build differs from the current web source');
 const logs = (await docker(['logs', 'sabre-factory-api-1'], undefined, undefined, true)).toString();
 if (logs.includes(canary)) throw new Error('The API recorded the synthetic query canary in application logs');
+// A sibling container without the owner credential must not obtain a panel session, with or without
+// forged browser headers. It uses the internal service address and the host gateway used by runners.
+const sibling = String.raw`
+import json, urllib.request, urllib.error
+def call(base, path, method='GET', headers=None, body=None):
+ request=urllib.request.Request(base+path, method=method, headers=headers or {}, data=body)
+ try:
+  with urllib.request.urlopen(request, timeout=10) as response: return response.status
+ except urllib.error.HTTPError as error: return error.code
+ except OSError: return 0
+forged={'Content-Type':'application/json','X-Sabre-UI':'1','Sec-Fetch-Site':'same-origin','Origin':'http://127.0.0.1:8000','Host':'127.0.0.1:8000'}
+results={}
+for name, base in (('internal','http://api:8000'),('gateway','http://host.docker.internal:8000')):
+ results[name]=[call(base,'/api/v1/panel/session-ticket','POST'),
+  call(base,'/api/v1/panel/session/exchange','POST',forged,json.dumps({'ticket':'A'*43}).encode()),
+  call(base,'/api/v1/status','GET',forged|{'Cookie':'sabre_panel_session='+'B'*43})]
+print(json.dumps(results))
+`;
+const siblingResult = JSON.parse((await docker(['run', '--rm', '--network', 'sabre-factory_outbound', '--add-host', 'host.docker.internal:host-gateway',
+  '--read-only', '--memory', '128m', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges',
+  'sabre-factory-api:local', 'python', '-I', '-c', sibling])).toString());
+if (siblingResult.internal.includes(0)) throw new Error('The sibling access probe could not reach the API');
+for (const statuses of Object.values(siblingResult)) {
+  if (statuses.some((status) => status === 200 || status === 201)) throw new Error('A sibling container obtained panel access without the owner credential');
+}
+value.sibling_panel_access = 'denied';
 let codex = {};
 if (usesCodex) {
   const runner = rows.find((row) => row.Name === '/sabre-factory-codex-runner-1');

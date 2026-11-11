@@ -18,6 +18,15 @@ CREATE TABLE notification_outbox(
 CREATE INDEX notification_outbox_due ON notification_outbox(state,next_attempt_at);
 """
 
+# Paired browsers: a public identifier for revocation, a coarse client label and usage times.
+PANEL_SESSION_DIRECTORY = """
+ALTER TABLE panel_sessions ADD COLUMN id text NOT NULL DEFAULT gen_random_uuid()::text;
+ALTER TABLE panel_sessions ADD CONSTRAINT panel_sessions_id_key UNIQUE(id);
+ALTER TABLE panel_sessions ADD COLUMN client text NOT NULL DEFAULT '';
+ALTER TABLE panel_sessions ADD COLUMN created_at timestamptz NOT NULL DEFAULT clock_timestamp();
+ALTER TABLE panel_sessions ADD COLUMN last_used_at timestamptz NOT NULL DEFAULT clock_timestamp();
+"""
+
 
 async def migrate(conn, baseline: str):
     from sabre.console_configuration import CONSOLE_CONFIGURATION_SCHEMA
@@ -61,7 +70,7 @@ async def migrate(conn, baseline: str):
             work_id text NOT NULL REFERENCES work_orders(id) ON DELETE CASCADE,
             revision integer NOT NULL, data jsonb NOT NULL,
             created_at timestamptz NOT NULL DEFAULT clock_timestamp(), PRIMARY KEY(work_id,revision));
-        """, 10: INGESTION_SCHEMA, 11: RELEASE_SCHEMA}
+        """, 10: INGESTION_SCHEMA, 11: RELEASE_SCHEMA, 12: PANEL_SESSION_DIRECTORY}
     if set(applied) - set(migrations):
         raise DomainError("SCHEMA_NEWER_THAN_RUNTIME", "Restore the matching application version before opening this database", 503)
     for version, statement in migrations.items():

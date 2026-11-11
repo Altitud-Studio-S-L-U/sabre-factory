@@ -172,7 +172,8 @@ class Repository:
                 raise DomainError("PANEL_TICKET_LIMIT", "Wait one minute before opening another panel access link", 429)
             await conn.execute("INSERT INTO panel_tickets VALUES(%s,%s,%s,clock_timestamp()+interval '60 seconds')", (ticket_hash, origin, epoch))
 
-    async def exchange_panel_ticket(self, ticket_hash: str, session_hash: str, origin: str, epoch: str):
+    async def exchange_panel_ticket(self, ticket_hash: str, session_hash: str, origin: str, epoch: str,
+                                    *, lifetime_seconds: int = 8 * 3600, client: str = ""):
         async with self.connection() as conn:
             await conn.execute("SELECT pg_advisory_xact_lock(%s)", (PANEL_SESSION_LOCK,))
             await conn.execute("DELETE FROM panel_sessions WHERE expires_at<=clock_timestamp() OR epoch<>%s", (epoch,))
@@ -182,17 +183,47 @@ class Repository:
             ticket = await (await conn.execute("DELETE FROM panel_tickets WHERE ticket_hash=%s AND origin=%s AND epoch=%s AND expires_at>clock_timestamp() RETURNING ticket_hash", (ticket_hash, origin, epoch))).fetchone()
             if ticket is None:
                 return None
-            row = await (await conn.execute("INSERT INTO panel_sessions VALUES(%s,%s,%s,clock_timestamp()+interval '8 hours') RETURNING expires_at", (session_hash, origin, epoch))).fetchone()
+            row = await (await conn.execute(
+                "INSERT INTO panel_sessions(session_hash,origin,epoch,expires_at,client) "
+                "VALUES(%s,%s,%s,clock_timestamp()+make_interval(secs=>%s),%s) RETURNING expires_at",
+                (session_hash, origin, epoch, lifetime_seconds, client[:80]))).fetchone()
             return row["expires_at"]
 
-    async def panel_session(self, session_hash: str, origin: str, epoch: str):
+    async def panel_session(self, session_hash: str, origin: str, epoch: str, *, renew_seconds: int | None = None):
+        """Returns the session expiry; with ``renew_seconds`` the expiry slides, written at most once per hour."""
         async with self.connection() as conn:
-            row = await (await conn.execute("SELECT expires_at FROM panel_sessions WHERE session_hash=%s AND origin=%s AND epoch=%s AND expires_at>clock_timestamp()", (session_hash, origin, epoch))).fetchone()
-            return row["expires_at"] if row else None
+            row = await (await conn.execute(
+                "SELECT expires_at,last_used_at<clock_timestamp()-interval '1 hour' AS stale FROM panel_sessions "
+                "WHERE session_hash=%s AND origin=%s AND epoch=%s AND expires_at>clock_timestamp()",
+                (session_hash, origin, epoch))).fetchone()
+            if row is None:
+                return None
+            if renew_seconds is None or not row["stale"]:
+                return row["expires_at"]
+            renewed = await (await conn.execute(
+                "UPDATE panel_sessions SET last_used_at=clock_timestamp(),"
+                " expires_at=GREATEST(expires_at,clock_timestamp()+make_interval(secs=>%s))"
+                " WHERE session_hash=%s AND expires_at>clock_timestamp() RETURNING expires_at",
+                (renew_seconds, session_hash))).fetchone()
+            return renewed["expires_at"] if renewed else None
 
     async def revoke_panel_session(self, session_hash: str):
         async with self.connection() as conn:
             await conn.execute("DELETE FROM panel_sessions WHERE session_hash=%s", (session_hash,))
+
+    async def list_panel_sessions(self, origin: str, epoch: str) -> list[dict]:
+        async with self.connection() as conn:
+            return await (await conn.execute(
+                "SELECT id,session_hash,client,created_at,last_used_at,expires_at FROM panel_sessions"
+                " WHERE origin=%s AND epoch=%s AND expires_at>clock_timestamp() ORDER BY last_used_at DESC",
+                (origin, epoch))).fetchall()
+
+    async def revoke_panel_session_by_id(self, session_id: str, origin: str, epoch: str) -> bool:
+        async with self.connection() as conn:
+            row = await (await conn.execute(
+                "DELETE FROM panel_sessions WHERE id=%s AND origin=%s AND epoch=%s RETURNING id",
+                (session_id, origin, epoch))).fetchone()
+            return row is not None
 
     async def create_project(self, project: Project, enqueue=None):
         async with self.connection() as conn:

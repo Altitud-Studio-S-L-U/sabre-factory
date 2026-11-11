@@ -144,6 +144,7 @@ class Settings(BaseSettings):
     chat_budget_usd: float = Field(default=0.25, gt=0)
     api_url: str = "http://api:8000"
     panel_origin: str = "http://127.0.0.1:8000"
+    panel_session_days: int = Field(default=30, ge=1, le=90)
     mcp_servers: dict[str, MCPServerSettings] = Field(default_factory=dict)
     role_models: dict[str, RoleModelSettings] = Field(default_factory=dict)
     otlp_endpoint: str | None = None
