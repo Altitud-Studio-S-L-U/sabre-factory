@@ -19,7 +19,24 @@ const roles: Record<string, string> = {
   security: 'Security analyst',
 };
 
+const runningBuild: string = import.meta.env.VITE_SABRE_BUILD ?? 'development';
+
 export default function About({ api }: { api: Pick<Api, 'system'> }) {
+  const [servedBuild, setServedBuild] = useState<string | null>(null);
+  useEffect(() => {
+    if (runningBuild === 'development') return;
+    let active = true;
+    // Compare with what the server serves now; a mismatch means this tab runs an older bundle.
+    fetch('/build.json', { cache: 'no-store', credentials: 'omit' })
+      .then((response) => (response.ok ? (response.json() as Promise<{ build?: unknown }>) : null))
+      .then((value) => {
+        if (active && typeof value?.build === 'string') setServedBuild(value.build);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, []);
   const [info, setInfo] = useState<SystemInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
@@ -185,6 +202,18 @@ export default function About({ api }: { api: Pick<Api, 'system'> }) {
               in PostgreSQL.
             </p>
             <dl className="system-facts">
+              <div>
+                <dt>Console build</dt>
+                <dd>
+                  <code>{runningBuild}</code>
+                  {servedBuild && servedBuild !== runningBuild && (
+                    <span role="status">
+                      {' '}
+                      · The server now serves build <code>{servedBuild}</code>. Reload to use it.
+                    </span>
+                  )}
+                </dd>
+              </div>
               <div>
                 <dt>Python</dt>
                 <dd>

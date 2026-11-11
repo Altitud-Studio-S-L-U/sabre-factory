@@ -5,6 +5,7 @@ import { docker, root, rawSecretNames, volumes, controlEnvironment, privateJson 
 import { codexVolumes, verifyCodexSeccomp } from './codex-bootstrap.mjs';
 import { claudeVolumes } from './claude-bootstrap.mjs';
 import { backupImageReference } from './image-identity.mjs';
+import { buildId } from '../web/scripts/build-id.mjs';
 
 async function verifyImage(container, reference) {
   const [image] = privateJson((await docker(['image', 'inspect', reference])).toString());
@@ -73,6 +74,13 @@ async def main():
  served=read(asset.group(1))
  installed=pathlib.Path('/app/web/dist'+asset.group(1)).read_bytes()
  if served!=installed: raise RuntimeError('The served console differs from the installed bundle')
+ sections=json.loads(pathlib.Path('/app/src/sabre/console_routes.json').read_text())['sections']
+ for section in sections:
+  with urllib.request.urlopen('http://127.0.0.1:8000/'+section,timeout=10) as response:
+   if response.status!=200 or response.headers.get('Cache-Control')!='no-cache': raise RuntimeError('A console section is not served on direct load')
+ with urllib.request.urlopen('http://127.0.0.1:8000'+asset.group(1),timeout=10) as response:
+  if 'immutable' not in (response.headers.get('Cache-Control') or ''): raise RuntimeError('Hashed console assets are not cacheable')
+ build=json.loads(read('/build.json')).get('build')
  get('/api/v1/memory/search?project_id=synthetic-log-check&query=synthetic-access-log-canary-20261105&commit='+'a'*40)
  async with httpx2.AsyncClient(headers=headers,timeout=30) as http:
   async with Client(streamable_http_client('http://127.0.0.1:8000/mcp/',http_client=http)) as client:
@@ -83,7 +91,7 @@ async def main():
  base=pathlib.Path('/app/src/sabre')
  for path in sorted(base.rglob('*.py')):
   digest.update(path.relative_to(base).as_posix().encode()+b'\0'); digest.update(path.read_bytes())
- print(json.dumps({'api_health':200,'authenticated_status':200,'unauthorized_status':401,'mcp_tools':len(tools.tools),'specialists':len(agents['agents']),'console_bundle_verified':True,'source_digest':digest.hexdigest()}))
+ print(json.dumps({'api_health':200,'authenticated_status':200,'unauthorized_status':401,'mcp_tools':len(tools.tools),'specialists':len(agents['agents']),'console_bundle_verified':True,'console_sections':len(sections),'console_build':build,'source_digest':digest.hexdigest()}))
 try: asyncio.run(main())
 except Exception as error: print(json.dumps({'check_error':type(error).__name__}))
 `;
@@ -92,6 +100,7 @@ const value = JSON.parse((await docker(['run', '--rm', '--network', 'container:s
   'sabre-factory-api:local', 'python', '-I', '-c', program])).toString());
 if (value.check_error) throw new Error(`Runtime verification failed (${value.check_error}); no private error content was recorded`);
 if (value.source_digest !== hostDigest) throw new Error('The running application image differs from the current backend source');
+if (value.console_build !== buildId()) throw new Error('The served console build differs from the current web source');
 const logs = (await docker(['logs', 'sabre-factory-api-1'], undefined, undefined, true)).toString();
 if (logs.includes(canary)) throw new Error('The API recorded the synthetic query canary in application logs');
 let codex = {};

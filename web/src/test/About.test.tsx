@@ -97,3 +97,14 @@ describe('System information', () => {
     expect(screen.queryByText('private-error')).not.toBeInTheDocument();
   });
 });
+
+it('shows the running console build and flags a newer build served by the factory', async () => {
+  vi.stubEnv('VITE_SABRE_BUILD', 'aaaaaaaaaaaaaaaa');
+  vi.resetModules();
+  vi.stubGlobal('fetch', vi.fn(async () => Response.json({ build: 'bbbbbbbbbbbbbbbb' })));
+  const { default: FreshAbout } = await import('../About');
+  render(<FreshAbout api={{ system: async () => info }} />);
+  expect(await screen.findByText('aaaaaaaaaaaaaaaa')).toBeVisible();
+  expect(await screen.findByText(/The server now serves build/)).toHaveTextContent('bbbbbbbbbbbbbbbb');
+  vi.unstubAllEnvs();
+});
