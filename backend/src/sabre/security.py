@@ -9,15 +9,15 @@ import re
 from collections.abc import Iterable
 from datetime import UTC, datetime
 from inspect import isawaitable
-from typing import Any, Literal, TypedDict
+from typing import TYPE_CHECKING, Any, Literal, TypedDict
 from urllib.parse import urlsplit
 
-from langchain_core.runnables import RunnableConfig
-from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel, Field
 
-from sabre.error_boundaries import guarded_call
 from sabre.models import Contract, DomainError, SecurityException, SecurityFinding, now
+
+if TYPE_CHECKING:
+    from langchain_core.runnables import RunnableConfig
 
 RULES_VERSION = "sabre-security-v1"
 Severity = Literal["info", "low", "medium", "high", "critical"]
@@ -284,6 +284,9 @@ class SecurityState(TypedDict):
 
 class SecurityService:
     def __init__(self, scanner, checkpointer=None, analyst=None, guard: SecretGuard | None = None):
+        # The broker uses parsing and redaction without loading orchestration or model SDKs.
+        from langgraph.graph import END, START, StateGraph
+
         self.scanner = scanner
         self.analyst = analyst
         self.guard = guard or SecretGuard()
@@ -303,6 +306,8 @@ class SecurityService:
         self.graph = builder.compile(checkpointer=checkpointer)
 
     def _guarded_node(self, handler):
+        from sabre.error_boundaries import guarded_call
+
         async def guarded(state: SecurityState):
             async def invoke():
                 result = handler(state)
@@ -365,6 +370,8 @@ class SecurityService:
         return {"blocked": any(is_blocking_finding(finding) for finding in state["findings"])}
 
     async def review(self, work_id: str, digest: str, baseline: list[str], exceptions: list[SecurityException] | None = None, *, plan_revision: int = 1) -> SecurityReport:
+        from sabre.error_boundaries import guarded_call
+
         exceptions = exceptions or []
         self.guard.check({"work_id": work_id, "digest": digest, "baseline": baseline, "exceptions": exceptions})
         version = await guarded_call(self.scanner.security_version, self.guard, "SECURITY_REVIEW_FAILED", work_id) if hasattr(self.scanner, "security_version") else RULES_VERSION
