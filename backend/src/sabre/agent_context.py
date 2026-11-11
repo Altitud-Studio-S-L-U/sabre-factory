@@ -11,7 +11,7 @@ from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, ToolMes
 from sabre.context_receipts import ContextReference
 from sabre.models import DomainError
 
-READ_TOOLS = frozenset({"read_file", "read_file_range", "search_source", "list_files"})
+READ_TOOLS = frozenset({"read_file", "read_files", "read_file_range", "search_source", "list_files"})
 
 
 @dataclass(frozen=True)

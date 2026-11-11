@@ -14,7 +14,7 @@ from sabre.models import Contract
 from sabre.project_context import source_path
 
 ROLES = {"supervisor", "analyst", "architect", "developer", "qa", "reviewer", "security", "designer", "devops"}
-TOOLS = {"list_files", "read_file", "search_source", "read_file_range", "write_file", "execute", "prepare_dependencies", "resolve_dependencies", "read_context", "read_memory", "edit_source"}
+TOOLS = {"list_files", "read_file", "read_files", "search_source", "read_file_range", "write_file", "execute", "prepare_dependencies", "resolve_dependencies", "read_context", "read_memory", "edit_source"}
 MAX_MESSAGES = 1000
 MAX_TOOLS = 500
 MAX_CONTENT_BYTES = 65536

@@ -13,6 +13,9 @@ class ArchivedRead:
     original_bytes: int
 
 
+# One recovery page. Larger pages mean fewer read_context round trips for the same text.
+READ_CONTEXT_PAGE = 8192
+
 class ContextArchive:
     def __init__(self, artifacts, guard):
         self.artifacts, self.guard = artifacts, guard
@@ -35,12 +38,12 @@ class ContextArchive:
         self._restored_pages = 0
         self._unknown_interval = False
 
-    async def read(self, tool_call_id: str, response_digest: str, offset: int = 0, limit: int = 2048):
+    async def read(self, tool_call_id: str, response_digest: str, offset: int = 0, limit: int = READ_CONTEXT_PAGE):
         allowed = self._allowed.get(tool_call_id)
         if allowed is None or allowed.response_digest != response_digest:
             raise DomainError("CONTEXT_REFERENCE_NOT_ALLOWED", "The reference does not belong to a read by this agent", 403)
-        if type(offset) is not int or type(limit) is not int or offset < 0 or not 1 <= limit <= 2048:
-            raise DomainError("INVALID_CONTEXT_RANGE", "Use a nonnegative offset and between 1 and 2048 characters", 422)
+        if type(offset) is not int or type(limit) is not int or offset < 0 or not 1 <= limit <= READ_CONTEXT_PAGE:
+            raise DomainError("INVALID_CONTEXT_RANGE", f"Use a nonnegative offset and between 1 and {READ_CONTEXT_PAGE} characters", 422)
         raw = self.artifacts.get(response_digest)
         if len(raw) != allowed.original_bytes or hashlib.sha256(raw).hexdigest() != response_digest:
             raise DomainError("ARTIFACT_CORRUPT", "The historical read size does not match")

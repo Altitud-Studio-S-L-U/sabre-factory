@@ -107,7 +107,7 @@ async def test_missing_or_corrupt_historical_artifact_never_returns_a_page(tmp_p
     assert error.value.code == ("ARTIFACT_NOT_FOUND" if missing else "ARTIFACT_CORRUPT")
 
 
-@pytest.mark.parametrize("offset,limit", [(-1, 1), (0, 2049), (999999, 1), (True, 1)])
+@pytest.mark.parametrize("offset,limit", [(-1, 1), (0, 8193), (999999, 1), (True, 1)])
 async def test_recovery_rejects_invalid_unicode_page_ranges(tmp_path, offset, limit):
     _, _, projection, reader = archived(tmp_path)
     ref = projection.references[0]

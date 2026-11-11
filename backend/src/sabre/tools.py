@@ -63,7 +63,7 @@ class ToolCatalog:
         self.tools[definition.name] = definition
 
     async def invoke(self, name: str, arguments: dict, role: str, *, allow_external_write=False):
-        internal = {"list_files", "read_file", "search_source", "read_file_range", "write_file", "execute", "prepare_dependencies", "resolve_dependencies", "read_context", "read_memory", "edit_source"}
+        internal = {"list_files", "read_file", "read_files", "search_source", "read_file_range", "write_file", "execute", "prepare_dependencies", "resolve_dependencies", "read_context", "read_memory", "edit_source"}
         with span("tool.call", tool=name if name in internal else "mcp", role=role):
             async with self.observer(name) if self.observer else nullcontext() as boundary:
                 result = await guarded_call(self._invoke, self.guard, "TOOL_EXECUTION_FAILED", name, arguments, role, allow_external_write=allow_external_write)
@@ -185,6 +185,10 @@ MAX_READ_BYTES = 32768
 MAX_LISTED_FILES = 500
 MAX_OUTPUT_HEAD_BYTES = 4096
 MAX_OUTPUT_TAIL_BYTES = 12288
+MAX_BATCH_FILES = 8
+MAX_BATCH_BYTES = 49152
+# Per-file faults that should not discard the other files of a batch.
+BATCH_FILE_ERRORS = frozenset({"WORKSPACE_IO_FAILED", "UNSAFE_PATH", "RESERVED_PATH", "SOURCE_NOT_FOUND"})
 
 
 def prefix_at_line(text: str, limit: int) -> str:
@@ -196,11 +200,11 @@ def prefix_at_line(text: str, limit: int) -> str:
     return head[:cut + 1] if cut > 0 else head
 
 
-def bounded_read(path: str, content: str):
+def bounded_read(path: str, content: str, limit: int = MAX_READ_BYTES):
     raw = content.encode()
-    if len(raw) <= MAX_READ_BYTES:
+    if len(raw) <= limit:
         return content
-    shown = prefix_at_line(content, MAX_READ_BYTES)
+    shown = prefix_at_line(content, limit)
     lines = shown.count("\n")
     return {"path": path, "content": shown, "truncated": True, "total_bytes": len(raw),
             "total_lines": content.count("\n") + (not content.endswith("\n")), "shown_lines": lines,
@@ -243,6 +247,25 @@ def workspace_tools(executor, work_id: str, guard: SecretGuard | None = None,
     async def read_file(path: str):
         return bounded_read(path, await executor.read_file(work_id, path))
 
+    async def read_files(paths: list[str]):
+        remaining, results = MAX_BATCH_BYTES, []
+        for path in paths:
+            if remaining <= 0:
+                results.append({"path": path, "omitted": True, "reason": "batch_limit"})
+                continue
+            try:
+                content = await executor.read_file(work_id, path)
+            except DomainError as error:
+                if error.code not in BATCH_FILE_ERRORS or (error.code == "WORKSPACE_IO_FAILED" and error.status_code != 422):
+                    raise
+                results.append({"path": path, "error": {"code": error.code, "message": error.message}})
+                continue
+            value = bounded_read(path, content, min(MAX_READ_BYTES, remaining))
+            shown = value if isinstance(value, str) else value["content"]
+            remaining -= len(shown.encode())
+            results.append({"path": path, "content": value} if isinstance(value, str) else value)
+        return {"files": results}
+
     async def write_file(path: str, content: str):
         await executor.write_file(work_id, path, content)
         return {"written": True}
@@ -269,6 +292,11 @@ def workspace_tools(executor, work_id: str, guard: SecretGuard | None = None,
     path_schema = {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"], "additionalProperties": False}
     catalog.register(ToolDefinition("list_files", "List the files in the assigned workspace.", {"type": "object", "properties": {}, "additionalProperties": False}, ToolPolicy(readers, "read"), list_files))
     catalog.register(ToolDefinition("read_file", "Read one UTF-8 source file from the assigned workspace.", path_schema, ToolPolicy(readers, "read"), read_file))
+    catalog.register(ToolDefinition("read_files", f"Read up to {MAX_BATCH_FILES} UTF-8 source files in one call ({MAX_BATCH_BYTES // 1024} KiB in total). Prefer this to several read_file calls. A missing file reports an error entry without discarding the others.", {
+        "type": "object", "properties": {"paths": {"type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 1024},
+            "minItems": 1, "maxItems": MAX_BATCH_FILES, "uniqueItems": True}},
+        "required": ["paths"], "additionalProperties": False,
+    }, ToolPolicy(readers, "read"), read_files))
     if source_context is not None:
         catalog.register(ToolDefinition("search_source", "Find literal, case-sensitive source text in the current snapshot. Returns bounded line previews and file digests; skipped files are not searched. Use snapshot_digest with next_offset to continue the same snapshot.", {
             "type": "object", "properties": {"query": {"type": "string", "minLength": 1, "maxLength": 200}, "path_prefix": {"type": "string", "maxLength": 1024},
