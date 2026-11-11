@@ -6,11 +6,11 @@ import './ModelConfiguration.css';
 
 const providers: Record<ModelSelection['provider'], { title: string; destination: string }> = {
   codex_cli: { title: 'Codex · CLI', destination: 'http://codex-runner:8091' },
-  claude_cli: { title: 'Claude · CLI', destination: 'http://claude-runner:8092' },
+  claude_cli: { title: 'Claude Code · CLI', destination: 'http://claude-runner:8092' },
   openai: { title: 'OpenAI · API', destination: 'https://api.openai.com/v1' },
   anthropic: { title: 'Anthropic · API', destination: 'https://api.anthropic.com' },
   google: { title: 'Google · API', destination: 'https://generativelanguage.googleapis.com' },
-  local: { title: 'Endpoint compatible local', destination: '' },
+  local: { title: 'Compatible endpoint', destination: '' },
 };
 const roles: Record<string, string> = {
   supervisor: 'Supervisor',
@@ -136,7 +136,15 @@ export function SelectionFields({
   );
 }
 
-export default function ModelConfiguration({ api, onChanged }: { api: Api; onChanged: () => Promise<void> }) {
+export default function ModelConfiguration({
+  api,
+  onChanged,
+  scope = 'all',
+}: {
+  api: Api;
+  onChanged: () => Promise<void>;
+  scope?: 'all' | 'default' | 'agents';
+}) {
   const [saved, setSaved] = useState<Configuration | null>(null);
   const [general, setGeneral] = useState<ModelSelection | null>(null);
   const [overrides, setOverrides] = useState<Record<string, ModelSelection | null>>({});
@@ -145,6 +153,7 @@ export default function ModelConfiguration({ api, onChanged }: { api: Api; onCha
   const [approved, setApproved] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [selectedRole, setSelectedRole] = useState('developer');
   const accept = useCallback((value: Configuration) => {
     setSaved(value);
     setGeneral(value.default);
@@ -217,7 +226,13 @@ export default function ModelConfiguration({ api, onChanged }: { api: Api; onCha
     <section className="model-configuration" aria-labelledby="model-configuration-title">
       <div className="section-heading">
         <div>
-          <h2 id="model-configuration-title">Models and team</h2>
+          <h2 id="model-configuration-title">
+            {scope === 'agents'
+              ? 'Agent model assignments'
+              : scope === 'default'
+                ? 'Factory default model'
+                : 'Models and team'}
+          </h2>
           <p className="muted">
             Assign a model to each specialty. SABRE retains control of the flow, memory and permissions.
           </p>
@@ -274,14 +289,34 @@ export default function ModelConfiguration({ api, onChanged }: { api: Api; onCha
               </li>
             ))}
           </ul>
+          {scope === 'agents' && (
+            <div className="agent-selector" aria-label="Runtime specialists">
+              {saved.roles.map((role) => (
+                <button
+                  type="button"
+                  className="button"
+                  key={role.role}
+                  aria-pressed={selectedRole === role.role}
+                  onClick={() => setSelectedRole(role.role)}
+                >
+                  <strong>{roles[role.role] ?? role.role}</strong>
+                  <small>
+                    {overrides[role.role]
+                      ? `${providers[overrides[role.role]!.provider].title} · ${overrides[role.role]!.name || 'Not selected'}`
+                      : `Inherits factory default · ${general.name || 'Not selected'}`}
+                  </small>
+                </button>
+              ))}
+            </div>
+          )}
           <form onSubmit={(event) => void submit(event)}>
             <fieldset disabled={loading || saving} className="model-settings">
               <legend>Team configuration · revision {saved.revision}</legend>
-              <details open className="model-role">
+              <details open={scope !== 'agents'} className="model-role">
                 <summary>
                   <strong>Default model</strong>
                   <span>
-                    {providers[general.provider].title} · {general.name || 'CLI default'}
+                    {providers[general.provider].title} · {general.name || 'Not selected'}
                   </span>
                 </summary>
                 <SelectionFields
@@ -293,36 +328,47 @@ export default function ModelConfiguration({ api, onChanged }: { api: Api; onCha
                   }}
                 />
               </details>
-              {saved.roles.map((role) => {
-                const value = overrides[role.role] ?? null;
-                const effective = value ?? general;
-                return (
-                  <details className="model-role" key={role.role}>
-                    <summary>
-                      <strong>{roles[role.role] ?? role.role}</strong>
-                      <span>
-                        {value ? providers[effective.provider].title : 'Inherits the default model'} ·{' '}
-                        {effective.name || 'CLI default'}
-                      </span>
-                    </summary>
-                    <label className="model-inherit">
-                      <input
-                        type="checkbox"
-                        checked={!value}
-                        onChange={(event) => change(role.role, event.target.checked ? null : { ...general })}
-                      />
-                      Inherit the default model
-                    </label>
-                    {value && <SelectionFields value={value} onChange={(next) => change(role.role, next)} />}
-                    {role.credential_target && (
-                      <p className="muted">
-                        Saved credential target: <code>{role.credential_target}</code>. Manage keys in the
-                        model connection.
-                      </p>
-                    )}
-                  </details>
-                );
-              })}
+              {scope !== 'default' &&
+                saved.roles
+                  .filter((role) => scope !== 'agents' || role.role === selectedRole)
+                  .map((role) => {
+                    const value = overrides[role.role] ?? null;
+                    const effective = value ?? general;
+                    return (
+                      <details
+                        className="model-role"
+                        key={role.role}
+                        open={scope === 'agents' ? true : undefined}
+                      >
+                        <summary>
+                          <strong>{roles[role.role] ?? role.role}</strong>
+                          <span>
+                            {value ? providers[effective.provider].title : 'Inherits the default model'} ·{' '}
+                            {effective.name || 'Not selected'}
+                          </span>
+                        </summary>
+                        <label className="model-inherit">
+                          <input
+                            type="checkbox"
+                            checked={!value}
+                            onChange={(event) =>
+                              change(role.role, event.target.checked ? null : { ...general })
+                            }
+                          />
+                          Inherit the default model
+                        </label>
+                        {value && (
+                          <SelectionFields value={value} onChange={(next) => change(role.role, next)} />
+                        )}
+                        {role.credential_target && (
+                          <p className="muted">
+                            Saved credential target: <code>{role.credential_target}</code>. Manage keys in the
+                            model connection.
+                          </p>
+                        )}
+                      </details>
+                    );
+                  })}
               <div className="model-destinations">
                 <p>Team destinations for this configuration</p>
                 <ul>
@@ -354,7 +400,7 @@ export default function ModelConfiguration({ api, onChanged }: { api: Api; onCha
                       setNotice('');
                     }}
                   >
-                    Descartar cambios
+                    Discard changes
                   </button>
                 )}
               </div>

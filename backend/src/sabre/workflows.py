@@ -16,6 +16,7 @@ from pydantic import ConfigDict, Field, ValidationError
 
 from sabre.error_boundaries import guarded_call
 from sabre.events import ExecutionEvent
+from sabre.execution_observer import current_execution
 from sabre.models import (
     AgentResult,
     Contract,
@@ -34,7 +35,7 @@ from sabre.project_context import ProjectContext, source_path
 from sabre.repository import digest
 from sabre.security import security_policy_digest
 from sabre.specialists import task_instruction
-from sabre.telemetry import span
+from sabre.telemetry import span, trace_identifiers
 
 GRAPH_VERSION = "sabre-v1"
 MAX_ANALYSIS_HANDOFF_BYTES = 8192
@@ -201,15 +202,19 @@ def observe_stage(name, handler, guard, repository=None):
                     plan_revision=order.get("plan_revision", 1), phase=name, correlation_id=correlation,
                     kind="stage", state=status, name=name, timestamp=now(),
                     duration_ms=None if status == "started" else int((time.perf_counter()-started)*1000),
-                    error_code=error))
-        await record("started")
-        try:
-            with span("workflow.stage", phase=name, work_id=order.get("id", "unknown")):
+                    error_code=error, **trace_identifiers()))
+        with span("workflow.stage", phase=name, work_id=order.get("id", "unknown")):
+            await record("started")
+            token = current_execution.set(correlation)
+            try:
                 result = await guarded_call(handler, guard, "WORKFLOW_STAGE_FAILED", state)
-        except BaseException as error:
-            await record("interrupted" if isinstance(error, (GraphInterrupt, asyncio.CancelledError)) else "failed", getattr(error, "code", None))
-            raise
-        await record("completed")
+            except BaseException as error:
+                await record("interrupted" if isinstance(error, (GraphInterrupt, asyncio.CancelledError)) else "failed", getattr(error, "code", None))
+                raise
+            else:
+                await record("completed")
+            finally:
+                current_execution.reset(token)
         return result
     return run
 

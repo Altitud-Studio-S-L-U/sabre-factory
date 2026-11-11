@@ -24,6 +24,8 @@ class ExecutionEvent(StrictContract):
     error_code: str | None = Field(default=None, max_length=100)
     provider: str | None = None
     model: str | None = None
+    trace_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
+    span_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{16}$")
 
 
 class SequencedEvent(StrictContract):

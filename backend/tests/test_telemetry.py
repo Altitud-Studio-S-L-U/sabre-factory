@@ -122,3 +122,33 @@ def test_factory_failure_mark_survives_normal_context_exit(recorded):
     assert observed.status.status_code == StatusCode.ERROR
     assert observed.attributes["sabre.result"] == "error"
     assert observed.attributes["sabre.error_code"] == "REPAIR_LIMIT"
+
+
+async def test_execution_events_link_nested_actions_and_real_trace_ids(recorded):
+    from types import SimpleNamespace
+
+    from sabre.execution_observer import current_execution, observe
+    events = []
+
+    class Repository:
+        async def record_execution_event(self, event):
+            events.append(event)
+
+    work = SimpleNamespace(id="synthetic-run", plan_revision=1, phase="implementation")
+    with span("agent.role", role="developer"):
+        async with observe(Repository(), work, "agent", "developer") as parent:
+            with span("tool.call", tool="read_file"):
+                async with observe(Repository(), work, "tool", "read_file"):
+                    assert current_execution.get() != parent
+    assert current_execution.get() is None
+    tools = [event for event in events if event.kind == "tool"]
+    assert len(tools) == 2 and all(event.parent_id == parent for event in tools)
+    assert all(event.trace_id is not None and event.span_id is not None for event in events)
+    assert len({event.trace_id for event in events}) == 1
+    assert len({event.span_id for event in events}) == 2
+
+
+def test_trace_identifier_failure_does_not_change_application_behavior(monkeypatch):
+    from sabre.telemetry import trace_identifiers
+    monkeypatch.setattr("sabre.telemetry.trace.get_current_span", Mock(side_effect=RuntimeError("unavailable")))
+    assert trace_identifiers() == {"trace_id": None, "span_id": None}

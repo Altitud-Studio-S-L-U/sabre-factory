@@ -40,6 +40,21 @@ LangGraph remains the execution authority. Event tables are read projections; no
 
 Use `node bin/sabre.mjs mcp-stdio` as the local MCP transport. The bridge keeps the permanent credential inside the API container. `node bin/sabre.mjs mcp tools` lists tools for command-line use; pass a tool name and an argument JSON file to call one. Native elicitation requires a direct authenticated MCP HTTP connection; the standard answer tool is available through stdio. Tools share application authorization, request validation and revision checks with the panel. MCP can submit, inspect, pause, resume, cancel and answer a current intervention. A disconnected client does not cancel a run.
 
+In an MCP client that supports local stdio servers, select `node` as the executable and pass the absolute path to `bin/sabre.mjs` followed by `mcp-stdio` as separate arguments. For clients using the `mcpServers` JSON format:
+
+```json
+{
+  "mcpServers": {
+    "sabre-factory": {
+      "command": "node",
+      "args": ["/absolute/path/to/sabre-factory/bin/sabre.mjs", "mcp-stdio"]
+    }
+  }
+}
+```
+
+Replace the example path with your checkout path. On Windows, forward slashes work, including paths with spaces, such as `D:/workspace/sabre-factory/bin/sabre.mjs`. Keep the path as one argument. If the client cannot find Node, use its absolute executable path. Start SABRE before connecting; a successful connection lists the tools but does not authenticate model providers or grant GitHub permissions. No bearer token belongs in this stdio configuration. Only connect trusted local clients: this connection acts as the factory owner.
+
 Install a Slack app using [the manifest](../infra/slack-manifest.yml), enable Socket Mode, and create an app token with `connections:write`. Store bot/app credentials through the factory credential controls. Set `SABRE_SLACK_OWNER_ID` to the one explicitly linked owner. Only direct messages from that owner are admitted. Repository text and tool output cannot authorize commands. Do not send secrets in Slack messages.
 
 Delivery records use deduplication and a bounded retry schedule. Uncertain Slack effects are reconciled against receipts and message metadata before another send. They are shown as uncertain if confirmation is impossible; they are never blindly reposted. Failed deliveries can be retried explicitly from Integrations after fixing the cause.

@@ -6,7 +6,7 @@ import { executable, prefix, root, safeEnvironment } from './bootstrap.mjs';
 const MAX_INPUT = 64 * 1024;
 const MAX_OUTPUT = 1024 * 1024;
 const messages = {
-  MCP_INPUT_INVALID: 'Uso: node infra/mcp.mjs <tools|tool-name> [arguments.json]. El archivo debe contener un objeto JSON de hasta 64 KiB, sin credenciales.',
+  MCP_INPUT_INVALID: 'Usage: node infra/mcp.mjs <tools|tool-name> [arguments.json]. The file must contain a JSON object up to 64 KiB, without credentials.',
   MCP_TOOL_UNAVAILABLE: 'This tool is not in the current SABRE catalog.',
   MCP_TOOL_ERROR: 'SABRE rejected the MCP call. Check its outcome before repeating a mutation.',
   MCP_OUTPUT_LIMIT: 'The response exceeds 1 MiB. Query a specific run before repeating a mutation.',
