@@ -301,7 +301,7 @@ export default function RepoCreations({ api }: { api: Api }) {
             )}
             {item.error_code && (
               <p className="muted">
-                Referencia: <code>{item.error_code}</code>
+                Reference: <code>{item.error_code}</code>
               </p>
             )}
           </article>

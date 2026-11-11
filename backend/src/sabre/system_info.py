@@ -86,14 +86,14 @@ async def system_info(service: StatusSource) -> SystemInfo:
     if status["model"].get("cli") is not None:
         runners.setdefault(status["model"]["provider"], status["model"]["cli"])
     components = [
-        SystemComponent(id="api", label="API de SABRE", configured=True, state="available",
+        SystemComponent(id="api", label="SABRE API", configured=True, state="available",
                         detail="The API responded to this query; this does not establish the health of all services."),
         SystemComponent(id="database", label="PostgreSQL", configured=True,
                         state="available" if status["database"] == "connected" else "unavailable",
                         detail="Result of the database connectivity query."),
-        SystemComponent(id="worker", label="Trabajo en segundo plano", configured=None, state="unknown",
+        SystemComponent(id="worker", label="Background worker", configured=None, state="unknown",
                         detail="This query does not check the worker process or queue progress."),
-        SystemComponent(id="executor", label="Ejecutor aislado", configured=None, state="unknown",
+        SystemComponent(id="executor", label="Isolated executor", configured=None, state="unknown",
                         detail="This query does not execute tools or check job containers."),
     ]
     for provider, identifier, label, account in (("codex_cli", "codex", "Codex", "ChatGPT"), ("claude_cli", "claude", "Claude", "Claude personal")):
@@ -108,7 +108,7 @@ async def system_info(service: StatusSource) -> SystemInfo:
             state="busy" if busy else "available" if available else "unavailable",
             detail="The runner is busy; the session is not checked again during inference." if busy else
                    f"The runner responds and its session for {account} is authenticated." if available and authenticated else
-                   f"The runner responds, but has no session for {account} autenticada." if available else
+                   f"The runner responds, but has no authenticated session for {account}." if available else
                    f"Could not confirm runner availability for {label}.",
         ))
     integrations: tuple[tuple[Literal["github", "slack"], str], ...] = (("github", "GitHub"), ("slack", "Slack"))

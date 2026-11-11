@@ -444,7 +444,7 @@ class DockerBroker:
             kind = parsed.get("error", "WorkspaceError")
             if kind not in {"ValueError", "FileNotFoundError", "PermissionError", "UnicodeDecodeError", "IsADirectoryError", "OSError"}:
                 kind = "WorkspaceError"
-            raise DomainError("WORKSPACE_IO_FAILED", f"The workspace operation failed: {kind} (salida {result.exit_code})", 422)
+            raise DomainError("WORKSPACE_IO_FAILED", f"The workspace operation failed: {kind} (exit {result.exit_code})", 422)
         return parsed["result"]
 
     async def _github_archive(self, project: Project) -> tuple[bytes, str]:

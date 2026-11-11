@@ -138,10 +138,10 @@ def create_app(service=None, config=None) -> FastAPI:
                     request.state.panel_session = await panels().authenticate(request)
                     authorized = browser = True
             if not authorized:
-                return JSONResponse({"code": "UNAUTHORIZED", "message": "Introduce el token de acceso de SABRE"}, status_code=401)
+                return JSONResponse({"code": "UNAUTHORIZED", "message": "Authenticate with the SABRE access credential"}, status_code=401)
             origin = request.headers.get("origin")
             if not browser and origin and origin not in cfg.allowed_origins:
-                return JSONResponse({"code": "ORIGIN_DENIED", "message": "Origen no autorizado"}, status_code=403)
+                return JSONResponse({"code": "ORIGIN_DENIED", "message": "Origin not allowed"}, status_code=403)
         return await call_next(request)
 
     @application.middleware("http")

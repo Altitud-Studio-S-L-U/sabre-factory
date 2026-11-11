@@ -37,8 +37,8 @@ const phaseLabels: Record<string, string> = {
   review: 'Review',
   security: 'Security',
   security_watch: 'Security monitoring',
-  delivery: 'Entrega',
-  deliver: 'Entrega',
+  delivery: 'Delivery',
+  deliver: 'Delivery',
   prepare_delivery: 'Prepare delivery',
   remember: 'Memory',
 };
@@ -84,7 +84,7 @@ export default function WorkBoard({
                       <strong>{order.objective}</strong>
                       <StatusBadge value={order.status} label={statusLabels[order.status]} />
                       <span className="work-board-phase">
-                        Etapa: {phaseLabels[order.phase] ?? order.phase}
+                        Phase: {phaseLabels[order.phase] ?? order.phase}
                       </span>
                       {order.summary && <span className="work-board-summary">{order.summary}</span>}
                       <span className="work-board-open">View run →</span>

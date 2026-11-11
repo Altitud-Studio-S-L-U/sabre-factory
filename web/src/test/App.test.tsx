@@ -669,7 +669,7 @@ describe('Control room', () => {
     await legacyRoute('/about');
     expect(await screen.findByRole('heading', { name: 'Services and connections' })).toBeVisible();
     const cli = within(screen.getByRole('heading', { name: 'Codex CLI' }).closest('li')!);
-    expect(cli.getByText('Responde')).toBeVisible();
+    expect(cli.getByText('Responding')).toBeVisible();
     expect(cli.getByText('Not configured')).toBeVisible();
     expect(screen.getByText(/explicit-cli-model/)).toBeVisible();
     expect(screen.getByText(/Automatic \(CLI\)/)).toBeVisible();
@@ -1023,7 +1023,7 @@ describe('Control room', () => {
       expect(section.getByText('Review sintética conservada')).toBeVisible();
       const gate = within(section.getByRole('list', { name: 'Delivery checks' })).getByRole('listitem');
       expect(gate).toHaveTextContent('npm run check');
-      expect(gate).toHaveTextContent(`Salida ${exitCode}`);
+      expect(gate).toHaveTextContent(`Exit ${exitCode}`);
       expect(gate).toHaveTextContent(verdict);
       expect(gate).toHaveClass(exitCode === 0 && matchingSnapshot ? 'passed' : 'failed');
       if (matchingSnapshot) expect(section.queryByRole('alert')).not.toBeInTheDocument();

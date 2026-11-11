@@ -61,9 +61,9 @@ describe('System information', () => {
     const telemetry = screen.getByRole('heading', { name: 'OpenTelemetry' }).closest('li')!;
     expect(within(telemetry).getByText('Configured')).toBeVisible();
     expect(within(telemetry).getByText('Not checked')).toBeVisible();
-    expect(within(telemetry).queryByText('Responde')).not.toBeInTheDocument();
+    expect(within(telemetry).queryByText('Responding')).not.toBeInTheDocument();
     const cli = screen.getByRole('heading', { name: 'Codex CLI' }).closest('li')!;
-    expect(within(cli).getByText('Ocupado')).toBeVisible();
+    expect(within(cli).getByText('Busy')).toBeVisible();
     expect(within(cli).queryByText('Not configured')).not.toBeInTheDocument();
     expect(screen.getByText(/the Codex runner processes one invocation at a time/)).toBeVisible();
     expect(screen.getByText('Developer')).toBeVisible();

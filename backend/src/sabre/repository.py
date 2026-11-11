@@ -434,7 +434,7 @@ class Repository:
             return work
 
     async def _increase_budget(self, work_id: str, field: Literal["max_tokens", "max_calls"], expected_revision: int, expected_limit: int, new_limit: int) -> WorkOrder:
-        label = {"max_tokens": "tokens", "max_calls": "llamadas"}[field]
+        label = {"max_tokens": "tokens", "max_calls": "model calls"}[field]
         async with self.connection() as conn:
             row = await (await conn.execute("SELECT data,control FROM work_orders WHERE id=%s FOR UPDATE", (work_id,))).fetchone()
             if row is None:
@@ -453,7 +453,7 @@ class Repository:
             if work.status not in {Status.PAUSED, Status.BLOCKED}:
                 raise DomainError("PAUSE_REQUIRED", f"Pause the work order before extending the limit for {label}")
             if new_limit <= expected_limit:
-                raise DomainError("BUDGET_INCREASE_REQUIRED", f"The new limit for {label} debe ser mayor", 422)
+                raise DomainError("BUDGET_INCREASE_REQUIRED", f"The new limit for {label} must be higher", 422)
             setattr(work.budget, field, new_limit)
             message = f"Limit for {label} extended by the owner: {expected_limit} → {new_limit}"
             work.summary, work.updated_at = message + "; the state is preserved and resuming is independent", now()

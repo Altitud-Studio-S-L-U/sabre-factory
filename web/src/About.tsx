@@ -4,9 +4,9 @@ import Icon from './Icon';
 import './About.css';
 
 const states = {
-  available: 'Responde',
+  available: 'Responding',
   unavailable: 'Unavailable',
-  busy: 'Ocupado',
+  busy: 'Busy',
   unknown: 'Not checked',
 };
 const roles: Record<string, string> = {
@@ -65,7 +65,7 @@ export default function About({ api }: { api: Pick<Api, 'system'> }) {
       <div className="system-about-toolbar">
         <p>Installed versions and verification coverage for this instance.</p>
         <button className="button secondary" onClick={() => void refresh()} disabled={loading}>
-          <Icon name="refresh" /> {loading ? 'Consultando…' : 'Refresh system'}
+          <Icon name="refresh" /> {loading ? 'Checking…' : 'Refresh system'}
         </button>
       </div>
       {failed && (

@@ -101,7 +101,7 @@ describe('Run board', () => {
     const card = screen.getByRole('button', { name: /Vigilar dependencias/ });
     expect(within(card).getByText('Security monitoring')).toBeVisible();
     expect(within(card).queryByText('Patch')).not.toBeInTheDocument();
-    expect(screen.getByText('Etapa: future-phase')).toBeVisible();
+    expect(screen.getByText('Phase: future-phase')).toBeVisible();
     expect(screen.getByText('Project unavailable')).toBeVisible();
     expect(screen.getAllByText('No runs in this state')).toHaveLength(2);
   });
