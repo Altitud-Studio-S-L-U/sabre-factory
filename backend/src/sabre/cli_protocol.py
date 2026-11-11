@@ -67,6 +67,9 @@ def serialize_turn(messages: list[BaseMessage], tools: list, choice: Any, provid
     conversation = []
     for message in messages:
         content = message.content
+        if isinstance(message, ToolMessage) and content == []:
+            # LangChain represents an empty collection as empty content blocks; keep the result observable.
+            content = "[]"
         if not isinstance(content, str):
             texts = []
             for block in content:
