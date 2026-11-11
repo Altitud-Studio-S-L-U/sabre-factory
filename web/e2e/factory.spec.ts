@@ -123,7 +123,7 @@ test('supervisor persists an owner conversation across navigation and defaults t
     await route.fulfill({ json: { items: messages, truncated: false } });
   });
   await page.goto('/work');
-  await page.getByRole('button', { name: 'Supervisor', exact: false }).click();
+  await page.getByRole('button', { name: 'Supervisor', exact: true }).click();
   const conversation = page.getByRole('region', { name: 'Supervisor conversation' });
   await conversation
     .getByRole('textbox', { name: 'Message', exact: true })
@@ -137,7 +137,12 @@ test('supervisor persists an owner conversation across navigation and defaults t
     .getByRole('navigation', { name: 'Main navigation' })
     .getByRole('link', { name: 'Agents', exact: true })
     .click();
-  await page.getByRole('button', { name: 'Supervisor', exact: false }).click();
+  await expect(
+    page
+      .getByRole('region', { name: 'Agent model assignments' })
+      .getByRole('button', { name: /^Supervisor Inherits factory/ }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Supervisor', exact: true }).click();
   await expect(conversation.getByText('Watch out: preserve the public API', { exact: true })).toBeVisible();
   messages[0] = {
     ...messages[0],
@@ -189,7 +194,7 @@ test('blocked supervisor message resumes by identity without expanding its origi
     await route.fulfill({ json: { items: [message], truncated: false } });
   });
   await page.goto('/work');
-  await page.getByRole('button', { name: 'Supervisor', exact: false }).click();
+  await page.getByRole('button', { name: 'Supervisor', exact: true }).click();
   const conversation = page.getByRole('region', { name: 'Supervisor conversation' });
   await conversation.getByRole('button', { name: 'Reconcile and resume message' }).click();
   await expect(conversation.getByText('Message queued. No action has been confirmed.')).toBeVisible();
