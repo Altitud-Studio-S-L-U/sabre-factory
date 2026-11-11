@@ -3,6 +3,8 @@ import Input from './components/Input';
 import Textarea from './components/Textarea';
 import {
   Fragment,
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useMemo,
@@ -34,8 +36,6 @@ import {
   type WorkOrder,
   type AuditView,
 } from './api';
-import About from './About';
-import Integrations from './Integrations';
 import WorkAudit from './WorkAudit';
 import ExecutionTimeline from './ExecutionTimeline';
 import useRunUsage from './useRunUsage';
@@ -49,10 +49,6 @@ import StatusBadge from './components/StatusBadge';
 import LoadingState from './components/LoadingState';
 import SupervisorConsole from './SupervisorConsole';
 import RunsWorkspace from './RunsWorkspace';
-import AgentsConsole from './AgentsConsole';
-import ToolsConsole from './ToolsConsole';
-import MemoryConsole from './MemoryConsole';
-import ConfigConsole from './ConfigConsole';
 import Dialog from './components/Dialog';
 import Tabs from './components/Tabs';
 import BudgetPanel from './BudgetPanel';
@@ -65,6 +61,32 @@ import { legacyNavigation, navigation, type View } from './navigation';
 import AppShell from './app/AppShell';
 import type { PaletteCommand } from './app/CommandPalette';
 import { Logo } from './app/Logo';
+
+// Sections load on first visit; Runs stays in the main bundle.
+const sections = {
+  agentsConsole: () => import('./AgentsConsole'),
+  toolsConsole: () => import('./ToolsConsole'),
+  memoryConsole: () => import('./MemoryConsole'),
+  configConsole: () => import('./ConfigConsole'),
+  integrations: () => import('./Integrations'),
+  about: () => import('./About'),
+};
+
+/** Fetch section code once the console is idle so the first visit does not wait on the network. */
+function usePrefetchSections() {
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      for (const load of Object.values(sections)) void load();
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, []);
+}
+const AgentsConsole = lazy(sections.agentsConsole);
+const ToolsConsole = lazy(sections.toolsConsole);
+const MemoryConsole = lazy(sections.memoryConsole);
+const ConfigConsole = lazy(sections.configConsole);
+const Integrations = lazy(sections.integrations);
+const About = lazy(sections.about);
 function usesOnlyCliModels(status: Record<string, unknown>): boolean {
   const model = status.model as { provider?: unknown } | undefined;
   const roles = status.roles as Record<string, { provider?: unknown }> | undefined;
@@ -381,6 +403,7 @@ function Login({ error, connecting }: { error: string; connecting: boolean }) {
 
 function Session({ session, onLogout }: { session: PanelSession; onLogout: (error?: string) => void }) {
   const api = useMemo(() => createApi(session.csrf_token, onLogout), [session.csrf_token, onLogout]);
+  usePrefetchSections();
   const location = useLocation();
   const navigate = useNavigate();
   const workMatch = matchPath('/work/:workId', location.pathname);
@@ -573,269 +596,287 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
         commands={paletteCommands}
         mainRef={mainContent}
       >
-        {logoutError && <ErrorNotice>{logoutError}</ErrorNotice>}
-        {error && (
-          <div className="notice error" role="alert">
-            <div>
-              <strong>Data could not be refreshed.</strong>
-              <p>{error} Visible data may be outdated.</p>
+        <Suspense
+          fallback={
+            <div className="loading-state" role="status">
+              <span className="loading-spinner" />
+              Loading section…
             </div>
-            <Button className="button small" onClick={() => void reload()} disabled={refreshing}>
-              Retry
-            </Button>
-          </div>
-        )}
-        {loading ? (
-          <div className="loading-state" role="status">
-            <span className="loading-spinner" />
-            Connecting to the factory…
-          </div>
-        ) : !updated ? (
-          <Empty title="The factory could not be loaded">Check the connection and retry.</Empty>
-        ) : (
-          <>
-            {view === 'work' && (!selectedId || selected) && (
-              <>
-                <RunsWorkspace
-                  connected={!error}
-                  orders={orders}
-                  projects={projects}
-                  selectedId={selected?.id ?? orders[0]?.id}
-                  onOpen={openWork}
-                  onNew={() => setForm('work')}
-                >
-                  {(selected ?? (!selectedId ? orders[0] : undefined)) ? (
-                    (() => {
-                      const activeOrder = selected ?? orders[0];
-                      return (
-                        <WorkDetail
-                          connected={!error}
-                          key={activeOrder.id}
-                          api={api}
-                          order={activeOrder}
-                          project={projects.find((project) => project.id === activeOrder.project_id)}
-                          cliMode={cliMode}
-                          onBack={() => changeView('work')}
-                          onChanged={reload}
-                          embedded
-                        />
-                      );
-                    })()
-                  ) : (
-                    <div className="run-empty-surface">
-                      <span className="eyebrow">LOCAL SOFTWARE FACTORY</span>
-                      <h2>Launch a verified process</h2>
-                      <p>
-                        Choose a project, define acceptance checks and launch a registered process. Its
-                        phases, agents, tools, memory and evidence will appear here as the work progresses.
-                      </p>
-                      <div className="run-empty-process">
-                        {['Preflight', 'Spec', 'Design', 'Plan', 'Build', 'Verify', 'Review', 'Deliver'].map(
-                          (label) => (
+          }
+        >
+          {logoutError && <ErrorNotice>{logoutError}</ErrorNotice>}
+          {error && (
+            <div className="notice error" role="alert">
+              <div>
+                <strong>Data could not be refreshed.</strong>
+                <p>{error} Visible data may be outdated.</p>
+              </div>
+              <Button className="button small" onClick={() => void reload()} disabled={refreshing}>
+                Retry
+              </Button>
+            </div>
+          )}
+          {loading ? (
+            <div className="loading-state" role="status">
+              <span className="loading-spinner" />
+              Connecting to the factory…
+            </div>
+          ) : !updated ? (
+            <Empty title="The factory could not be loaded">Check the connection and retry.</Empty>
+          ) : (
+            <>
+              {view === 'work' && (!selectedId || selected) && (
+                <>
+                  <RunsWorkspace
+                    connected={!error}
+                    orders={orders}
+                    projects={projects}
+                    selectedId={selected?.id ?? orders[0]?.id}
+                    onOpen={openWork}
+                    onNew={() => setForm('work')}
+                  >
+                    {(selected ?? (!selectedId ? orders[0] : undefined)) ? (
+                      (() => {
+                        const activeOrder = selected ?? orders[0];
+                        return (
+                          <WorkDetail
+                            connected={!error}
+                            key={activeOrder.id}
+                            api={api}
+                            order={activeOrder}
+                            project={projects.find((project) => project.id === activeOrder.project_id)}
+                            cliMode={cliMode}
+                            onBack={() => changeView('work')}
+                            onChanged={reload}
+                            embedded
+                          />
+                        );
+                      })()
+                    ) : (
+                      <div className="run-empty-surface">
+                        <span className="eyebrow">LOCAL SOFTWARE FACTORY</span>
+                        <h2>Launch a verified process</h2>
+                        <p>
+                          Choose a project, define acceptance checks and launch a registered process. Its
+                          phases, agents, tools, memory and evidence will appear here as the work progresses.
+                        </p>
+                        <div className="run-empty-process">
+                          {[
+                            'Preflight',
+                            'Spec',
+                            'Design',
+                            'Plan',
+                            'Build',
+                            'Verify',
+                            'Review',
+                            'Deliver',
+                          ].map((label) => (
                             <span key={label}>{label}</span>
-                          ),
-                        )}
+                          ))}
+                        </div>
+                        <p>Process preview only. No execution has started.</p>
+                        <Button
+                          type="button"
+                          className="button primary"
+                          disabled={!!error}
+                          onClick={() => setForm('work')}
+                        >
+                          Create your first run
+                        </Button>
                       </div>
-                      <p>Process preview only. No execution has started.</p>
+                    )}
+                  </RunsWorkspace>
+                  <Dialog
+                    open={form === 'work'}
+                    onClose={() => setForm(null)}
+                    title="New run"
+                    busy={draftState.busy}
+                    dirty={draftState.dirty}
+                    description="Choose a registered flow, model bindings, acceptance checks and run limits. No work starts until you submit."
+                  >
+                    {form === 'work' && (
+                      <CreateWork
+                        connected={!error}
+                        onState={setDraftState}
+                        api={api}
+                        projects={projects}
+                        initialProjectId={newWorkProjectId}
+                        onDone={async (order) => {
+                          setForm(null);
+                          await reload();
+                          openWork(order);
+                        }}
+                        onCancel={() => setForm(null)}
+                        onCreateProject={() => {
+                          returnFocus.current = null;
+                          void navigate('/projects', { state: { form: 'project' } });
+                        }}
+                      />
+                    )}
+                  </Dialog>
+                </>
+              )}
+              {view === 'work' && selectedId && !selected && (
+                <>
+                  <PageHeader
+                    eyebrow="Run"
+                    title={detailError ? 'Run unavailable' : 'Loading run'}
+                    description={detailError || 'Reading the saved factory state.'}
+                  />
+                  {!detailError && <LoadingState label="Loading run…" />}
+                  <Link className="back-link" to="/work">
+                    ← All runs
+                  </Link>
+                </>
+              )}
+              {!view && (
+                <>
+                  <PageHeader
+                    eyebrow="Navigation"
+                    title="Page not found"
+                    description="This address does not match a SABRE section."
+                  />
+                  <Link className="button" to="/work">
+                    Go to runs
+                  </Link>
+                </>
+              )}
+              {view === 'projects' && (
+                <>
+                  <PageHeader
+                    eyebrow="Organization"
+                    title="Projects"
+                    description="Repositories, conventions and checks registered with the factory."
+                    action={
                       <Button
-                        type="button"
                         className="button primary"
-                        disabled={!!error}
-                        onClick={() => setForm('work')}
+                        onClick={(event) => {
+                          if (form !== 'project') returnFocus.current = event.currentTarget;
+                          setForm(form === 'project' ? null : 'project');
+                        }}
                       >
-                        Create your first run
+                        + Register project
                       </Button>
+                    }
+                  />
+                  <Dialog
+                    open={form === 'project'}
+                    onClose={() => setForm(null)}
+                    title="Register project"
+                    busy={draftState.busy}
+                    dirty={draftState.dirty}
+                    description="Register a repository and the exact checks future deliveries must pass."
+                  >
+                    {form === 'project' && (
+                      <CreateProject
+                        connected={!error}
+                        onState={setDraftState}
+                        api={api}
+                        onDone={async () => {
+                          setForm(null);
+                          await reload();
+                        }}
+                        onCancel={() => setForm(null)}
+                      />
+                    )}
+                  </Dialog>
+                  {projects.length === 0 ? (
+                    <Empty title="Your first project starts here">
+                      Register a repository and the checks its deliveries must pass.
+                    </Empty>
+                  ) : (
+                    <div className="project-grid">
+                      {projects.map((project) => (
+                        <article className="project-card" key={project.id}>
+                          <div className="project-monogram" aria-hidden="true">
+                            {project.name.slice(0, 2).toUpperCase()}
+                          </div>
+                          <h2>{project.name}</h2>
+                          <p className="repository">{project.repository}</p>
+                          <div className="project-meta">
+                            <span>{project.profile === 'python' ? 'Python' : 'JavaScript / TypeScript'}</span>
+                            <code>{project.default_branch}</code>
+                          </div>
+                          <div className="project-checks">
+                            <span>
+                              {project.gate_commands.length}{' '}
+                              {project.gate_commands.length === 1 ? 'configured check' : 'configured checks'}
+                            </span>
+                            <span>
+                              {orders.filter((order) => order.project_id === project.id).length} runs
+                            </span>
+                          </div>
+                          <Button
+                            className="button"
+                            onClick={() => {
+                              returnFocus.current = null;
+                              void navigate('/work', { state: { form: 'work', projectId: project.id } });
+                            }}
+                          >
+                            Create run <span aria-hidden="true">→</span>
+                          </Button>
+                        </article>
+                      ))}
                     </div>
                   )}
-                </RunsWorkspace>
-                <Dialog
-                  open={form === 'work'}
-                  onClose={() => setForm(null)}
-                  title="New run"
-                  busy={draftState.busy}
-                  dirty={draftState.dirty}
-                  description="Choose a registered flow, model bindings, acceptance checks and run limits. No work starts until you submit."
-                >
-                  {form === 'work' && (
-                    <CreateWork
-                      connected={!error}
-                      onState={setDraftState}
+                </>
+              )}
+              {view === 'security' && <SecurityView api={api} projects={projects} orders={orders} />}
+              {view === 'memory' && <MemoryConsole api={api} projects={projects} connected={!error} />}
+              {view === 'agents' && (
+                <>
+                  <PageHeader
+                    eyebrow="Specialists"
+                    title="Agents"
+                    description="Published specialists, versioned procedures and reviewed external agents."
+                  />
+                  <AgentsConsole api={api} projects={projects} connected={!error} />
+                </>
+              )}
+              {view === 'config' && (
+                <ConfigConsole
+                  key={location.search}
+                  api={api}
+                  projects={projects}
+                  connected={!error}
+                  onRefresh={reload}
+                />
+              )}
+              {(view === 'settings' || view === 'tools') && (
+                <>
+                  {view === 'settings' && (
+                    <PageHeader
+                      eyebrow="Factory capabilities"
+                      title="Integrations"
+                      description="Connect services, inspect their tools and control when SABRE may use them."
+                    />
+                  )}
+                  {view === 'tools' ? (
+                    <ToolsConsole
+                      key={location.search}
                       api={api}
                       projects={projects}
-                      initialProjectId={newWorkProjectId}
-                      onDone={async (order) => {
-                        setForm(null);
-                        await reload();
-                        openWork(order);
-                      }}
-                      onCancel={() => setForm(null)}
-                      onCreateProject={() => {
-                        returnFocus.current = null;
-                        void navigate('/projects', { state: { form: 'project' } });
-                      }}
-                    />
-                  )}
-                </Dialog>
-              </>
-            )}
-            {view === 'work' && selectedId && !selected && (
-              <>
-                <PageHeader
-                  eyebrow="Run"
-                  title={detailError ? 'Run unavailable' : 'Loading run'}
-                  description={detailError || 'Reading the saved factory state.'}
-                />
-                {!detailError && <LoadingState label="Loading run…" />}
-                <Link className="back-link" to="/work">
-                  ← All runs
-                </Link>
-              </>
-            )}
-            {!view && (
-              <>
-                <PageHeader
-                  eyebrow="Navigation"
-                  title="Page not found"
-                  description="This address does not match a SABRE section."
-                />
-                <Link className="button" to="/work">
-                  Go to runs
-                </Link>
-              </>
-            )}
-            {view === 'projects' && (
-              <>
-                <PageHeader
-                  eyebrow="Organization"
-                  title="Projects"
-                  description="Repositories, conventions and checks registered with the factory."
-                  action={
-                    <Button
-                      className="button primary"
-                      onClick={(event) => {
-                        if (form !== 'project') returnFocus.current = event.currentTarget;
-                        setForm(form === 'project' ? null : 'project');
-                      }}
-                    >
-                      + Register project
-                    </Button>
-                  }
-                />
-                <Dialog
-                  open={form === 'project'}
-                  onClose={() => setForm(null)}
-                  title="Register project"
-                  busy={draftState.busy}
-                  dirty={draftState.dirty}
-                  description="Register a repository and the exact checks future deliveries must pass."
-                >
-                  {form === 'project' && (
-                    <CreateProject
                       connected={!error}
-                      onState={setDraftState}
-                      api={api}
-                      onDone={async () => {
-                        setForm(null);
-                        await reload();
-                      }}
-                      onCancel={() => setForm(null)}
+                      onRefresh={reload}
                     />
+                  ) : (
+                    <Integrations api={api} onChanged={reload} />
                   )}
-                </Dialog>
-                {projects.length === 0 ? (
-                  <Empty title="Your first project starts here">
-                    Register a repository and the checks its deliveries must pass.
-                  </Empty>
-                ) : (
-                  <div className="project-grid">
-                    {projects.map((project) => (
-                      <article className="project-card" key={project.id}>
-                        <div className="project-monogram" aria-hidden="true">
-                          {project.name.slice(0, 2).toUpperCase()}
-                        </div>
-                        <h2>{project.name}</h2>
-                        <p className="repository">{project.repository}</p>
-                        <div className="project-meta">
-                          <span>{project.profile === 'python' ? 'Python' : 'JavaScript / TypeScript'}</span>
-                          <code>{project.default_branch}</code>
-                        </div>
-                        <div className="project-checks">
-                          <span>
-                            {project.gate_commands.length}{' '}
-                            {project.gate_commands.length === 1 ? 'configured check' : 'configured checks'}
-                          </span>
-                          <span>{orders.filter((order) => order.project_id === project.id).length} runs</span>
-                        </div>
-                        <Button
-                          className="button"
-                          onClick={() => {
-                            returnFocus.current = null;
-                            void navigate('/work', { state: { form: 'work', projectId: project.id } });
-                          }}
-                        >
-                          Create run <span aria-hidden="true">→</span>
-                        </Button>
-                      </article>
-                    ))}
-                  </div>
-                )}
-              </>
-            )}
-            {view === 'security' && <SecurityView api={api} projects={projects} orders={orders} />}
-            {view === 'memory' && <MemoryConsole api={api} projects={projects} connected={!error} />}
-            {view === 'agents' && (
-              <>
-                <PageHeader
-                  eyebrow="Specialists"
-                  title="Agents"
-                  description="Published specialists, versioned procedures and reviewed external agents."
-                />
-                <AgentsConsole api={api} projects={projects} connected={!error} />
-              </>
-            )}
-            {view === 'config' && (
-              <ConfigConsole
-                key={location.search}
-                api={api}
-                projects={projects}
-                connected={!error}
-                onRefresh={reload}
-              />
-            )}
-            {(view === 'settings' || view === 'tools') && (
-              <>
-                {view === 'settings' && (
+                </>
+              )}
+              {view === 'system' && (
+                <>
                   <PageHeader
-                    eyebrow="Factory capabilities"
-                    title="Integrations"
-                    description="Connect services, inspect their tools and control when SABRE may use them."
+                    eyebrow="Local instance"
+                    title="About SABRE"
+                    description="Observed status, installed versions and factory capacity."
                   />
-                )}
-                {view === 'tools' ? (
-                  <ToolsConsole
-                    key={location.search}
-                    api={api}
-                    projects={projects}
-                    connected={!error}
-                    onRefresh={reload}
-                  />
-                ) : (
-                  <Integrations api={api} onChanged={reload} />
-                )}
-              </>
-            )}
-            {view === 'system' && (
-              <>
-                <PageHeader
-                  eyebrow="Local instance"
-                  title="About SABRE"
-                  description="Observed status, installed versions and factory capacity."
-                />
-                <About api={api} />
-              </>
-            )}
-          </>
-        )}
+                  <About api={api} />
+                </>
+              )}
+            </>
+          )}
+        </Suspense>
       </AppShell>
       <SupervisorConsole api={api} orders={orders} selectedId={selectedId} disconnected={Boolean(error)} />
     </>

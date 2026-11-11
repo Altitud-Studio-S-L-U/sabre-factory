@@ -960,7 +960,7 @@ describe('Control room', () => {
     await user.click(screen.getByRole('button', { name: 'Close Register project' }));
     expect(screen.getByRole('heading', { name: 'Your first project starts here' })).toBeVisible();
     await user.click(screen.getByRole('link', { name: 'Memory' }));
-    expect(screen.getByRole('heading', { name: 'No project knowledge yet' })).toBeVisible();
+    expect(await screen.findByRole('heading', { name: 'No project knowledge yet' })).toBeVisible();
     await legacyRoute('/security');
     expect(await screen.findByRole('heading', { name: 'No recorded findings' })).toBeVisible();
     expect(writes).toEqual([]);
