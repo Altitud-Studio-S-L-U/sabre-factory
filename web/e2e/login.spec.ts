@@ -5,7 +5,7 @@ test('signed-out text retains contrast on both login panels', async ({ page }) =
     route.fulfill({ status: 401, json: { detail: 'Unauthorized' } }),
   );
   await page.goto('/work');
-  await expect(page.getByRole('heading', { name: 'Open SABRE from the CLI' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Pair this browser' })).toBeVisible();
   const measurements = await page
     .locator(
       '.login-intro h1, .login-intro .eyebrow, .login-intro p, .login-flow, .login-form h2, .login-form-inner > p',
