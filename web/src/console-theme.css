@@ -43,21 +43,6 @@
       radial-gradient(ellipse at 10% 70%, #34435b1f, transparent 46%), var(--canvas);
     background-attachment: fixed;
   }
-  .sidebar,
-  .topbar {
-    background: var(--glass);
-    backdrop-filter: blur(18px);
-  }
-  .sidebar {
-    z-index: 3;
-  }
-  .nav-item {
-    color: var(--muted);
-  }
-  .nav-item.active {
-    color: var(--accent);
-    background: var(--active-bg);
-  }
   .button.primary {
     background: var(--accent);
     border-color: var(--accent);
@@ -96,35 +81,5 @@
     color: #f0cc8d;
     background: #30271a;
     border-color: #6d5836;
-  }
-  .console-subnav {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 12px;
-    margin: 0 0 24px;
-  }
-  .console-subnav a {
-    border: 1px solid var(--line);
-    padding: 9px 12px;
-    border-radius: 6px;
-    color: var(--ink);
-    text-decoration: none;
-    background: var(--surface);
-  }
-  .console-subnav a:hover {
-    border-color: var(--accent);
-  }
-  @supports not (backdrop-filter: blur(1px)) {
-    .sidebar,
-    .topbar {
-      background: var(--surface);
-    }
-  }
-  @media (prefers-reduced-transparency: reduce) {
-    .sidebar,
-    .topbar {
-      background: var(--surface);
-      backdrop-filter: none;
-    }
   }
 }

@@ -56,27 +56,11 @@
     gap: 12px;
     min-width: 0;
   }
-  .supervisor-avatar {
-    display: inline-flex;
-    flex: 0 0 auto;
-    align-items: center;
-    justify-content: center;
-    width: 40px;
-    height: 40px;
-    border: 1px solid #e2b76b40;
-    border-radius: 50%;
-    background: #e2b76b12;
-    color: var(--accent);
-  }
   .supervisor-reply-identity {
     display: flex;
     align-items: center;
     gap: 8px;
     font-size: 12px;
-  }
-  .supervisor-reply-identity .supervisor-avatar {
-    width: 28px;
-    height: 28px;
   }
   .supervisor-reply-actions {
     display: flex;
@@ -146,11 +130,6 @@
     justify-content: center;
     padding: 24px 12px;
     text-align: center;
-  }
-  .supervisor-welcome > .supervisor-avatar {
-    width: 56px;
-    height: 56px;
-    margin-bottom: 18px;
   }
   .supervisor-welcome h3 {
     font-size: 22px;
@@ -447,10 +426,6 @@
     }
     .supervisor-profile {
       gap: 7px;
-    }
-    .supervisor-profile > .supervisor-avatar {
-      width: 32px;
-      height: 32px;
     }
     .supervisor-presence {
       font-size: 9px;
