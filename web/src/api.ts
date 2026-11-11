@@ -44,6 +44,44 @@ export type ProjectToolsChange = components['schemas']['ProjectToolsChange'];
 export type ModelSelection = components['schemas']['ModelSelection-Output'];
 export type ModelConfiguration = components['schemas']['ModelConfiguration'];
 export type ModelConfigurationChange = components['schemas']['ModelConfigurationChange'];
+export type FactoryConfiguration = components['schemas']['FactoryConfiguration'];
+export type ConfigurationView = components['schemas']['ConfigurationView'];
+export type ConfigurationPreview = components['schemas']['ConfigurationPreview'];
+export type ConfigurationSave = components['schemas']['ConfigurationSave'];
+export type BuiltinToolCatalog = components['schemas']['BuiltinToolCatalog'];
+export type AgentCatalog = components['schemas']['AgentCatalog'];
+export type AgentCatalogEntry = components['schemas']['AgentCatalogEntry'];
+export type AgentDefinition = components['schemas']['AgentDefinition-Output'];
+export type AgentDraftSave = components['schemas']['AgentDraftSave'];
+export type AgentValidation = components['schemas']['AgentValidation'];
+export type BudgetPolicy = components['schemas']['BudgetPolicy-Output'];
+export type BudgetView = components['schemas']['BudgetView'];
+export type BudgetAmendment = components['schemas']['BudgetAmendment'];
+export type BudgetReconciliation = components['schemas']['BudgetReconciliation'];
+export type BudgetMetric = BudgetAmendment['metric'];
+export type CommandResult = components['schemas']['CommandResult'];
+export type ReleaseCandidate = components['schemas']['ReleaseCandidate'];
+export type ReleasePage = components['schemas']['ReleasePage'];
+export type ReleasePreparation = components['schemas']['ReleasePreparation'];
+export type ReleaseAuthorization = components['schemas']['ReleaseAuthorization'];
+export type ReleasePublication = components['schemas']['ReleasePublication'];
+export type MetricBudget = components['schemas']['MetricBudget-Output'];
+export type RunInspection = components['schemas']['RunInspection'];
+export type ProcessTopology = components['schemas']['ProcessTopology'];
+export type IngestionReport = components['schemas']['IngestionReport'];
+export type IngestionRequest = components['schemas']['IngestionRequest'];
+export type IngestionJob = components['schemas']['IngestionJob'];
+export type A2AAgentInfo = components['schemas']['A2AAgentInfo'];
+export type AgentCardDiscovery = components['schemas']['AgentCardDiscovery'];
+export type AgentRegistration = components['schemas']['AgentRegistration'];
+export type CardDiscovery = components['schemas']['CardDiscovery'];
+export type A2ATaskInfo = components['schemas']['A2ATaskInfo'];
+export type A2AInputAnswer = components['schemas']['A2AInputAnswer'];
+export type BrowserReport = components['schemas']['BrowserReport'];
+export type DelegationCreate = components['schemas']['GrantCreate'];
+export type DelegationGrant = components['schemas']['GrantView'];
+export type IssuedDelegation = components['schemas']['GrantIssued'];
+export type RevokedDelegation = components['schemas']['GrantRevoked'];
 
 export type FlowConfiguration = components['schemas']['FlowConfiguration-Input'];
 export type SequencedEvent = components['schemas']['SequencedEvent'];
@@ -197,6 +235,11 @@ export function createApi(csrfToken: string, onUnauthorized?: (message: string) 
     return response.json() as Promise<T>;
   }
   return {
+    delegations: () => request<DelegationGrant[]>('/delegations'),
+    issueDelegation: (value: DelegationCreate) =>
+      request<IssuedDelegation>('/delegations', { method: 'POST', body: JSON.stringify(value) }, true),
+    revokeDelegation: (id: string) =>
+      request<RevokedDelegation>(`/delegations/${encodeURIComponent(id)}`, { method: 'DELETE' }),
     logout: () => request<void>('/panel/session/logout', { method: 'POST' }),
     status: () => request<Record<string, unknown>>('/status'),
     deliveries: () => request<DeliveryStatus[]>('/notifications'),
@@ -207,6 +250,57 @@ export function createApi(csrfToken: string, onUnauthorized?: (message: string) 
       request<Project>('/projects', { method: 'POST', body: JSON.stringify(value) }),
     work: () => request<WorkOrder[]>('/work'),
     getWork: (id: string) => request<WorkOrder>(`/work/${encodeURIComponent(id)}`),
+    a2aTasks: (id: string) => request<A2ATaskInfo[]>(`/work/${encodeURIComponent(id)}/a2a-tasks`),
+    pollA2ATask: (id: string, attemptKey: string) =>
+      request<A2ATaskInfo>(`/work/${encodeURIComponent(id)}/a2a-tasks/poll`, {
+        method: 'POST',
+        body: JSON.stringify({ attempt_key: attemptKey }),
+      }),
+    answerA2ATask: (id: string, value: A2AInputAnswer) =>
+      request<A2ATaskInfo>(`/work/${encodeURIComponent(id)}/a2a-tasks/answer`, {
+        method: 'POST',
+        body: JSON.stringify(value),
+      }),
+    cancelA2ATask: (id: string, attemptKey: string) =>
+      request<A2ATaskInfo>(`/work/${encodeURIComponent(id)}/a2a-tasks/cancel`, {
+        method: 'POST',
+        body: JSON.stringify({ attempt_key: attemptKey }),
+      }),
+    workBudget: (id: string) => request<BudgetView>(`/work/${encodeURIComponent(id)}/budget`),
+    releases: () => request<ReleasePage>('/releases'),
+    getRelease: (id: string) => request<ReleaseCandidate>(`/releases/${encodeURIComponent(id)}`),
+    prepareRelease: (value: ReleasePreparation) =>
+      request<ReleaseCandidate>('/releases', { method: 'POST', body: JSON.stringify(value) }),
+    authorizeRelease: (id: string, value: ReleaseAuthorization) =>
+      request<ReleaseCandidate>(`/releases/${encodeURIComponent(id)}/authorize`, {
+        method: 'POST',
+        body: JSON.stringify(value),
+      }),
+    publishRelease: (id: string, value: ReleasePublication) =>
+      request<ReleaseCandidate>(`/releases/${encodeURIComponent(id)}/publish`, {
+        method: 'POST',
+        body: JSON.stringify(value),
+      }),
+    amendBudget: (id: string, value: BudgetAmendment, idempotencyKey: string) =>
+      request<CommandResult>('/commands', {
+        method: 'POST',
+        body: JSON.stringify({
+          version: 1,
+          idempotency_key: idempotencyKey,
+          correlation_id: idempotencyKey,
+          payload: { type: 'work.budget.amend', work_id: id, request: value },
+        }),
+      }).then((result) => result.work),
+    reconcileBudget: (id: string, value: BudgetReconciliation, idempotencyKey: string) =>
+      request<CommandResult>('/commands', {
+        method: 'POST',
+        body: JSON.stringify({
+          version: 1,
+          idempotency_key: idempotencyKey,
+          correlation_id: idempotencyKey,
+          payload: { type: 'work.budget.reconcile', work_id: id, request: value },
+        }),
+      }).then((result) => result.work),
     parseFlow: (document: string) =>
       request<FlowConfiguration>('/flows/parse', { method: 'POST', body: JSON.stringify({ document }) }),
     executionEvents: (id: string, after = 0) =>
@@ -244,10 +338,86 @@ export function createApi(csrfToken: string, onUnauthorized?: (message: string) 
     events: (id: string) => request<Record<string, unknown>[]>(`/work/${encodeURIComponent(id)}/events`),
     system: () => request<SystemInfo>('/system'),
     audit: (id: string) => request<AuditView>(`/work/${encodeURIComponent(id)}/audit`),
+    inspection: (id: string, role?: string, agentId?: string, after = 0, checkpointId?: string) => {
+      const query = new URLSearchParams({ after: String(after), limit: '50' });
+      if (role) query.set('role', role);
+      if (agentId) query.set('agent_id', agentId);
+      if (checkpointId) query.set('checkpoint_id', checkpointId);
+      return request<RunInspection>(`/work/${encodeURIComponent(id)}/inspection?${query}`);
+    },
+    browserReports: (id: string) =>
+      request<BrowserReport[]>(`/work/${encodeURIComponent(id)}/browser-reports`),
+    browserArtifact: async (id: string, digest: string): Promise<Blob> => {
+      const response = await fetch(
+        `/api/v1/work/${encodeURIComponent(id)}/browser-artifacts/${encodeURIComponent(digest)}`,
+        {
+          method: 'GET',
+          credentials: 'same-origin',
+          mode: 'same-origin',
+          cache: 'no-store',
+          redirect: 'error',
+          headers: { 'X-Sabre-UI': '1' },
+        },
+      );
+      if (!response.ok)
+        throw new ApiError(
+          response.status,
+          'Browser evidence could not be loaded. Refresh the session or inspect the artifact review requirements.',
+        );
+      return response.blob();
+    },
     knowledge: (id: string) =>
       request<ProjectKnowledgeReport>(`/projects/${encodeURIComponent(id)}/knowledge`),
+    ingestion: (id: string) => request<IngestionReport>(`/projects/${encodeURIComponent(id)}/ingestion`),
+    requestIngestion: (id: string, value: IngestionRequest) =>
+      request<IngestionJob>(`/projects/${encodeURIComponent(id)}/ingestion`, {
+        method: 'POST',
+        body: JSON.stringify(value),
+      }),
     integrations: () => request<IntegrationInfo[]>('/integrations'),
     modelConfiguration: () => request<ModelConfiguration>('/model-configuration'),
+    configuration: () => request<ConfigurationView>('/configuration'),
+    previewConfiguration: (document: string) =>
+      request<ConfigurationPreview>('/configuration/preview', {
+        method: 'POST',
+        body: JSON.stringify({ version: 1, document }),
+      }),
+    saveConfiguration: (value: ConfigurationSave) =>
+      request<ConfigurationView>('/configuration', {
+        method: 'PUT',
+        body: JSON.stringify(value),
+      }),
+    toolsCatalog: () => request<BuiltinToolCatalog>('/tools/catalog'),
+    flowTopology: (mode: WorkOrder['mode']) =>
+      request<ProcessTopology>(`/flows/${encodeURIComponent(mode)}/topology`),
+    agents: () => request<AgentCatalog>('/agents'),
+    a2aAgents: () => request<A2AAgentInfo[]>('/a2a/agents'),
+    saveA2AAgent: (name: string, value: AgentRegistration) =>
+      request<A2AAgentInfo>(`/a2a/agents/${encodeURIComponent(name)}`, {
+        method: 'PUT',
+        body: JSON.stringify(value),
+      }),
+    discoverA2AAgent: (name: string, value: CardDiscovery) =>
+      request<AgentCardDiscovery>(`/a2a/agents/${encodeURIComponent(name)}/discover`, {
+        method: 'POST',
+        body: JSON.stringify(value),
+      }),
+    agent: (id: string) => request<AgentCatalogEntry>(`/agents/${encodeURIComponent(id)}`),
+    saveAgent: (id: string, value: AgentDraftSave) =>
+      request<AgentCatalogEntry>(`/agents/${encodeURIComponent(id)}/draft`, {
+        method: 'PUT',
+        body: JSON.stringify(value),
+      }),
+    validateAgent: (id: string, expected_revision: number) =>
+      request<AgentValidation>(`/agents/${encodeURIComponent(id)}/validate`, {
+        method: 'POST',
+        body: JSON.stringify({ expected_revision }),
+      }),
+    publishAgent: (id: string, expected_revision: number) =>
+      request<AgentCatalogEntry>(`/agents/${encodeURIComponent(id)}/publish`, {
+        method: 'POST',
+        body: JSON.stringify({ expected_revision }),
+      }),
     saveModelConfiguration: (value: ModelConfigurationChange) =>
       request<ModelConfiguration>('/model-configuration', { method: 'PUT', body: JSON.stringify(value) }),
     mcpConnections: () => request<MCPConnectionInfo[]>('/mcp-connections'),

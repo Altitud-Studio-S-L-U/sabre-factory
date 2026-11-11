@@ -2,7 +2,6 @@ import {
   Fragment,
   useCallback,
   useEffect,
-  useId,
   useMemo,
   useRef,
   useState,
@@ -26,13 +25,11 @@ import {
   type Api,
   type PanelSession,
   type HumanQuestion,
-  type MemoryItem,
   type Project,
   type SecurityFinding,
   type SecurityException,
   type WorkOrder,
   type AuditView,
-  type ProjectKnowledgeReport,
 } from './api';
 import About from './About';
 import Integrations from './Integrations';
@@ -40,14 +37,21 @@ import WorkAudit from './WorkAudit';
 import ExecutionTimeline from './ExecutionTimeline';
 import FlowConfiguration from './FlowConfiguration';
 import type { FlowConfiguration as FlowConfig } from './api';
-import ProjectKnowledge from './ProjectKnowledge';
-import WorkBoard from './WorkBoard';
-import FactoryOverview from './FactoryOverview';
 import Icon, { type IconName } from './Icon';
 import Field from './components/FormField';
 import Select from './components/Select';
-import ModelConfiguration from './ModelConfiguration';
 import SupervisorConsole from './SupervisorConsole';
+import RunsWorkspace from './RunsWorkspace';
+import AgentsConsole from './AgentsConsole';
+import ToolsConsole from './ToolsConsole';
+import MemoryConsole from './MemoryConsole';
+import ConfigConsole from './ConfigConsole';
+import Dialog from './components/Dialog';
+import Tabs from './components/Tabs';
+import BudgetPanel from './BudgetPanel';
+import BudgetFields, { defaultBudgetPolicy } from './components/BudgetFields';
+import ReleasesPanel from './ReleasesPanel';
+import RemoteTasksPanel from './RemoteTasksPanel';
 
 type View =
   | 'work'
@@ -407,6 +411,7 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
   const form = formState?.key === location.key ? formState.value : (routeState?.form ?? null);
   const setForm = (value: 'work' | 'project' | null) => setFormState({ key: location.key, value });
   const newWorkProjectId = routeState?.projectId ?? '';
+  const [draftState, setDraftState] = useState({ busy: false, dirty: false });
   const [detail, setDetail] = useState<{ id: string; order?: WorkOrder; error?: string } | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [orders, setOrders] = useState<WorkOrder[]>([]);
@@ -420,24 +425,30 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
   const [updated, setUpdated] = useState<Date | null>(null);
   const mainContent = useRef<HTMLElement>(null);
   const returnFocus = useRef<HTMLElement | null>(null);
+  const previousForm = useRef({ key: location.key, form });
   const selected =
     orders.find((order) => order.id === selectedId) ?? (detail?.id === selectedId ? detail.order : undefined);
   const detailError = detail?.id === selectedId ? detail.error : undefined;
   const detailReady = Boolean(selected || detailError);
 
   useEffect(() => {
+    const prior = previousForm.current;
+    previousForm.current = { key: location.key, form };
     if (loading) return;
     if (!form && returnFocus.current?.isConnected) {
       returnFocus.current.focus({ preventScroll: true });
       returnFocus.current = null;
       return;
     }
-    const heading = mainContent.current?.querySelector<HTMLElement>(form ? '.form-panel h2' : 'h1');
+    if (!form && prior.form && prior.key === location.key) return;
+    const heading = mainContent.current?.querySelector<HTMLElement>(
+      form ? '.form-panel h2' : selectedId && selected ? '.detail-header h2, .detail-header h1' : 'h1',
+    );
     if (heading) {
       heading.tabIndex = -1;
       heading.focus({ preventScroll: true });
     }
-  }, [view, selectedId, form, loading, detailReady]);
+  }, [view, selectedId, form, loading, detailReady, location.key]);
 
   const logout = async () => {
     setLoggingOut(true);
@@ -509,9 +520,6 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
   }, [api, selectedId, loading, orders, updated]);
 
   const pending = orders.flatMap((order) => pendingQuestions(order).map((question) => ({ order, question })));
-  const blockedOrders = orders.filter(
-    (order) => ['blocked', 'failed'].includes(order.status) && !pendingQuestions(order).length,
-  );
   const changeView = (next: View) => {
     returnFocus.current = null;
     setForm(null);
@@ -559,7 +567,7 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
         <div className="sidebar-bottom">
           <div>
             <span className="status-dot" />
-            {error ? 'Connection interrupted' : loading ? 'Conectando' : 'Factory connected'}
+            {error ? 'Connection interrupted' : loading ? 'Connecting' : 'Factory connected'}
           </div>
         </div>
       </aside>
@@ -620,124 +628,95 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
             <Empty title="The factory could not be loaded">Check the connection and retry.</Empty>
           ) : (
             <>
-              {view === 'work' && !selectedId && (
+              {view === 'work' && (!selectedId || selected) && (
                 <>
-                  <PageHeader
-                    eyebrow="Operation"
-                    title="Runs"
-                    description="Factory status, pending decisions and every delivery."
-                    action={
-                      <button
-                        className="button primary"
-                        onClick={(event) => {
-                          if (form !== 'work') returnFocus.current = event.currentTarget;
-                          setForm(form === 'work' ? null : 'work');
-                        }}
-                      >
-                        + New run
-                      </button>
-                    }
-                  />
-                  {form === 'work' && (
-                    <CreateWork
-                      api={api}
-                      cliMode={cliMode}
-                      projects={projects}
-                      initialProjectId={newWorkProjectId}
-                      onDone={async (order) => {
-                        await reload();
-                        openWork(order);
-                      }}
-                      onCancel={() => setForm(null)}
-                      onCreateProject={() => {
-                        returnFocus.current = null;
-                        void navigate('/projects', { state: { form: 'project' } });
-                      }}
-                    />
-                  )}
-                  {(pending.length > 0 || blockedOrders.length > 0) && (
-                    <section className="attention-section" aria-labelledby="attention-title">
-                      <div className="section-heading">
-                        <h2 id="attention-title">Needs attention</h2>
-                        <span className="count-label">{pending.length + blockedOrders.length} pending</span>
-                      </div>
-                      <div className="attention-list">
-                        {pending.map(({ order, question }) => (
-                          <button className="attention-row" key={question.id} onClick={() => openWork(order)}>
-                            <span className="question-mark">
-                              <Icon name="work" size={16} />
-                            </span>
-                            <span>
-                              <strong>{question.prompt}</strong>
-                              <small>
-                                {projects.find((project) => project.id === order.project_id)?.name ||
-                                  'Project'}{' '}
-                                · {modeLabels[order.mode]}
-                              </small>
-                            </span>
-                            <span className="row-arrow">
-                              <Icon name="arrow" size={17} />
-                            </span>
-                          </button>
-                        ))}
-                        {blockedOrders.map((order) => (
-                          <button
-                            className="attention-row attention-blocked"
-                            key={order.id}
-                            onClick={() => openWork(order)}
-                          >
-                            <span className="question-mark">
-                              <Icon name="alert" size={16} />
-                            </span>
-                            <span>
-                              <strong>{order.summary || 'Review the blocker before continuing.'}</strong>
-                              <small>
-                                {projects.find((project) => project.id === order.project_id)?.name ||
-                                  'Project'}{' '}
-                                · {statusLabels[order.status]}
-                              </small>
-                            </span>
-                            <span className="row-arrow">
-                              <Icon name="arrow" size={17} />
-                            </span>
-                          </button>
-                        ))}
-                      </div>
-                    </section>
-                  )}
-                  <div className="overview-strip" aria-label="Factory overview">
-                    <div>
-                      <span className="overview-value">
-                        {orders.filter((order) => ['queued', 'running'].includes(order.status)).length}
-                      </span>
-                      <span>Active runs</span>
-                    </div>
-                    <div>
-                      <span className="overview-value attention">{pending.length}</span>
-                      <span>Pending decisions</span>
-                    </div>
-                    <div>
-                      <span className="overview-value">
-                        {
-                          orders.filter((order) => order.status === 'completed' && order.evidence?.pr_url)
-                            .length
-                        }
-                      </span>
-                      <span>Completed deliveries</span>
-                    </div>
-                    <div>
-                      <span className="overview-value">{projects.length}</span>
-                      <span>Registered projects</span>
-                    </div>
-                  </div>
-                  <FactoryOverview
+                  <RunsWorkspace
+                    connected={!error}
                     orders={orders}
                     projects={projects}
-                    status={status}
+                    selectedId={selected?.id ?? orders[0]?.id}
                     onOpen={openWork}
-                    onView={changeView}
-                  />
-                  <WorkList orders={orders} projects={projects} onOpen={openWork} />
+                    onNew={() => setForm('work')}
+                  >
+                    {(selected ?? (!selectedId ? orders[0] : undefined)) ? (
+                      (() => {
+                        const activeOrder = selected ?? orders[0];
+                        return (
+                          <WorkDetail
+                            connected={!error}
+                            key={activeOrder.id}
+                            api={api}
+                            cliMode={cliMode}
+                            order={activeOrder}
+                            project={projects.find((project) => project.id === activeOrder.project_id)}
+                            onBack={() => changeView('work')}
+                            onChanged={reload}
+                            embedded
+                          />
+                        );
+                      })()
+                    ) : (
+                      <div className="run-empty-surface">
+                        <span className="eyebrow">LOCAL SOFTWARE FACTORY</span>
+                        <h2>Launch a verified process</h2>
+                        <p>
+                          Choose a project, define acceptance checks and launch a registered process. Its
+                          phases, agents, tools, memory and evidence will appear here as the work progresses.
+                        </p>
+                        <div className="run-empty-process">
+                          {[
+                            'Preflight',
+                            'Spec',
+                            'Design',
+                            'Plan',
+                            'Build',
+                            'Verify',
+                            'Review',
+                            'Deliver',
+                          ].map((label) => (
+                            <span key={label}>{label}</span>
+                          ))}
+                        </div>
+                        <p>Process preview only. No execution has started.</p>
+                        <button
+                          type="button"
+                          className="button primary"
+                          disabled={!!error}
+                          onClick={() => setForm('work')}
+                        >
+                          Create your first run
+                        </button>
+                      </div>
+                    )}
+                  </RunsWorkspace>
+                  <Dialog
+                    open={form === 'work'}
+                    onClose={() => setForm(null)}
+                    title="New run"
+                    busy={draftState.busy}
+                    dirty={draftState.dirty}
+                    description="Choose a registered flow, model bindings, acceptance checks and run limits. No work starts until you submit."
+                  >
+                    {form === 'work' && (
+                      <CreateWork
+                        connected={!error}
+                        onState={setDraftState}
+                        api={api}
+                        projects={projects}
+                        initialProjectId={newWorkProjectId}
+                        onDone={async (order) => {
+                          setForm(null);
+                          await reload();
+                          openWork(order);
+                        }}
+                        onCancel={() => setForm(null)}
+                        onCreateProject={() => {
+                          returnFocus.current = null;
+                          void navigate('/projects', { state: { form: 'project' } });
+                        }}
+                      />
+                    )}
+                  </Dialog>
                 </>
               )}
               {view === 'work' && selectedId && !selected && (
@@ -765,17 +744,6 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
                   </Link>
                 </>
               )}
-              {view === 'work' && selected && (
-                <WorkDetail
-                  key={selected.id}
-                  api={api}
-                  order={selected}
-                  cliMode={cliMode}
-                  project={projects.find((project) => project.id === selected.project_id)}
-                  onBack={() => changeView('work')}
-                  onChanged={reload}
-                />
-              )}
               {view === 'projects' && (
                 <>
                   <PageHeader
@@ -794,16 +762,27 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
                       </button>
                     }
                   />
-                  {form === 'project' && (
-                    <CreateProject
-                      api={api}
-                      onDone={async () => {
-                        setForm(null);
-                        await reload();
-                      }}
-                      onCancel={() => setForm(null)}
-                    />
-                  )}
+                  <Dialog
+                    open={form === 'project'}
+                    onClose={() => setForm(null)}
+                    title="Register project"
+                    busy={draftState.busy}
+                    dirty={draftState.dirty}
+                    description="Register a repository and the exact checks future deliveries must pass."
+                  >
+                    {form === 'project' && (
+                      <CreateProject
+                        connected={!error}
+                        onState={setDraftState}
+                        api={api}
+                        onDone={async () => {
+                          setForm(null);
+                          await reload();
+                        }}
+                        onCancel={() => setForm(null)}
+                      />
+                    )}
+                  </Dialog>
                   {projects.length === 0 ? (
                     <Empty title="Your first project starts here">
                       Register a repository and the checks its deliveries must pass.
@@ -846,51 +825,40 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
                 </>
               )}
               {view === 'security' && <SecurityView api={api} projects={projects} orders={orders} />}
-              {view === 'memory' && <MemoryView api={api} projects={projects} />}
+              {view === 'memory' && <MemoryConsole api={api} projects={projects} connected={!error} />}
               {view === 'agents' && (
                 <>
                   <PageHeader
                     eyebrow="Specialists"
                     title="Agents"
-                    description="Assign providers and models to runtime roles. Explicit overrides take precedence over the factory default."
+                    description="Published specialists, versioned procedures and reviewed external agents."
                   />
-                  <ModelConfiguration api={api} onChanged={reload} scope="agents" />
-                  <p className="hint">
-                    Agent procedures are built in. This page changes model assignments; delivery remains a
-                    controlled publication step.
-                  </p>
+                  <AgentsConsole api={api} projects={projects} connected={!error} />
                 </>
               )}
               {view === 'config' && (
-                <>
-                  <PageHeader
-                    eyebrow="Local factory"
-                    title="Config"
-                    description="Choose the factory default, manage project registration and inspect preparation before starting work."
-                  />
-                  <nav className="console-subnav" aria-label="Factory configuration">
-                    <Link to="/projects">Projects</Link>
-                    <Link to="/security">Security policy</Link>
-                    <Link to="/about">System status</Link>
-                    <Link to="/tools">Connections and credentials</Link>
-                  </nav>
-                  <ModelConfiguration api={api} onChanged={reload} scope="default" />
-                </>
+                <ConfigConsole api={api} projects={projects} connected={!error} onRefresh={reload} />
               )}
               {(view === 'settings' || view === 'tools') && (
                 <>
-                  <PageHeader
-                    eyebrow="Factory capabilities"
-                    title={view === 'tools' ? 'Tools' : 'Integrations'}
-                    description="Connect services, inspect their tools and control when SABRE may use them."
-                  />
-                  <Integrations api={api} onChanged={reload} includeModels={view === 'settings'} />
+                  {view === 'settings' && (
+                    <PageHeader
+                      eyebrow="Factory capabilities"
+                      title="Integrations"
+                      description="Connect services, inspect their tools and control when SABRE may use them."
+                    />
+                  )}
+                  {view === 'tools' ? (
+                    <ToolsConsole api={api} projects={projects} connected={!error} onRefresh={reload} />
+                  ) : (
+                    <Integrations api={api} onChanged={reload} />
+                  )}
                 </>
               )}
               {view === 'system' && (
                 <>
                   <PageHeader
-                    eyebrow="Instancia local"
+                    eyebrow="Local instance"
                     title="About SABRE"
                     description="Observed status, installed versions and factory capacity."
                   />
@@ -929,115 +897,28 @@ function PageHeader({
   );
 }
 
-function WorkList({
-  orders,
-  projects,
-  onOpen,
-}: {
-  orders: WorkOrder[];
-  projects: Project[];
-  onOpen: (order: WorkOrder) => void;
-}) {
-  const titleId = useId();
-  const [filter, setFilter] = useState('all');
-  const [layout, setLayout] = useState<'list' | 'board'>('list');
-  const [projectId, setProjectId] = useState('');
-  const filtered = orders.filter(
-    (order) =>
-      (!projectId || order.project_id === projectId) &&
-      (filter === 'all' ||
-        (filter === 'active'
-          ? !['completed', 'cancelled'].includes(order.status)
-          : ['completed', 'cancelled'].includes(order.status))),
-  );
-  return (
-    <section aria-labelledby={titleId}>
-      <div className="section-heading">
-        <h2 id={titleId}>Run history</h2>
-        <div className="segmented" aria-label="Filter runs">
-          {[
-            ['all', 'All'],
-            ['active', 'Open'],
-            ['closed', 'Closed'],
-          ].map(([value, label]) => (
-            <button key={value} aria-pressed={filter === value} onClick={() => setFilter(value)}>
-              {label}
-            </button>
-          ))}
-        </div>
-      </div>
-      <div className="work-view-options">
-        <label className="field">
-          Project
-          <Select value={projectId} onChange={(event) => setProjectId(event.target.value)}>
-            <option value="">All projects</option>
-            {projects.map((project) => (
-              <option key={project.id} value={project.id}>
-                {project.name}
-              </option>
-            ))}
-          </Select>
-        </label>
-        <div className="segmented" aria-label="Run presentation">
-          <button aria-pressed={layout === 'list'} onClick={() => setLayout('list')}>
-            List
-          </button>
-          <button aria-pressed={layout === 'board'} onClick={() => setLayout('board')}>
-            Board
-          </button>
-        </div>
-      </div>
-      {layout === 'board' && filtered.length > 0 && (
-        <WorkBoard orders={filtered} projects={projects} onOpen={onOpen} />
-      )}
-      {filtered.length === 0 ? (
-        <Empty title={orders.length ? 'No runs in this view' : 'Your first run starts here'}>
-          {orders.length
-            ? 'Try a different filter to inspect the history.'
-            : 'Describe what to create, maintain or fix. The supervisor will organize the work.'}
-        </Empty>
-      ) : layout === 'list' ? (
-        <div className="work-list">
-          {filtered.map((order) => (
-            <button className="work-row" key={order.id} onClick={() => onOpen(order)}>
-              <div className="work-row-main">
-                <span className="work-context">
-                  {projects.find((project) => project.id === order.project_id)?.name || 'Project'}{' '}
-                  <span aria-hidden="true">/</span> {modeLabels[order.mode]}
-                </span>
-                <strong>{order.objective}</strong>
-                <span className="work-summary">{order.summary}</span>
-              </div>
-              <div className="work-row-status">
-                <Badge value={order.status} />
-                <span>{phaseLabels[order.phase] || order.phase}</span>
-              </div>
-              <div className="work-row-end">
-                <time dateTime={order.updated_at}>{time(order.updated_at)}</time>
-                <span aria-hidden="true">↗</span>
-              </div>
-            </button>
-          ))}
-        </div>
-      ) : null}
-    </section>
-  );
-}
-
 function CreateProject({
   api,
+  connected,
+  onState,
   onDone,
   onCancel,
 }: {
   api: Api;
+  connected: boolean;
+  onState: (state: { busy: boolean; dirty: boolean }) => void;
   onDone: () => Promise<void>;
   onCancel: () => void;
 }) {
   const action = useAction();
+  const [dirty, setDirty] = useState(false);
+  useEffect(() => onState({ busy: action.busy, dirty }), [onState, action.busy, dirty]);
   const [profile, setProfile] = useState<'python' | 'node'>('python');
+  const [previewEnabled, setPreviewEnabled] = useState(false);
   const [commands, setCommands] = useState('["python", "-m", "pytest"]');
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (!connected) return;
     const data = new FormData(event.currentTarget);
     void action.run(async () => {
       let gateCommands: string[][];
@@ -1055,6 +936,23 @@ function CreateProject({
       } catch {
         throw new Error('Each check must be a JSON argument array, for example ["python", "-m", "pytest"].');
       }
+      let previewCommand: string[] = [];
+      if (previewEnabled) {
+        try {
+          const parsed: unknown = JSON.parse(String(data.get('previewCommand')));
+          if (
+            !Array.isArray(parsed) ||
+            !parsed.length ||
+            parsed.some((item) => typeof item !== 'string' || !item)
+          )
+            throw new Error();
+          previewCommand = parsed;
+        } catch {
+          throw new Error('Preview command must be a nonempty JSON argument array.');
+        }
+        if (data.get('synthetic') !== 'on')
+          throw new Error('Browser previews require explicit synthetic-data confirmation.');
+      }
       await api.createProject({
         name: String(data.get('name')),
         repository: String(data.get('repository')),
@@ -1063,6 +961,14 @@ function CreateProject({
         gate_commands: gateCommands,
         allowed_mcp_servers: lines(data.get('mcp')),
         approved_baseline: lines(data.get('baseline')),
+        browser_preview: previewEnabled
+          ? {
+              version: 1,
+              command: previewCommand,
+              port: Number(data.get('previewPort')),
+              synthetic_data: true,
+            }
+          : null,
       });
       await onDone();
     });
@@ -1071,11 +977,18 @@ function CreateProject({
     <section className="form-panel">
       <div className="section-heading">
         <h2>Register project</h2>
-        <button className="text-button" onClick={onCancel}>
+        <button
+          className="text-button"
+          onClick={(event) => {
+            const dialog = event.currentTarget.closest('dialog');
+            if (dialog) dialog.dispatchEvent(new Event('cancel', { cancelable: true }));
+            else onCancel();
+          }}
+        >
           Close
         </button>
       </div>
-      <form onSubmit={submit}>
+      <form onSubmit={submit} onChange={() => setDirty(true)}>
         <div className="form-grid">
           <Field label="Project name">
             <input name="name" maxLength={100} required placeholder="My project" />
@@ -1083,7 +996,7 @@ function CreateProject({
           <Field label="Repository">
             <input name="repository" required placeholder="https://github.com/example/project" />
           </Field>
-          <Field label="Ecosistema">
+          <Field label="Ecosystem">
             <Select
               value={profile}
               onChange={(event) => {
@@ -1113,6 +1026,39 @@ function CreateProject({
             className="code-input"
           />
         </Field>
+        <fieldset>
+          <legend>Browser QA preview</legend>
+          <label className="inline-check">
+            <input
+              type="checkbox"
+              checked={previewEnabled}
+              onChange={(event) => setPreviewEnabled(event.target.checked)}
+            />
+            Authorize a sandboxed project preview
+          </label>
+          <p>
+            Only this registered command and port can be used. Evidence remains tied to the tested source
+            snapshot.
+          </p>
+          {previewEnabled && (
+            <>
+              <Field label="Preview command · JSON argv">
+                <input
+                  name="previewCommand"
+                  required
+                  placeholder='["npm", "run", "dev", "--", "--host", "0.0.0.0"]'
+                />
+              </Field>
+              <Field label="Preview port">
+                <input name="previewPort" type="number" min={1024} max={65535} required defaultValue={5173} />
+              </Field>
+              <label className="inline-check">
+                <input type="checkbox" name="synthetic" required />
+                This preview uses synthetic data and contains no production credentials.
+              </label>
+            </>
+          )}
+        </fieldset>
         <details className="advanced">
           <summary>External tools and security baseline</summary>
           <div className="form-grid">
@@ -1129,10 +1075,19 @@ function CreateProject({
         </details>
         {action.error && <ErrorNotice>{action.error}</ErrorNotice>}
         <div className="form-actions">
-          <button type="button" className="button" onClick={onCancel} disabled={action.busy}>
+          <button
+            type="button"
+            className="button"
+            onClick={(event) => {
+              const dialog = event.currentTarget.closest('dialog');
+              if (dialog) dialog.dispatchEvent(new Event('cancel', { cancelable: true }));
+              else onCancel();
+            }}
+            disabled={action.busy}
+          >
             Cancel
           </button>
-          <button className="button primary" disabled={action.busy}>
+          <button className="button primary" disabled={action.busy || !connected}>
             {action.busy ? 'Registering…' : 'Register project'}
           </button>
         </div>
@@ -1143,7 +1098,8 @@ function CreateProject({
 
 function CreateWork({
   api,
-  cliMode,
+  connected,
+  onState,
   projects,
   initialProjectId,
   onDone,
@@ -1151,7 +1107,8 @@ function CreateWork({
   onCreateProject,
 }: {
   api: Api;
-  cliMode: boolean;
+  connected: boolean;
+  onState: (state: { busy: boolean; dirty: boolean }) => void;
   projects: Project[];
   initialProjectId: string;
   onDone: (order: WorkOrder) => Promise<void>;
@@ -1159,10 +1116,34 @@ function CreateWork({
   onCreateProject: () => void;
 }) {
   const action = useAction();
+  const [dirty, setDirty] = useState(false);
+  useEffect(() => onState({ busy: action.busy, dirty }), [onState, action.busy, dirty]);
   const [mode, setMode] = useState<'create' | 'maintain' | 'patch' | 'audit'>('patch');
-  const [flowConfig, setFlowConfig] = useState<FlowConfig>({ version: 1, repair_cycles: 2 });
-  const [limits, setLimits] = useState<'agent' | 'budget'>('budget');
-  const perAgent = cliMode && limits === 'agent';
+  const [defaults, setDefaults] = useState<
+    Partial<Record<'create' | 'maintain' | 'patch' | 'audit', FlowConfig>>
+  >({});
+  const [flowDrafts, setFlowDrafts] = useState<typeof defaults>({});
+  const [configurationError, setConfigurationError] = useState('');
+  useEffect(() => {
+    let current = true;
+    void api
+      .configuration()
+      .then((view) => {
+        if (current) setDefaults(view.configuration.flows);
+      })
+      .catch(() => {
+        if (current)
+          setConfigurationError('Factory defaults could not be loaded. Reopen this dialog to retry.');
+      });
+    return () => {
+      current = false;
+    };
+  }, [api]);
+  const flowConfig = flowDrafts[mode] ?? defaults[mode] ?? { version: 1, repair_cycles: 2 };
+  const setFlowConfig = (next: FlowConfig) => {
+    setDirty(true);
+    setFlowDrafts((previous) => ({ ...previous, [mode]: next }));
+  };
   const [key] = useState(() => crypto.randomUUID());
   if (!projects.length)
     return (
@@ -1177,6 +1158,7 @@ function CreateWork({
     );
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (!connected) return;
     const data = new FormData(event.currentTarget);
     void action.run(async () => {
       const order = await api.createWork({
@@ -1186,19 +1168,13 @@ function CreateWork({
         objective: String(data.get('objective')),
         acceptance: lines(data.get('acceptance')),
         constraints: lines(data.get('constraints')),
-        budget: perAgent
-          ? {
-              max_cost_usd: 0,
-              max_calls: null,
-              max_tokens: null,
-              active_seconds: null,
-            }
-          : {
-              max_cost_usd: Number(data.get('cost')),
-              max_calls: Number(data.get('calls')),
-              max_tokens: Number(data.get('tokens')),
-              active_seconds: Number(data.get('minutes')) * 60,
-            },
+        budget: {
+          max_cost_usd: Number(data.get('cost')),
+          max_calls: null,
+          max_tokens: null,
+          active_seconds: null,
+          policy: flowConfig.budget_policy ?? defaultBudgetPolicy,
+        },
         idempotency_key: key,
         channel: 'web',
         channel_thread: null,
@@ -1210,11 +1186,18 @@ function CreateWork({
     <section className="form-panel">
       <div className="section-heading">
         <h2>New run</h2>
-        <button className="text-button" onClick={onCancel}>
+        <button
+          className="text-button"
+          onClick={(event) => {
+            const dialog = event.currentTarget.closest('dialog');
+            if (dialog) dialog.dispatchEvent(new Event('cancel', { cancelable: true }));
+            else onCancel();
+          }}
+        >
           Close
         </button>
       </div>
-      <form onSubmit={submit}>
+      <form onSubmit={submit} onChange={() => setDirty(true)}>
         <fieldset className="mode-picker">
           <legend>Work type</legend>
           {(['create', 'maintain', 'patch', 'audit'] as const).map((item) => (
@@ -1271,62 +1254,44 @@ function CreateWork({
             <textarea name="constraints" rows={4} placeholder="Compatibility, scope, conventions…" />
           </Field>
         </div>
+        {configurationError && <ErrorNotice>{configurationError}</ErrorNotice>}
+        {!defaults[mode] && !configurationError && <p role="status">Loading configured flow defaults…</p>}
         <FlowConfiguration api={api} mode={mode} value={flowConfig} onChange={setFlowConfig} />
         <fieldset className="budget-fields">
-          <legend>Run limits</legend>
-          {cliMode && (
-            <Field label="Run controls">
-              <Select
-                value={limits}
-                onChange={(event) => setLimits(event.target.value as 'agent' | 'budget')}
-              >
-                <option value="agent">Per-agent controls (CLI)</option>
-                <option value="budget">Cumulative budget</option>
-              </Select>
-            </Field>
-          )}
-          {perAgent ? (
-            <CliProgressPolicy />
-          ) : (
-            <>
-              <div className="form-grid four">
-                <Field
-                  label="Maximum budget · USD"
-                  hint={
-                    cliMode
-                      ? 'CLI subscription calls do not record API charges. Zero does not authorize API spending with other providers.'
-                      : undefined
-                  }
-                >
-                  <input name="cost" type="number" min="0" max="1000" step="0.01" required defaultValue="0" />
-                </Field>
-                <Field label="Model invocations">
-                  <input name="calls" type="number" min="1" max="500" defaultValue="40" required />
-                </Field>
-                <Field label="Tokens">
-                  <input name="tokens" type="number" min="1" max="10000000" defaultValue="100000" required />
-                </Field>
-                <Field label="Active time · minutes">
-                  <input name="minutes" type="number" min="1" max="1440" defaultValue="60" required />
-                </Field>
-              </div>
-              <p>Time waiting for your decisions does not count as active execution time.</p>
-              {cliMode && (
-                <p>
-                  A CLI invocation can contain several internal requests. Invocation count, duration and
-                  concurrency are controlled; token usage is recorded afterward and an overrun blocks the next
-                  step.
-                </p>
-              )}
-            </>
-          )}
+          <legend>Run budget policy</legend>
+          <Field
+            label="Maximum paid API spend · USD"
+            hint="CLI subscription usage is recorded separately. Zero does not authorize paid API calls."
+          >
+            <input name="cost" type="number" min="0" max="1000" step="0.01" required defaultValue="0" />
+          </Field>
+          <BudgetFields
+            value={{ ...defaultBudgetPolicy, ...flowConfig.budget_policy }}
+            onChange={(budget_policy) => setFlowConfig({ ...flowConfig, budget_policy })}
+          />
+          <p>
+            Reaching a ceiling pauses progress for an owner decision. Increasing a limit never resumes a run
+            automatically.
+          </p>
         </fieldset>
         {action.error && <ErrorNotice>{action.error}</ErrorNotice>}
         <div className="form-actions">
-          <button className="button" type="button" onClick={onCancel} disabled={action.busy}>
+          <button
+            className="button"
+            type="button"
+            onClick={(event) => {
+              const dialog = event.currentTarget.closest('dialog');
+              if (dialog) dialog.dispatchEvent(new Event('cancel', { cancelable: true }));
+              else onCancel();
+            }}
+            disabled={action.busy}
+          >
             Cancel
           </button>
-          <button className="button primary" disabled={action.busy}>
+          <button
+            className="button primary"
+            disabled={action.busy || !connected || !defaults[mode] || Boolean(configurationError)}
+          >
             {action.busy ? 'Sending…' : 'Launch flow'}
           </button>
         </div>
@@ -1337,20 +1302,28 @@ function CreateWork({
 
 function WorkDetail({
   api,
+  connected = true,
   order,
   cliMode,
   project,
   onBack,
   onChanged,
+  embedded = false,
 }: {
   api: Api;
+  connected?: boolean;
   order: WorkOrder;
   cliMode: boolean;
   project?: Project;
   onBack: () => void;
   onChanged: () => Promise<void>;
+  embedded?: boolean;
 }) {
   const action = useAction();
+  const [detailTab, setDetailTab] = useState<'Process' | 'Tasks & evidence' | 'Activity' | 'Limits & scope'>(
+    'Process',
+  );
+  const Heading = embedded ? 'h2' : 'h1';
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [events, setEvents] = useState<Record<string, unknown>[]>([]);
   const [eventsError, setEventsError] = useState('');
@@ -1395,12 +1368,14 @@ function WorkDetail({
       live = false;
     };
   }, [api, order.id, order.updated_at]);
-  const control = (next: 'pause' | 'resume' | 'cancel') =>
+  const control = (next: 'pause' | 'resume' | 'cancel') => {
+    if (!connected) return;
     void action.run(async () => {
       await api.control(order.id, next);
       setConfirmCancel(false);
       await onChanged();
     });
+  };
   const pending = pendingQuestions(order);
   const terminal = ['completed', 'cancelled'].includes(order.status) || order.phase === 'security_watch';
   const pr = externalUrl(order.evidence?.pr_url);
@@ -1417,45 +1392,61 @@ function WorkDetail({
     order.budget.max_cost_usd === 0;
   return (
     <>
-      <button className="back-link" onClick={onBack}>
-        ← All runs
-      </button>
+      {!embedded && (
+        <button className="back-link" onClick={onBack}>
+          ← All runs
+        </button>
+      )}
       <div className="detail-header">
         <div>
           <div className="work-context">
             {project?.name || 'Project'} <span aria-hidden="true">/</span> {modeLabels[order.mode]}{' '}
             <span aria-hidden="true">/</span> Review {order.plan_revision}
           </div>
-          <h1 tabIndex={-1}>
+          <Heading tabIndex={-1}>
             {order.phase === 'security_watch' ? 'Monitoring' : modeLabels[order.mode]}{' '}
             {project?.name || 'project'}
-          </h1>
+          </Heading>
           {!order.error_code && <p>{order.summary}</p>}
         </div>
         <Badge value={order.status} />
       </div>
+      {order.error_code && (
+        <div className="notice warning">
+          <strong>{order.error_code}</strong>
+          <p>{order.summary}</p>
+        </div>
+      )}
       <div className="detail-toolbar">
         <span className="phase-tag">{phaseLabels[order.phase] || order.phase}</span>
         <span>Updated {time(order.updated_at)}</span>
+        <details className="work-objective" aria-label="Run objective">
+          <summary>Full objective</summary>
+          <p>{order.objective}</p>
+        </details>
         <div className="toolbar-actions">
           {!terminal && ['running', 'queued', 'waiting_input', 'failed'].includes(order.status) && (
             <button
               className="button small"
-              disabled={action.busy || order.control === 'pause'}
+              disabled={!connected || action.busy || order.control === 'pause'}
               onClick={() => control('pause')}
             >
               Pause
             </button>
           )}
           {!terminal && ['paused', 'blocked', 'failed'].includes(order.status) && (
-            <button className="button small" disabled={action.busy} onClick={() => control('resume')}>
+            <button
+              className="button small"
+              disabled={action.busy || !connected}
+              onClick={() => control('resume')}
+            >
               Resume
             </button>
           )}
           {!terminal && (
             <button
               className="button small danger-quiet"
-              disabled={action.busy}
+              disabled={action.busy || !connected}
               onClick={() => setConfirmCancel(!confirmCancel)}
             >
               Cancel run
@@ -1474,27 +1465,33 @@ function WorkDetail({
           <p>Work will stop at the next safe checkpoint. You can continue inspecting its status.</p>
         </div>
       )}
-      {confirmCancel && (
-        <div className="notice warning">
-          <div>
-            <strong>Cancel this run?</strong>
-            <p>Pending work will stop. Saved evidence remains available.</p>
-          </div>
-          <button className="button danger" disabled={action.busy} onClick={() => control('cancel')}>
+      <Dialog
+        open={confirmCancel}
+        onClose={() => setConfirmCancel(false)}
+        title="Cancel this run?"
+        description="Pending work stops at a safe boundary. Saved evidence remains available."
+        busy={action.busy}
+      >
+        <div className="dialog-actions">
+          <button
+            type="button"
+            className="button"
+            disabled={action.busy}
+            onClick={() => setConfirmCancel(false)}
+          >
+            Keep running
+          </button>
+          <button
+            type="button"
+            className="button danger"
+            disabled={action.busy || !connected}
+            onClick={() => control('cancel')}
+          >
             Confirm cancellation
           </button>
-          <button className="text-button" onClick={() => setConfirmCancel(false)}>
-            Back
-          </button>
         </div>
-      )}
+      </Dialog>
       {action.error && <ErrorNotice>{action.error}</ErrorNotice>}
-      {order.error_code && (
-        <div className="notice warning">
-          <strong>{order.error_code}</strong>
-          <p>{order.summary}</p>
-        </div>
-      )}
       {pending.length > 0 && (
         <section className="questions-section">
           <div className="section-heading">
@@ -1503,6 +1500,7 @@ function WorkDetail({
           </div>
           {pending.map((question) => (
             <QuestionForm
+              connected={connected}
               key={question.id}
               api={api}
               order={order}
@@ -1512,277 +1510,348 @@ function WorkDetail({
           ))}
         </section>
       )}
-      <details className="work-objective" aria-label="Run objective">
-        <summary>Full objective</summary>
-        <p>{order.objective}</p>
-      </details>
-      <ExecutionTimeline
-        key={order.id}
-        api={api}
-        workId={order.id}
-        order={order}
-        active={['running', 'queued'].includes(order.status)}
-      />
-      <div className="detail-grid">
-        <div className="detail-primary">
-          {order.evidence && (
-            <section className="delivery-evidence">
-              <div className="section-heading">
-                <h2>Delivery evidence</h2>
-                <span className="count-label">{order.evidence.gates.length} recorded checks</span>
-              </div>
-              <p>{order.evidence.review}</p>
-              {order.evidence.gates.some(
-                (gate) => !gate.snapshot_digest || gate.snapshot_digest !== order.evidence?.snapshot_digest,
-              ) && (
-                <ErrorNotice>
-                  Some check snapshots do not match the delivery and cannot validate this evidence.
-                </ErrorNotice>
-              )}
-              {order.evidence.gates.length ? (
-                <ul className="gate-list" aria-label="Delivery checks">
-                  {order.evidence.gates.map((gate, index) => {
-                    const matches = Boolean(
-                      gate.snapshot_digest && gate.snapshot_digest === order.evidence?.snapshot_digest,
-                    );
-                    const passed = gate.exit_code === 0 && matches;
-                    return (
-                      <li key={index} className={passed ? 'passed' : 'failed'}>
-                        <div>
-                          <code>{gate.command.join(' ')}</code>
-                          <p>
-                            Salida {gate.exit_code} ·{' '}
-                            {matches ? 'Delivery snapshot' : 'Snapshot differs from delivery'}
-                          </p>
-                        </div>
-                        <strong>{!matches ? 'Evidencia ajena' : passed ? 'Superada' : 'Fallida'}</strong>
-                      </li>
-                    );
-                  })}
-                </ul>
-              ) : (
-                <div className="quiet-state">This evidence has no recorded checks.</div>
-              )}
-              <details className="technical-details">
-                <summary>Technical references</summary>
-                <dl className="evidence-list">
-                  <dt>Commit</dt>
-                  <dd>
-                    <code>{order.evidence.commit}</code>
-                  </dd>
-                  <dt>Snapshot</dt>
-                  <dd>
-                    <code>{order.evidence.snapshot_digest}</code>
-                  </dd>
-                  <dt>Verification profile</dt>
-                  <dd>
-                    <code>{order.evidence.profile_digest}</code>
-                  </dd>
-                  <dt>Security rules</dt>
-                  <dd>{order.evidence.rules_version}</dd>
-                  {order.evidence.branch && (
-                    <>
-                      <dt>Branch</dt>
-                      <dd>
-                        <code>{order.evidence.branch}</code>
-                      </dd>
-                    </>
-                  )}
-                  {order.evidence.gates.map((gate, index) => (
-                    <Fragment key={index}>
-                      <dt>Check {index + 1} · output</dt>
-                      <dd>
-                        <code>{gate.output_digest}</code>
-                      </dd>
-                      <dt>Check {index + 1} · snapshot</dt>
-                      <dd>
-                        <code>{gate.snapshot_digest}</code>
-                      </dd>
-                    </Fragment>
-                  ))}
-                </dl>
-              </details>
-            </section>
-          )}
-          <section>
-            <div className="section-heading">
-              <h2>{order.phase === 'security_watch' ? 'Remediation proposals' : 'Work plan'}</h2>
-              <span className="count-label">
-                {order.tasks.filter((task) => task.status === 'completed').length} / {order.tasks.length}{' '}
-                tasks
-              </span>
-            </div>
-            {!order.tasks.length ? (
-              <Empty
-                title={order.phase === 'security_watch' ? 'No remediation proposals' : 'No recorded tasks'}
+      <Tabs
+        items={(['Process', 'Tasks & evidence', 'Activity', 'Limits & scope'] as const).map((value) => ({
+          value,
+          label: value,
+        }))}
+        value={detailTab}
+        onChange={setDetailTab}
+        label="Run workspace"
+        className="run-detail-tabs"
+      >
+        {(activeTab) => (
+          <>
+            {activeTab === 'Process' && (
+              <>
+                <RemoteTasksPanel
+                  api={api}
+                  workId={order.id}
+                  connected={connected}
+                  refreshKey={order.updated_at}
+                  showEmpty={false}
+                />
+                <ExecutionTimeline
+                  key={order.id}
+                  api={api}
+                  workId={order.id}
+                  order={order}
+                  audit={audit}
+                  active={['running', 'queued'].includes(order.status)}
+                />
+              </>
+            )}
+            {activeTab !== 'Process' && (
+              <div
+                className={`detail-grid detail-view-${activeTab === 'Tasks & evidence' ? 'evidence' : activeTab === 'Activity' ? 'activity' : 'limits'}`}
               >
-                {order.phase === 'security_watch'
-                  ? 'Monitoring recorded no remediation proposals.'
-                  : emptyPlanMessages[order.status]}
-              </Empty>
-            ) : (
-              <ol className="task-list">
-                {order.tasks.map((task) => (
-                  <li key={task.id}>
-                    <span className={`task-step ${task.status}`} aria-hidden="true">
-                      {task.status === 'completed' ? (
-                        <Icon name="check" size={15} />
-                      ) : (
-                        <span className="task-status-dot" />
-                      )}
-                    </span>
-                    <div>
-                      <div className="task-title">
-                        <h3>{task.title}</h3>
-                        <Badge value={task.status} />
+                <div className="detail-primary">
+                  {order.evidence && (
+                    <section className="delivery-evidence">
+                      <div className="section-heading">
+                        <h2>Delivery evidence</h2>
+                        <span className="count-label">{order.evidence.gates.length} recorded checks</span>
                       </div>
-                      <p>
-                        {roleLabels[task.role] || task.role}
-                        {task.specialty && task.specialty !== 'general'
-                          ? ` · ${{ infrastructure: 'Infrastructure', frontend: 'Frontend', backend: 'Backend', documentation: 'Documentation' }[task.specialty]}`
-                          : ''}{' '}
-                        · {task.attempts} {task.attempts === 1 ? 'intento' : 'intentos'}
-                      </p>
-                      {task.depends_on.length > 0 && (
-                        <p className="dependency">
-                          Depends on:{' '}
-                          {task.depends_on
-                            .map((id) => order.tasks.find((candidate) => candidate.id === id)?.title || id)
-                            .join(' · ')}
-                        </p>
+                      <p>{order.evidence.review}</p>
+                      {order.evidence.gates.some(
+                        (gate) =>
+                          !gate.snapshot_digest || gate.snapshot_digest !== order.evidence?.snapshot_digest,
+                      ) && (
+                        <ErrorNotice>
+                          Some check snapshots do not match the delivery and cannot validate this evidence.
+                        </ErrorNotice>
                       )}
-                      {task.result && <p className="task-result">{task.result}</p>}
+                      {order.evidence.gates.length ? (
+                        <ul className="gate-list" aria-label="Delivery checks">
+                          {order.evidence.gates.map((gate, index) => {
+                            const matches = Boolean(
+                              gate.snapshot_digest &&
+                                gate.snapshot_digest === order.evidence?.snapshot_digest,
+                            );
+                            const passed = gate.exit_code === 0 && matches;
+                            return (
+                              <li key={index} className={passed ? 'passed' : 'failed'}>
+                                <div>
+                                  <code>{gate.command.join(' ')}</code>
+                                  <p>
+                                    Salida {gate.exit_code} ·{' '}
+                                    {matches ? 'Delivery snapshot' : 'Snapshot differs from delivery'}
+                                  </p>
+                                </div>
+                                <strong>
+                                  {!matches ? 'Evidencia ajena' : passed ? 'Superada' : 'Fallida'}
+                                </strong>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      ) : (
+                        <div className="quiet-state">This evidence has no recorded checks.</div>
+                      )}
+                      <details className="technical-details">
+                        <summary>Technical references</summary>
+                        <dl className="evidence-list">
+                          <dt>Commit</dt>
+                          <dd>
+                            <code>{order.evidence.commit}</code>
+                          </dd>
+                          <dt>Snapshot</dt>
+                          <dd>
+                            <code>{order.evidence.snapshot_digest}</code>
+                          </dd>
+                          <dt>Verification profile</dt>
+                          <dd>
+                            <code>{order.evidence.profile_digest}</code>
+                          </dd>
+                          <dt>Security rules</dt>
+                          <dd>{order.evidence.rules_version}</dd>
+                          {order.evidence.branch && (
+                            <>
+                              <dt>Branch</dt>
+                              <dd>
+                                <code>{order.evidence.branch}</code>
+                              </dd>
+                            </>
+                          )}
+                          {order.evidence.gates.map((gate, index) => (
+                            <Fragment key={index}>
+                              <dt>Check {index + 1} · output</dt>
+                              <dd>
+                                <code>{gate.output_digest}</code>
+                              </dd>
+                              <dt>Check {index + 1} · snapshot</dt>
+                              <dd>
+                                <code>{gate.snapshot_digest}</code>
+                              </dd>
+                            </Fragment>
+                          ))}
+                        </dl>
+                      </details>
+                    </section>
+                  )}
+                  {activeTab === 'Tasks & evidence' && (
+                    <ReleasesPanel api={api} work={order} connected={connected} />
+                  )}
+                  {activeTab === 'Tasks & evidence' && (
+                    <RemoteTasksPanel
+                      api={api}
+                      workId={order.id}
+                      connected={connected}
+                      refreshKey={order.updated_at}
+                    />
+                  )}
+                  <section>
+                    <div className="section-heading">
+                      <h2>{order.phase === 'security_watch' ? 'Remediation proposals' : 'Work plan'}</h2>
+                      <span className="count-label">
+                        {order.tasks.filter((task) => task.status === 'completed').length} /{' '}
+                        {order.tasks.length} tasks
+                      </span>
                     </div>
-                  </li>
-                ))}
-              </ol>
-            )}
-          </section>
-          <section>
-            <div className="section-heading">
-              <h2>Security pipeline</h2>
-              <span className="count-label">{order.findings.length} findings</span>
-            </div>
-            {order.findings.length ? (
-              <Findings findings={order.findings} />
-            ) : (
-              <div className="quiet-state">
-                {order.evidence
-                  ? 'The review recorded no findings.'
-                  : 'The security pipeline has not produced a result for this delivery.'}
+                    {!order.tasks.length ? (
+                      <Empty
+                        title={
+                          order.phase === 'security_watch' ? 'No remediation proposals' : 'No recorded tasks'
+                        }
+                      >
+                        {order.phase === 'security_watch'
+                          ? 'Monitoring recorded no remediation proposals.'
+                          : emptyPlanMessages[order.status]}
+                      </Empty>
+                    ) : (
+                      <ol className="task-list">
+                        {order.tasks.map((task) => (
+                          <li key={task.id}>
+                            <span className={`task-step ${task.status}`} aria-hidden="true">
+                              {task.status === 'completed' ? (
+                                <Icon name="check" size={15} />
+                              ) : (
+                                <span className="task-status-dot" />
+                              )}
+                            </span>
+                            <div>
+                              <div className="task-title">
+                                <h3>{task.title}</h3>
+                                <Badge value={task.status} />
+                              </div>
+                              <p>
+                                {roleLabels[task.role] || task.role}
+                                {task.specialty && task.specialty !== 'general'
+                                  ? ` · ${{ infrastructure: 'Infrastructure', frontend: 'Frontend', backend: 'Backend', documentation: 'Documentation' }[task.specialty]}`
+                                  : ''}{' '}
+                                · {task.attempts} {task.attempts === 1 ? 'attempt' : 'attempts'}
+                              </p>
+                              {task.depends_on.length > 0 && (
+                                <p className="dependency">
+                                  Depends on:{' '}
+                                  {task.depends_on
+                                    .map(
+                                      (id) =>
+                                        order.tasks.find((candidate) => candidate.id === id)?.title || id,
+                                    )
+                                    .join(' · ')}
+                                </p>
+                              )}
+                              {task.result && <p className="task-result">{task.result}</p>}
+                            </div>
+                          </li>
+                        ))}
+                      </ol>
+                    )}
+                  </section>
+                  <section>
+                    <div className="section-heading">
+                      <h2>Security pipeline</h2>
+                      <span className="count-label">{order.findings.length} findings</span>
+                    </div>
+                    {order.findings.length ? (
+                      <Findings findings={order.findings} />
+                    ) : (
+                      <div className="quiet-state">
+                        {order.evidence
+                          ? 'The review recorded no findings.'
+                          : 'The security pipeline has not produced a result for this delivery.'}
+                      </div>
+                    )}
+                    {order.security_snapshot_digest && (
+                      <SecurityExceptions
+                        api={api}
+                        order={order}
+                        onChanged={onChanged}
+                        connected={connected}
+                      />
+                    )}
+                  </section>
+                  <section>
+                    <div className="section-heading">
+                      <h2>Activity</h2>
+                      <button
+                        className="button small"
+                        onClick={() => {
+                          setAuditLoading(true);
+                          setAuditRefresh((value) => value + 1);
+                        }}
+                        disabled={auditLoading}
+                      >
+                        Refresh audit
+                      </button>
+                    </div>
+                    <WorkAudit data={audit} loading={auditLoading} error={auditError} />
+                    {eventsError ? (
+                      <ErrorNotice>{eventsError}</ErrorNotice>
+                    ) : !events.length ? (
+                      <div className="quiet-state">No recorded events yet.</div>
+                    ) : (
+                      <ol className="activity-list">
+                        {events.map((event, index) => (
+                          <li key={String(event.id || index)}>
+                            <span className="activity-dot" aria-hidden="true" />
+                            <div>
+                              <p>{String(event.message || event.kind || 'Recorded event')}</p>
+                              {typeof event.created_at === 'string' && (
+                                <time dateTime={event.created_at}>{time(event.created_at)}</time>
+                              )}
+                            </div>
+                          </li>
+                        ))}
+                      </ol>
+                    )}
+                  </section>
+                </div>
+                <aside className="detail-aside">
+                  {order.effective_budget_policy || order.budget.policy ? (
+                    <BudgetPanel
+                      connected={connected}
+                      api={api}
+                      work={order}
+                      refreshKey={order.updated_at}
+                      onChanged={() => {
+                        void onChanged();
+                      }}
+                    />
+                  ) : (
+                    <section className="aside-section" aria-labelledby="usage-title">
+                      <h2 id="usage-title">Usage and limits</h2>
+                      <Usage label="Model calls" value={order.calls_used} max={order.budget.max_calls} />
+                      <Usage label="Tokens" value={order.tokens_used} max={order.budget.max_tokens} />
+                      <Usage
+                        label="Recorded API cost"
+                        value={order.cost_usd}
+                        max={order.budget.max_cost_usd}
+                        currency
+                      />
+                      <Usage
+                        label="Active time · min"
+                        value={Math.round(order.active_seconds_used / 60)}
+                        max={
+                          order.budget.active_seconds === null
+                            ? null
+                            : Math.round(order.budget.active_seconds / 60)
+                        }
+                      />
+                      {perAgent && <CliProgressPolicy />}
+                      {canChangeLimits && (
+                        <>
+                          <p>
+                            You can replace cumulative quotas with per-agent controls. Recorded usage and
+                            checks remain available; the run stays stopped until resumed.
+                          </p>
+                          <details>
+                            <summary>How per-agent controls work</summary>
+                            <CliProgressPolicy />
+                          </details>
+                          <button
+                            className="button small"
+                            disabled={action.busy || !connected}
+                            onClick={() =>
+                              void action.run(async () => {
+                                if (!connected) return;
+                                await api.useCliProgressLimits(order.id, {
+                                  expected_revision: order.plan_revision,
+                                  expected_budget: order.budget,
+                                });
+                                await onChanged();
+                              })
+                            }
+                          >
+                            Use per-agent controls
+                          </button>
+                        </>
+                      )}
+                    </section>
+                  )}
+                  <section className="aside-section">
+                    <h2>Acceptance criteria</h2>
+                    <ul className="criteria-list">
+                      {order.acceptance.map((criterion, index) => (
+                        <li key={index}>{criterion}</li>
+                      ))}
+                    </ul>
+                    {order.constraints.length > 0 && (
+                      <>
+                        <h3>Constraints</h3>
+                        <ul className="criteria-list">
+                          {order.constraints.map((constraint, index) => (
+                            <li key={index}>{constraint}</li>
+                          ))}
+                        </ul>
+                      </>
+                    )}
+                  </section>
+                  {!terminal && (
+                    <ScopeForm api={api} order={order} onChanged={onChanged} connected={connected} />
+                  )}
+                  <p className="run-reference">
+                    Run <code>{order.id}</code>
+                    <br />
+                    Created {time(order.created_at)}
+                  </p>
+                </aside>
               </div>
             )}
-            {order.security_snapshot_digest && (
-              <SecurityExceptions api={api} order={order} onChanged={onChanged} />
-            )}
-          </section>
-          <section>
-            <div className="section-heading">
-              <h2>Activity</h2>
-              <button
-                className="button small"
-                onClick={() => {
-                  setAuditLoading(true);
-                  setAuditRefresh((value) => value + 1);
-                }}
-                disabled={auditLoading}
-              >
-                Refresh audit
-              </button>
-            </div>
-            <WorkAudit data={audit} loading={auditLoading} error={auditError} />
-            {eventsError ? (
-              <ErrorNotice>{eventsError}</ErrorNotice>
-            ) : !events.length ? (
-              <div className="quiet-state">No recorded events yet.</div>
-            ) : (
-              <ol className="activity-list">
-                {events.map((event, index) => (
-                  <li key={String(event.id || index)}>
-                    <span className="activity-dot" aria-hidden="true" />
-                    <div>
-                      <p>{String(event.message || event.kind || 'Recorded event')}</p>
-                      {typeof event.created_at === 'string' && (
-                        <time dateTime={event.created_at}>{time(event.created_at)}</time>
-                      )}
-                    </div>
-                  </li>
-                ))}
-              </ol>
-            )}
-          </section>
-        </div>
-        <aside className="detail-aside">
-          <section className="aside-section" aria-labelledby="usage-title">
-            <h2 id="usage-title">Usage and limits</h2>
-            <Usage label="Model calls" value={order.calls_used} max={order.budget.max_calls} />
-            <Usage label="Tokens" value={order.tokens_used} max={order.budget.max_tokens} />
-            <Usage
-              label="Recorded API cost"
-              value={order.cost_usd}
-              max={order.budget.max_cost_usd}
-              currency
-            />
-            <Usage
-              label="Active time · min"
-              value={Math.round(order.active_seconds_used / 60)}
-              max={order.budget.active_seconds === null ? null : Math.round(order.budget.active_seconds / 60)}
-            />
-            {perAgent && <CliProgressPolicy />}
-            {canChangeLimits && (
-              <>
-                <p>
-                  You can replace cumulative quotas with per-agent controls. Recorded usage and checks remain
-                  available; the run stays stopped until resumed.
-                </p>
-                <details>
-                  <summary>How per-agent controls work</summary>
-                  <CliProgressPolicy />
-                </details>
-                <button
-                  className="button small"
-                  disabled={action.busy}
-                  onClick={() =>
-                    void action.run(async () => {
-                      await api.useCliProgressLimits(order.id, {
-                        expected_revision: order.plan_revision,
-                        expected_budget: order.budget,
-                      });
-                      await onChanged();
-                    })
-                  }
-                >
-                  Use per-agent controls
-                </button>
-              </>
-            )}
-          </section>
-          <section className="aside-section">
-            <h2>Acceptance criteria</h2>
-            <ul className="criteria-list">
-              {order.acceptance.map((criterion, index) => (
-                <li key={index}>{criterion}</li>
-              ))}
-            </ul>
-            {order.constraints.length > 0 && (
-              <>
-                <h3>Constraints</h3>
-                <ul className="criteria-list">
-                  {order.constraints.map((constraint, index) => (
-                    <li key={index}>{constraint}</li>
-                  ))}
-                </ul>
-              </>
-            )}
-          </section>
-          {!terminal && <ScopeForm api={api} order={order} onChanged={onChanged} />}
-          <p className="run-reference">
-            Run <code>{order.id}</code>
-            <br />
-            Created {time(order.created_at)}
-          </p>
-        </aside>
-      </div>
+          </>
+        )}
+      </Tabs>
     </>
   );
 }
@@ -1814,10 +1883,12 @@ function Usage({
 
 function SecurityExceptions({
   api,
+  connected,
   order,
   onChanged,
 }: {
   api: Api;
+  connected: boolean;
   order: WorkOrder;
   onChanged: () => Promise<void>;
 }) {
@@ -1848,6 +1919,7 @@ function SecurityExceptions({
   );
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (!connected || !allowed) return;
     const data = new FormData(event.currentTarget);
     void action.run(async () => {
       await api.approveSecurityException(order.id, {
@@ -1875,9 +1947,10 @@ function SecurityExceptions({
           {!item.revoked_at && (
             <button
               className="text-button danger-quiet"
-              disabled={action.busy}
+              disabled={action.busy || !connected}
               onClick={() =>
                 void action.run(async () => {
+                  if (!connected) return;
                   await api.revokeSecurityException(order.id, item.id);
                   await load();
                   await onChanged();
@@ -1891,36 +1964,39 @@ function SecurityExceptions({
       ))}
       {allowed && eligible.length > 0 && (
         <>
-          <button className="button small" onClick={() => setShowForm(!showForm)}>
+          <button className="button small" disabled={!connected} onClick={() => setShowForm(!showForm)}>
             Temporary security exception
           </button>
           {showForm && (
             <form className="form-panel" onSubmit={submit}>
-              <h3>Accept a specific risk</h3>
-              <p>
-                Your approval applies to this source snapshot and revision. Resume the run to verify it again.
-              </p>
-              <Field label="Finding">
-                <Select name="finding" required defaultValue="">
-                  <option value="" disabled>
-                    Select the risk
-                  </option>
-                  {eligible.map((finding) => (
-                    <option key={finding.fingerprint} value={finding.fingerprint}>
-                      {finding.title}
+              <fieldset className="mutation-fields" disabled={!connected || action.busy}>
+                <h3>Accept a specific risk</h3>
+                <p>
+                  Your approval applies to this source snapshot and revision. Resume the run to verify it
+                  again.
+                </p>
+                <Field label="Finding">
+                  <Select name="finding" required defaultValue="">
+                    <option value="" disabled>
+                      Select the risk
                     </option>
-                  ))}
-                </Select>
-              </Field>
-              <Field label="Exception justification">
-                <textarea name="justification" required minLength={10} maxLength={4000} rows={3} />
-              </Field>
-              <Field label="Caducidad · hora local" hint="Choose a future date within 30 days.">
-                <input name="expiry" type="datetime-local" required />
-              </Field>
-              <button className="button primary" disabled={action.busy}>
-                {action.busy ? 'Saving…' : 'Temporarily approve this risk'}
-              </button>
+                    {eligible.map((finding) => (
+                      <option key={finding.fingerprint} value={finding.fingerprint}>
+                        {finding.title}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+                <Field label="Exception justification">
+                  <textarea name="justification" required minLength={10} maxLength={4000} rows={3} />
+                </Field>
+                <Field label="Expiry · local time" hint="Choose a future date within 30 days.">
+                  <input name="expiry" type="datetime-local" required />
+                </Field>
+                <button className="button primary" disabled={action.busy}>
+                  {action.busy ? 'Saving…' : 'Temporarily approve this risk'}
+                </button>
+              </fieldset>
             </form>
           )}
         </>
@@ -1931,11 +2007,13 @@ function SecurityExceptions({
 
 function QuestionForm({
   api,
+  connected,
   order,
   question,
   onChanged,
 }: {
   api: Api;
+  connected: boolean;
   order: WorkOrder;
   question: HumanQuestion;
   onChanged: () => Promise<void>;
@@ -1956,6 +2034,7 @@ function QuestionForm({
       <form
         onSubmit={(event) => {
           event.preventDefault();
+          if (!connected) return;
           void action.run(async () => {
             await api.answer(order.id, {
               question_id: question.id,
@@ -1966,38 +2045,40 @@ function QuestionForm({
           });
         }}
       >
-        {question.options.length > 0 && (
-          <div className="answer-options">
-            {question.options.map((option) => (
-              <button
-                key={option}
-                type="button"
-                className={answer === option ? 'answer-option selected' : 'answer-option'}
-                aria-pressed={answer === option}
-                onClick={() => setAnswer(option)}
-              >
-                {option}
-              </button>
-            ))}
+        <fieldset className="mutation-fields" disabled={!connected || action.busy}>
+          {question.options.length > 0 && (
+            <div className="answer-options">
+              {question.options.map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  className={answer === option ? 'answer-option selected' : 'answer-option'}
+                  aria-pressed={answer === option}
+                  onClick={() => setAnswer(option)}
+                >
+                  {option}
+                </button>
+              ))}
+            </div>
+          )}
+          <Field label="Your answer">
+            <textarea
+              required
+              rows={2}
+              maxLength={12000}
+              value={answer}
+              onChange={(event) => setAnswer(event.target.value)}
+              placeholder="Describe how the team should continue…"
+            />
+          </Field>
+          {action.error && <ErrorNotice>{action.error}</ErrorNotice>}
+          <div className="form-actions">
+            <span>Your answer will be bound to this decision.</span>
+            <button className="button primary" disabled={action.busy}>
+              {action.busy ? 'Sending…' : 'Answer and continue'}
+            </button>
           </div>
-        )}
-        <Field label="Your answer">
-          <textarea
-            required
-            rows={2}
-            maxLength={12000}
-            value={answer}
-            onChange={(event) => setAnswer(event.target.value)}
-            placeholder="Describe how the team should continue…"
-          />
-        </Field>
-        {action.error && <ErrorNotice>{action.error}</ErrorNotice>}
-        <div className="form-actions">
-          <span>Your answer will be bound to this decision.</span>
-          <button className="button primary" disabled={action.busy}>
-            {action.busy ? 'Sending…' : 'Answer and continue'}
-          </button>
-        </div>
+        </fieldset>
       </form>
     </article>
   );
@@ -2005,10 +2086,12 @@ function QuestionForm({
 
 function ScopeForm({
   api,
+  connected,
   order,
   onChanged,
 }: {
   api: Api;
+  connected: boolean;
   order: WorkOrder;
   onChanged: () => Promise<void>;
 }) {
@@ -2024,6 +2107,7 @@ function ScopeForm({
       <form
         onSubmit={(event) => {
           event.preventDefault();
+          if (!connected || !canChange) return;
           const data = new FormData(event.currentTarget);
           void action.run(async () => {
             await api.scope(order.id, {
@@ -2035,16 +2119,18 @@ function ScopeForm({
           });
         }}
       >
-        <Field label="New objective">
-          <textarea name="objective" required minLength={5} defaultValue={order.objective} rows={3} />
-        </Field>
-        <Field label="Updated criteria">
-          <textarea name="acceptance" required defaultValue={order.acceptance.join('\n')} rows={3} />
-        </Field>
-        {action.error && <ErrorNotice>{action.error}</ErrorNotice>}
-        <button className="button" disabled={action.busy || !canChange}>
-          {action.busy ? 'Updating…' : 'Update scope'}
-        </button>
+        <fieldset className="mutation-fields" disabled={!connected || action.busy}>
+          <Field label="New objective">
+            <textarea name="objective" required minLength={5} defaultValue={order.objective} rows={3} />
+          </Field>
+          <Field label="Updated criteria">
+            <textarea name="acceptance" required defaultValue={order.acceptance.join('\n')} rows={3} />
+          </Field>
+          {action.error && <ErrorNotice>{action.error}</ErrorNotice>}
+          <button className="button" disabled={action.busy || !canChange}>
+            {action.busy ? 'Updating…' : 'Update scope'}
+          </button>
+        </fieldset>
       </form>
     </details>
   );
@@ -2170,197 +2256,6 @@ function SecurityView({ api, projects, orders }: { api: Api; projects: Project[]
         <Empty title="No recorded findings">
           Results appear after verification. An absence of findings does not replace a complete review.
         </Empty>
-      )}
-    </>
-  );
-}
-
-function MemoryView({ api, projects }: { api: Api; projects: Project[] }) {
-  const [projectId, setProjectId] = useState(projects[0]?.id || '');
-  const [items, setItems] = useState<MemoryItem[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [showForm, setShowForm] = useState(false);
-  const [knowledge, setKnowledge] = useState<ProjectKnowledgeReport | null>(null);
-  const [knowledgeError, setKnowledgeError] = useState('');
-  const loadGeneration = useRef(0);
-  const action = useAction();
-  const load = useCallback(async () => {
-    if (!projectId) return;
-    const generation = ++loadGeneration.current;
-    setLoading(true);
-    setKnowledge(null);
-    const [memories, report] = await Promise.allSettled([api.memory(projectId), api.knowledge(projectId)]);
-    if (generation !== loadGeneration.current) return;
-    setItems(memories.status === 'fulfilled' ? memories.value : []);
-    setError(memories.status === 'rejected' ? message(memories.reason) : '');
-    setKnowledge(report.status === 'fulfilled' ? report.value : null);
-    setKnowledgeError(report.status === 'rejected' ? message(report.reason) : '');
-    setLoading(false);
-  }, [api, projectId]);
-  useEffect(() => {
-    void load();
-    return () => {
-      loadGeneration.current++;
-    };
-  }, [load]);
-  const submit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const data = new FormData(event.currentTarget);
-    void action.run(async () => {
-      await api.createMemory({
-        project_id: projectId,
-        kind: String(data.get('kind')) as 'fact' | 'lesson',
-        content: String(data.get('content')),
-        source_commit: String(data.get('commit')),
-        source_work_id: String(data.get('work')),
-        evidence_digest: String(data.get('evidence')) || null,
-      });
-      setShowForm(false);
-      await load();
-    });
-  };
-  return (
-    <>
-      <PageHeader
-        eyebrow="Context with provenance"
-        title="Memory"
-        description="Source context, resumable executions and approved knowledge, with provenance."
-        action={
-          <button className="button primary" disabled={!projectId} onClick={() => setShowForm(!showForm)}>
-            + Propose memory
-          </button>
-        }
-      />
-      {!projects.length ? (
-        <Empty title="Register a project to save knowledge">
-          Each memory belongs to a project and retains its source.
-        </Empty>
-      ) : (
-        <>
-          <div className="filter-row">
-            <Field label="Project">
-              <Select value={projectId} onChange={(event) => setProjectId(event.target.value)}>
-                {projects.map((project) => (
-                  <option key={project.id} value={project.id}>
-                    {project.name}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            <p>
-              {items.filter((item) => item.active).length} active memories ·{' '}
-              {items.filter((item) => !item.active && !item.invalidated_at).length} pending
-            </p>
-          </div>
-          {showForm && (
-            <section className="form-panel">
-              <div className="section-heading">
-                <h2>Propose knowledge</h2>
-                <button className="text-button" onClick={() => setShowForm(false)}>
-                  Close
-                </button>
-              </div>
-              <form onSubmit={submit}>
-                <Field label="Content">
-                  <textarea name="content" required rows={3} maxLength={8000} />
-                </Field>
-                <div className="form-grid">
-                  <Field label="Type">
-                    <Select name="kind">
-                      <option value="lesson">Proposed lesson</option>
-                      <option value="fact">Verifiable fact</option>
-                    </Select>
-                  </Field>
-                  <Field label="Source run">
-                    <input name="work" required />
-                  </Field>
-                  <Field label="Reference commit">
-                    <input name="commit" required />
-                  </Field>
-                  <Field label="Evidence digest">
-                    <input name="evidence" />
-                  </Field>
-                </div>
-                {action.error && <ErrorNotice>{action.error}</ErrorNotice>}
-                <div className="form-actions">
-                  <button className="button primary" disabled={action.busy}>
-                    {action.busy ? 'Saving…' : 'Save proposal'}
-                  </button>
-                </div>
-              </form>
-            </section>
-          )}
-          {error && <ErrorNotice>{error}</ErrorNotice>}
-          {!showForm && action.error && <ErrorNotice>{action.error}</ErrorNotice>}
-          <ProjectKnowledge data={knowledge} loading={loading} error={knowledgeError} />
-          {loading ? (
-            <div className="loading-state" role="status">
-              Loading memory…
-            </div>
-          ) : !items.length ? (
-            <Empty title="No approved delivery memories">
-              Memories are recorded after delivery. Earlier context and checkpoints are shown above; saving
-              them does not make them approved facts.
-            </Empty>
-          ) : (
-            <div className="memory-list">
-              {items.map((item) => (
-                <article
-                  className={item.invalidated_at ? 'memory-item invalidated' : 'memory-item'}
-                  key={item.id}
-                >
-                  <div className="memory-header">
-                    <span className="eyebrow">{item.kind === 'fact' ? 'Verifiable fact' : 'Lesson'}</span>
-                    <span className={`memory-status ${item.active ? 'active' : ''}`}>
-                      {item.invalidated_at ? 'Invalidated' : item.active ? 'Active' : 'Awaiting approval'}
-                    </span>
-                  </div>
-                  <p>{item.content}</p>
-                  <div className="memory-source">
-                    <span>
-                      Commit <code>{item.source_commit}</code>
-                    </span>
-                    <span>
-                      Run <code>{item.source_work_id}</code>
-                    </span>
-                    <time dateTime={item.created_at}>{time(item.created_at)}</time>
-                  </div>
-                  {!item.invalidated_at && (
-                    <div className="memory-actions">
-                      {!item.active && (
-                        <button
-                          className="button small"
-                          disabled={action.busy}
-                          onClick={() =>
-                            void action.run(async () => {
-                              await api.memoryAction(item.id, 'approve');
-                              await load();
-                            })
-                          }
-                        >
-                          Approve memory
-                        </button>
-                      )}
-                      <button
-                        className="text-button danger-quiet"
-                        disabled={action.busy}
-                        onClick={() =>
-                          void action.run(async () => {
-                            await api.memoryAction(item.id, 'invalidate');
-                            await load();
-                          })
-                        }
-                      >
-                        Invalidate
-                      </button>
-                    </div>
-                  )}
-                </article>
-              ))}
-            </div>
-          )}
-        </>
       )}
     </>
   );

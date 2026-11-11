@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { ApiError, type Api, type SecretMetadata, type SecretTarget } from './api';
 import Select from './components/Select';
+import Dialog from './components/Dialog';
 
 type Editor = { id: string; expectedVersion: number | null };
 
@@ -30,11 +31,13 @@ export default function Credentials({
   onChanged,
   targetIds,
   targetPrefix,
+  connected = true,
 }: {
   api: Api;
   onChanged: () => Promise<void>;
   targetIds?: string[];
   targetPrefix?: string;
+  connected?: boolean;
 }) {
   const [items, setItems] = useState<SecretMetadata[]>([]);
   const [targets, setTargets] = useState<SecretTarget[]>([]);
@@ -44,6 +47,7 @@ export default function Credentials({
   const [notice, setNotice] = useState('');
   const [refreshWarning, setRefreshWarning] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [hasSecret, setHasSecret] = useState(false);
   const [editor, setEditor] = useState<Editor | null>(null);
   const [deactivating, setDeactivating] = useState<SecretMetadata | null>(null);
   const password = useRef<HTMLInputElement>(null);
@@ -55,6 +59,7 @@ export default function Credentials({
   const load = useCallback(async () => {
     const generation = ++loadGeneration.current;
     if (password.current) password.current.value = '';
+    setHasSecret(false);
     setEditor(null);
     setDeactivating(null);
     setLoading(true);
@@ -96,6 +101,7 @@ export default function Credentials({
   const label = (id: string) => targets.find((target) => target.id === id)?.label || id;
   const choose = (id: string) => {
     if (password.current) password.current.value = '';
+    setHasSecret(false);
     setActionError('');
     setNotice('');
     setRefreshWarning(false);
@@ -118,9 +124,10 @@ export default function Credentials({
   };
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!editor || !password.current || !password.current.value || busy) return;
+    if (!editor || !password.current || !password.current.value || busy || !connected) return;
     const value = password.current.value;
     password.current.value = '';
+    setHasSecret(false);
     const selected = editor;
     setBusy(true);
     setActionError('');
@@ -146,7 +153,7 @@ export default function Credentials({
     })();
   };
   const deactivate = async () => {
-    if (!deactivating || busy) return;
+    if (!deactivating || busy || !connected) return;
     const selected = deactivating;
     setBusy(true);
     setActionError('');
@@ -167,7 +174,7 @@ export default function Credentials({
       setBusy(false);
     }
   };
-  const available = !loading && !loadError && !busy;
+  const available = !loading && !loadError && !busy && connected;
   return (
     <section className="credentials-section" aria-labelledby="credentials-title">
       <div className="section-heading">
@@ -240,7 +247,7 @@ export default function Credentials({
                   {!target && <small>Outside the destinations registered by this instance.</small>}
                 </div>
                 <span className={`badge ${item.configured ? 'badge-completed' : 'badge-paused'}`}>
-                  {item.configured ? 'Guardada' : 'Desactivada'}
+                  {item.configured ? 'Configured' : 'Disabled'}
                 </span>
                 <div className="credential-actions">
                   {target && (
@@ -276,22 +283,30 @@ export default function Credentials({
           })}
         </div>
       )}
-      {deactivating && (
-        <div className="notice warning">
-          <div>
-            <strong>Disable {label(deactivating.id)} in SABRE?</strong>
-            <p>
-              The stored value will be removed. This does not revoke the credential at the external provider.
-            </p>
+      <Dialog
+        open={!!deactivating}
+        title="Disable credential"
+        busy={busy}
+        onClose={() => setDeactivating(null)}
+      >
+        {deactivating && (
+          <div className="notice warning">
+            <div>
+              <strong>Disable {label(deactivating.id)} in SABRE?</strong>
+              <p>
+                The stored value will be removed. This does not revoke the credential at the external
+                provider.
+              </p>
+            </div>
+            <button className="button danger" disabled={busy} onClick={() => void deactivate()}>
+              Confirm deactivation
+            </button>
+            <button className="text-button" disabled={busy} onClick={() => setDeactivating(null)}>
+              Back
+            </button>
           </div>
-          <button className="button danger" disabled={busy} onClick={() => void deactivate()}>
-            Confirm deactivation
-          </button>
-          <button className="text-button" disabled={busy} onClick={() => setDeactivating(null)}>
-            Back
-          </button>
-        </div>
-      )}
+        )}
+      </Dialog>
       {!editor && (
         <button
           className="button"
@@ -307,72 +322,75 @@ export default function Credentials({
           Save credential
         </button>
       )}
-      {editor && (
-        <form className="form-panel credential-editor" onSubmit={submit} autoComplete="off">
-          <div className="section-heading">
-            <h3>
-              {editor.expectedVersion === null
-                ? 'Save a credential'
-                : `Replace version ${editor.expectedVersion}`}
-            </h3>
-            <button
-              className="text-button"
-              type="button"
-              disabled={busy}
-              onClick={() => {
-                if (password.current) password.current.value = '';
-                setEditor(null);
-              }}
-            >
-              Close
-            </button>
-          </div>
-          <div className="field">
-            <label htmlFor={destinationId}>Credential destination</label>
-            <Select
-              id={destinationId}
-              value={editor.id}
-              disabled={busy}
-              onChange={(event) => choose(event.target.value)}
-            >
-              {targets.map((target) => (
-                <option key={target.id} value={target.id}>
-                  {target.label}
-                </option>
-              ))}
-            </Select>
-          </div>
-          <div className="field">
-            <label htmlFor={valueId}>New credential value</label>
-            <input
-              ref={password}
-              id={valueId}
-              type="password"
-              required
-              maxLength={65536}
-              autoComplete="off"
-              spellCheck={false}
-              autoCapitalize="none"
-              disabled={busy}
-              aria-describedby={valueHint}
-            />
-            <small id={valueHint}>
-              Only the new value is sent. The field clears on submission, including errors. The previous value
-              is never retrieved.
-            </small>
-          </div>
-          <div className="form-actions">
-            <span>The value will be saved for this destination and version.</span>
-            <button className="button primary" disabled={!available}>
-              {busy
-                ? 'Saving…'
-                : editor.expectedVersion === null
-                  ? 'Save encrypted value'
-                  : 'Replace encrypted value'}
-            </button>
-          </div>
-        </form>
-      )}
+      <Dialog
+        open={!!editor}
+        title="Save credential"
+        description="Write-only value bound to one registered destination."
+        busy={busy}
+        dirty={hasSecret}
+        onClose={() => {
+          if (password.current) password.current.value = '';
+          setHasSecret(false);
+          setEditor(null);
+        }}
+      >
+        {editor && (
+          <form className="form-panel credential-editor" onSubmit={submit} autoComplete="off">
+            <div className="section-heading">
+              <h3>
+                {editor.expectedVersion === null
+                  ? 'Save a credential'
+                  : `Replace version ${editor.expectedVersion}`}
+              </h3>
+            </div>
+            <div className="field">
+              <label htmlFor={destinationId}>Credential destination</label>
+              <Select
+                id={destinationId}
+                value={editor.id}
+                disabled={busy}
+                onChange={(event) => choose(event.target.value)}
+              >
+                {targets.map((target) => (
+                  <option key={target.id} value={target.id}>
+                    {target.label}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <div className="field">
+              <label htmlFor={valueId}>New credential value</label>
+              <input
+                ref={password}
+                id={valueId}
+                type="password"
+                required
+                maxLength={65536}
+                autoComplete="off"
+                spellCheck={false}
+                autoCapitalize="none"
+                disabled={busy}
+                aria-describedby={valueHint}
+                onChange={(event) => setHasSecret(event.target.value.length > 0)}
+              />
+              <small id={valueHint}>
+                Only the new value is sent. The field clears on submission, including errors. The previous
+                value is never retrieved.
+              </small>
+            </div>
+            <div className="form-actions">
+              <span>The value will be saved for this destination and version.</span>
+              <button className="button primary" disabled={!available}>
+                {busy
+                  ? 'Saving…'
+                  : editor.expectedVersion === null
+                    ? 'Save encrypted value'
+                    : 'Replace encrypted value'}
+              </button>
+            </div>
+          </form>
+        )}
+      </Dialog>
       <p className="credentials-footnote">
         Configure provider, model and spending limits in the instance settings. Saving a credential does not
         validate it with the provider or start work.

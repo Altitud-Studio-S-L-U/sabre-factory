@@ -37,10 +37,22 @@
   color: var(--ink);
   background: var(--canvas);
 }
-.button { color: var(--ink); border-color: var(--line); background: var(--surface-raised); }
-.button:hover:not(:disabled) { color: var(--ink); background: #303744; border-color: #667287; }
-.button.danger { color: #ffaab4; }
-.run-phase { color: var(--blue); }
+.button {
+  color: var(--ink);
+  border-color: var(--line);
+  background: var(--surface-raised);
+}
+.button:hover:not(:disabled) {
+  color: var(--ink);
+  background: #303744;
+  border-color: #667287;
+}
+.button.danger {
+  color: #ffaab4;
+}
+.run-phase {
+  color: var(--blue);
+}
 body {
   background:
     radial-gradient(ellipse at 92% 0%, #72583220, transparent 42%),
@@ -67,8 +79,9 @@ body {
   border-color: var(--accent);
   color: #17130d;
 }
-.button.primary:hover {
+.button.primary:hover:not(:disabled) {
   background: #f0ca88;
+  border-color: #f0ca88;
   color: #17130d;
 }
 input,

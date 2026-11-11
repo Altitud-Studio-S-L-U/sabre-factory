@@ -1,4 +1,6 @@
 import { configuration } from './modelConfigurationFixture';
+import { factoryConfiguration } from './factoryConfigurationFixture';
+import { agentCatalog } from './agentCatalogFixture';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { StrictMode } from 'react';
@@ -15,6 +17,7 @@ const project = {
   gate_commands: [['npm', 'test']],
   allowed_mcp_servers: [],
   approved_baseline: [],
+  browser_preview: null,
   created_at: '2026-11-05T10:00:00Z',
 } satisfies Project;
 const order = {
@@ -24,7 +27,7 @@ const order = {
   objective: 'Corregir la validación de importaciones',
   acceptance: ['Rechaza entradas inválidas'],
   constraints: ['Conservar la API'],
-  budget: { max_calls: 40, max_tokens: 100000, max_cost_usd: 5, active_seconds: 3600 },
+  budget: { max_calls: 40, max_tokens: 100000, max_cost_usd: 5, active_seconds: 3600, policy: null },
   idempotency_key: 'synthetic-request-000000',
   channel: 'web',
   channel_thread: null,
@@ -36,8 +39,18 @@ const order = {
     phase_models: {},
     permissions: { architecture: true, dependency_changes: false, draft_pull_request: true },
     repair_cycles: 2,
+    budget_policy: null,
   },
   resolved_flow: null,
+  configuration_snapshot: null,
+  admission_request_digest: null,
+  effective_budget_policy: null,
+  budget_revision: 0,
+  limiting_metric: null,
+  repair_cycles_used: 0,
+  last_failure_fingerprint: null,
+  identical_failure_count: 0,
+  last_failure_cycle: -1,
   graph_version: 'sabre-v1',
   plan_revision: 2,
   created_at: '2026-11-05T10:00:00Z',
@@ -116,6 +129,95 @@ function mockApi(overrides: Record<string, { status: number; body: unknown }> = 
     if (method === 'POST') writes.push({ path, body });
     if (path === '/panel/session/logout') return new Response(null, { status: 204 });
     if (path === '/model-configuration') return Response.json(configuration());
+    if (path === '/configuration') return Response.json(factoryConfiguration());
+    if (path === '/agents') return Response.json(agentCatalog());
+    if (path === '/releases') return Response.json({ version: 1, items: [], truncated: false });
+    if (path.endsWith('/a2a-tasks')) return Response.json([]);
+    if (path === '/tools/catalog')
+      return Response.json({
+        version: 1,
+        items: [
+          {
+            name: 'read_source',
+            description: 'Synthetic bounded source read',
+            effect: 'read',
+            roles: ['developer', 'analyst', 'qa', 'reviewer', 'security'],
+            scope: 'workspace',
+            source: 'builtin',
+          },
+        ],
+      });
+    if (path === '/mcp-connections' || path === '/a2a/agents' || path === '/delegations')
+      return Response.json([]);
+    if (path.endsWith('/ingestion'))
+      return Response.json({ version: 1, project_id: project.id, jobs: [], latest: null });
+    if (path.startsWith('/flows/') && path.endsWith('/topology'))
+      return Response.json({
+        version: 1,
+        graph_version: 'sabre-v1',
+        mode: 'patch',
+        lanes: [
+          { id: 'preflight', label: 'Preflight', specialist: 'System', stages: ['intake'], next: ['spec'] },
+          { id: 'spec', label: 'Spec', specialist: 'PM', stages: ['analysis', 'analyze'], next: ['plan'] },
+          {
+            id: 'plan',
+            label: 'Plan',
+            specialist: 'Supervisor',
+            stages: ['planning', 'plan'],
+            next: ['build'],
+          },
+          {
+            id: 'build',
+            label: 'Build',
+            specialist: 'Developer',
+            stages: ['implementation', 'implement', 'repair'],
+            next: ['verify'],
+          },
+          {
+            id: 'verify',
+            label: 'Verify',
+            specialist: 'QA',
+            stages: ['checks', 'verification'],
+            next: ['review'],
+          },
+          { id: 'review', label: 'Review', specialist: 'Supervisor', stages: ['review'], next: ['security'] },
+          {
+            id: 'security',
+            label: 'Security',
+            specialist: 'CISO',
+            stages: ['security_check', 'security'],
+            next: ['deliver'],
+          },
+          {
+            id: 'deliver',
+            label: 'Deliver',
+            specialist: 'DevOps',
+            stages: ['delivery', 'deliver'],
+            next: [],
+          },
+        ],
+        alternatives: [
+          { source: 'review', target: 'build', condition: 'Repair authorized within run limits' },
+        ],
+      });
+    if (path.endsWith('/inspection'))
+      return Response.json({
+        version: 1,
+        work_id: 'work-one',
+        plan_revision: 2,
+        agent_id: null,
+        role: null,
+        agents: [],
+        records: [],
+        evaluations: [],
+        logs: [],
+        context: null,
+        next_cursor: 0,
+        has_more: false,
+        truncated: false,
+        checkpoint_id: null,
+        current: true,
+      });
     if (path.endsWith('/execution-events'))
       return Response.json({ items: [], next_cursor: 0, has_more: false });
     if (path === '/status')
@@ -282,6 +384,19 @@ async function enter() {
   return user;
 }
 
+function runList() {
+  return screen.getByRole('complementary', { name: 'Runs' });
+}
+async function selectRun(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(within(runList()).getByRole('button', { name: new RegExp(order.objective) }));
+}
+async function legacyRoute(path: string) {
+  await act(async () => {
+    window.history.pushState(null, '', path);
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  });
+}
+
 beforeEach(() => {
   projects = [structuredClone(project)];
   orders = [structuredClone(order)];
@@ -292,6 +407,96 @@ beforeEach(() => {
 });
 
 describe('Control room', () => {
+  it('keeps the selected snapshot and draft answer while disconnected and blocks every run mutation until recovery', async () => {
+    const snapshot = 'a'.repeat(64);
+    orders = [
+      {
+        ...order,
+        status: 'paused',
+        budget: { ...order.budget, max_cost_usd: 0 },
+        security_snapshot_digest: snapshot,
+        security_rules_version: 'rules-v3',
+        findings: [
+          {
+            fingerprint: 'reviewed-risk',
+            scanner: 'trivy',
+            category: 'vulnerability',
+            severity: 'high',
+            title: 'Synthetic scoped risk',
+            path: null,
+            reference: null,
+            baseline: false,
+            line: null,
+            remediation: null,
+            exception_id: null,
+          },
+        ],
+      },
+    ];
+    exceptions = [
+      {
+        id: 'exception-one',
+        work_id: order.id,
+        project_id: project.id,
+        fingerprint: 'reviewed-risk',
+        justification: 'Synthetic owner-reviewed mitigation',
+        snapshot_digest: snapshot,
+        rules_version: 'rules-v3',
+        plan_revision: 2,
+        approved_by: 'owner',
+        approved_at: '2026-11-05T11:00:00Z',
+        expires_at: '2026-11-20T12:00:00Z',
+        revoked_at: null,
+      },
+    ];
+    const overrides: Record<string, { status: number; body: unknown }> = {
+      'GET /status': { status: 200, body: cliStatus },
+    };
+    mockApi(overrides);
+    const user = await enter();
+    await selectRun(user);
+    await user.type(screen.getByLabelText('Your answer'), 'Retained synthetic answer');
+    overrides['GET /status'] = { status: 503, body: { message: 'Synthetic connection interrupted' } };
+    await user.click(screen.getByRole('button', { name: 'Refresh data' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Data could not be refreshed');
+    expect(screen.getByRole('heading', { level: 2, name: 'Patch Importkit' })).toBeVisible();
+    expect(screen.getByRole('button', { name: '+ New run' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Resume' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Cancel run' })).toBeDisabled();
+    const answer = screen.getByLabelText('Your answer');
+    expect(answer).toHaveValue('Retained synthetic answer');
+    expect(answer).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Answer and continue' })).toBeDisabled();
+    fireEvent.submit(answer.closest('form')!);
+    await user.click(screen.getByRole('tab', { name: 'Limits & scope' }));
+    await user.click(screen.getByText('Change request'));
+    expect(screen.getByRole('button', { name: 'Update scope' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Use per-agent controls' })).toBeDisabled();
+    fireEvent.submit(screen.getByLabelText('New objective').closest('form')!);
+    await user.click(screen.getByRole('tab', { name: 'Tasks & evidence' }));
+    expect(await screen.findByRole('button', { name: 'Revoke exception' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Temporary security exception' })).toBeDisabled();
+    expect(writes).toEqual([]);
+    overrides['GET /status'] = { status: 200, body: cliStatus };
+    await user.click(screen.getByRole('button', { name: 'Refresh data' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Resume' })).toBeEnabled());
+    expect(answer).toHaveValue('Retained synthetic answer');
+    expect(answer).toBeEnabled();
+    expect(writes).toEqual([]);
+  });
+  it('preserves an unknown address without inventing a run and returns through the real Runs route', async () => {
+    window.history.replaceState(null, '', '/unknown-section');
+    mockApi();
+    const user = userEvent.setup();
+    render(<App />);
+    expect(await screen.findByRole('heading', { level: 1, name: 'Page not found' })).toBeVisible();
+    expect(window.location.pathname).toBe('/unknown-section');
+    expect(screen.queryByRole('complementary', { name: 'Runs' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('link', { name: 'Go to runs' }));
+    expect(await screen.findByRole('heading', { level: 1, name: 'Runs' })).toBeVisible();
+    expect(window.location.pathname).toBe('/work');
+    expect(writes).toEqual([]);
+  });
   it('expone rutas reales y conserva vista y encargo con Atrás, Adelante y recarga', async () => {
     mockApi();
     const user = userEvent.setup();
@@ -307,12 +512,11 @@ describe('Control room', () => {
     ])
       expect(within(navigation).getByRole('link', { name })).toHaveAttribute('href', path);
     await user.click(within(navigation).getByRole('link', { name: 'Config' }));
-    await user.click(screen.getByRole('link', { name: 'Config' }));
-    await user.click(screen.getByRole('link', { name: 'Projects' }));
-    expect(window.location.pathname).toBe('/projects');
+    await user.click(within(navigation).getByRole('link', { name: 'Tools' }));
+    expect(window.location.pathname).toBe('/tools');
     await user.click(within(navigation).getByRole('link', { name: /^Runs/ }));
     await user.click(
-      within(screen.getByRole('region', { name: 'Run history' })).getByRole('button', {
+      within(runList()).getByRole('button', {
         name: new RegExp(order.objective),
       }),
     );
@@ -321,14 +525,14 @@ describe('Control room', () => {
     await screen.findByRole('heading', { level: 1, name: 'Runs' });
     expect(window.location.pathname).toBe('/work');
     await act(async () => window.history.back());
-    await screen.findByRole('heading', { level: 1, name: 'Projects' });
+    await screen.findByRole('heading', { level: 1, name: 'Tools' });
     await act(async () => window.history.forward());
     await screen.findByRole('heading', { level: 1, name: 'Runs' });
     await act(async () => window.history.forward());
-    await screen.findByRole('heading', { level: 1, name: 'Patch Importkit' });
+    await screen.findByRole('heading', { level: 2, name: 'Patch Importkit' });
     mounted.unmount();
     render(<App />);
-    expect(await screen.findByRole('heading', { level: 1, name: 'Patch Importkit' })).toBeVisible();
+    expect(await screen.findByRole('heading', { level: 2, name: 'Patch Importkit' })).toBeVisible();
     expect(window.location.pathname).toBe('/work/work-one');
     expect(writes).toEqual([]);
   });
@@ -348,7 +552,7 @@ describe('Control room', () => {
         <App />
       </StrictMode>,
     );
-    expect(await screen.findByRole('heading', { level: 1, name: 'Patch Importkit' })).toBeVisible();
+    expect(await screen.findByRole('heading', { level: 2, name: 'Patch Importkit' })).toBeVisible();
     expect(window.location.pathname).toBe('/work/work-one');
     expect(fetchMock.mock.calls.filter(([path]) => path.endsWith('/session/exchange'))).toHaveLength(1);
     expect(fetchMock.mock.calls.some(([path]) => path === '/api/v1/work/work-one')).toBe(true);
@@ -363,7 +567,7 @@ describe('Control room', () => {
     render(<App />);
     expect(await screen.findByRole('heading', { level: 1, name: 'Run unavailable' })).toBeVisible();
     expect(screen.getByText('This run does not exist or is no longer available.')).toBeVisible();
-    expect(screen.queryByRole('region', { name: 'Run history' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('complementary', { name: 'Runs' })).not.toBeInTheDocument();
     expect(window.location.pathname).toBe('/work/missing');
     await user.click(screen.getByRole('link', { name: '← All runs' }));
     expect(await screen.findByRole('heading', { level: 1, name: 'Runs' })).toBeVisible();
@@ -389,13 +593,12 @@ describe('Control room', () => {
     ];
     mockApi();
     const user = await enter();
-    let history = screen.getByRole('region', { name: 'Run history' });
-    await user.click(within(history).getByRole('button', { name: 'Open' }));
+    let history = runList();
+    await user.click(within(history).getByRole('button', { name: 'Attention' }));
     await user.click(within(history).getByRole('button', { name: new RegExp(order.objective) }));
-    expect(screen.getByRole('heading', { level: 1, name: 'Patch Importkit' })).toBeVisible();
+    expect(screen.getByRole('heading', { level: 2, name: 'Patch Importkit' })).toBeVisible();
     expect(screen.getByRole('button', { name: 'Resume' })).toBeVisible();
-    await user.click(screen.getByRole('button', { name: '← All runs' }));
-    history = screen.getByRole('region', { name: 'Run history' });
+    history = runList();
     await user.click(within(history).getByRole('button', { name: 'Closed' }));
     expect(
       within(history).queryByRole('button', { name: new RegExp(order.objective) }),
@@ -412,19 +615,19 @@ describe('Control room', () => {
     within(navigation).getByRole('link', { name: 'Config' }).focus();
     await user.keyboard('{Enter}');
     await screen.findByRole('heading', { level: 1, name: 'Config' });
-    screen.getByRole('link', { name: 'Projects' }).focus();
+    within(navigation).getByRole('link', { name: 'Tools' }).focus();
     await user.keyboard('{Enter}');
-    await waitFor(() => expect(screen.getByRole('heading', { level: 1, name: 'Projects' })).toHaveFocus());
+    await waitFor(() => expect(screen.getByRole('heading', { level: 1, name: 'Tools' })).toHaveFocus());
     within(navigation).getByRole('link', { name: /^Runs/ }).focus();
     await user.keyboard('{Enter}');
     await waitFor(() => expect(screen.getByRole('heading', { level: 1, name: 'Runs' })).toHaveFocus());
-    const history = screen.getByRole('region', { name: 'Run history' });
+    const history = runList();
     within(history)
       .getByRole('button', { name: new RegExp(order.objective) })
       .focus();
     await user.keyboard('{Enter}');
     await waitFor(() =>
-      expect(screen.getByRole('heading', { level: 1, name: 'Patch Importkit' })).toHaveFocus(),
+      expect(screen.getByRole('heading', { level: 2, name: 'Patch Importkit' })).toHaveFocus(),
     );
     const refresh = screen.getByRole('button', { name: 'Refresh data' });
     const workReads = () => fetchMock.mock.calls.filter(([path]) => path === '/api/v1/work').length;
@@ -440,21 +643,17 @@ describe('Control room', () => {
     mockApi();
     const user = await enter();
     await user.click(screen.getByRole('link', { name: 'Tools' }));
-    await user.click(
-      await screen.findByRole('button', { name: 'Configure credentials of GitHub · repositorios' }),
-    );
+    await user.click(await screen.findByRole('button', { name: 'Credentials' }));
     expect(await screen.findByRole('heading', { name: 'SABRE credentials' })).toBeVisible();
     expect(await screen.findByText('No saved credentials yet.')).toBeVisible();
     expect(writes).toEqual([]);
   });
   it('consulta About sin atribuir autenticación a la disponibilidad del ejecutor', async () => {
     mockApi();
-    const user = await enter();
-    await user.click(screen.getByRole('link', { name: 'Config' }));
-    await user.click(screen.getByRole('link', { name: 'Projects' }));
+    await enter();
+    await legacyRoute('/projects');
     expect(screen.getByText('1 configured check')).toBeVisible();
-    await user.click(screen.getByRole('link', { name: 'Config' }));
-    await user.click(screen.getByRole('link', { name: 'System status' }));
+    await legacyRoute('/about');
     expect(await screen.findByRole('heading', { name: 'Services and connections' })).toBeVisible();
     const cli = within(screen.getByRole('heading', { name: 'Codex CLI' }).closest('li')!);
     expect(cli.getByText('Responde')).toBeVisible();
@@ -719,17 +918,16 @@ describe('Control room', () => {
     orders = [];
     mockApi();
     const user = await enter();
-    expect(screen.getByRole('heading', { name: 'Your first run starts here' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Launch a verified process' })).toBeVisible();
     await user.click(screen.getByRole('button', { name: '+ New run' }));
     expect(screen.getByRole('heading', { name: 'Register a project to get started' })).toBeVisible();
     expect(writes).toEqual([]);
-    await user.click(screen.getByRole('link', { name: 'Config' }));
-    await user.click(screen.getByRole('link', { name: 'Projects' }));
+    await user.click(screen.getByRole('button', { name: 'Register project' }));
+    await user.click(screen.getByRole('button', { name: 'Close Register project' }));
     expect(screen.getByRole('heading', { name: 'Your first project starts here' })).toBeVisible();
     await user.click(screen.getByRole('link', { name: 'Memory' }));
-    expect(screen.getByRole('heading', { name: 'Register a project to save knowledge' })).toBeVisible();
-    await user.click(screen.getByRole('link', { name: 'Config' }));
-    await user.click(screen.getByRole('link', { name: 'Security policy' }));
+    expect(screen.getByRole('heading', { name: 'No project knowledge yet' })).toBeVisible();
+    await legacyRoute('/security');
     expect(await screen.findByRole('heading', { name: 'No recorded findings' })).toBeVisible();
     expect(writes).toEqual([]);
   });
@@ -755,10 +953,18 @@ describe('Control room', () => {
       { ...order, id: 'with-pr', status: 'completed', phase: 'delivery', questions: [], evidence },
     ];
     mockApi();
-    await enter();
-    const summary = screen.getByText('Completed deliveries').parentElement;
-    expect(summary).not.toBeNull();
-    expect(within(summary!).getByText('1')).toBeVisible();
+    const user = await enter();
+    await user.click(within(runList()).getByRole('button', { name: 'Closed' }));
+    const closed = within(runList()).getAllByRole('button', { name: new RegExp(order.objective) });
+    expect(closed).toHaveLength(3);
+    await user.click(closed[0]);
+    expect(screen.getByRole('heading', { level: 2, name: 'Monitoring Importkit' })).toBeVisible();
+    expect(screen.queryByRole('link', { name: 'Review PR ↗' })).not.toBeInTheDocument();
+    await user.click(closed[1]);
+    expect(screen.queryByRole('link', { name: 'Review PR ↗' })).not.toBeInTheDocument();
+    await user.click(closed[2]);
+    expect(screen.getByRole('link', { name: 'Review PR ↗' })).toHaveAttribute('href', evidence.pr_url);
+    expect(writes).toEqual([]);
   });
 
   it.each([
@@ -792,8 +998,9 @@ describe('Control room', () => {
       orders = [{ ...order, status: 'blocked', phase: 'review', questions: [], evidence }];
       mockApi();
       const user = await enter();
-      const history = screen.getByRole('region', { name: 'Run history' });
+      const history = runList();
       await user.click(within(history).getByRole('button', { name: new RegExp(order.objective) }));
+      await user.click(screen.getByRole('tab', { name: 'Tasks & evidence' }));
       const heading = screen.getByRole('heading', { name: 'Delivery evidence' });
       const section = within(heading.closest('section')!);
       expect(
@@ -833,16 +1040,18 @@ describe('Control room', () => {
     mockApi();
     const user = await enter();
     await user.click(
-      within(screen.getByRole('region', { name: 'Run history' })).getByRole('button', {
+      within(runList()).getByRole('button', {
         name: /Corregir la validación ETag/,
       }),
     );
-    expect(screen.getByRole('heading', { level: 1, name: 'Patch Importkit' })).toBeVisible();
+    expect(screen.getByRole('heading', { level: 2, name: 'Patch Importkit' })).toBeVisible();
     expect(screen.getByRole('button', { name: 'Resume' })).toBeVisible();
     expect(screen.getByText('WORKSPACE_SNAPSHOT_FAILED')).toBeVisible();
-    expect(screen.getByText('The run is blocked. Review the reason before resuming.')).toBeVisible();
+    const reason = screen.getByText('No se pudo guardar el resultado del espacio de trabajo.');
+    expect(reason).toBeVisible();
     expect(screen.queryByText('El supervisor prepara el plan')).not.toBeInTheDocument();
     const disclosure = screen.getByText('Full objective').closest('details')!;
+    expect(reason.compareDocumentPosition(disclosure) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(disclosure).not.toHaveAttribute('open');
     await user.click(within(disclosure).getByText('Full objective'));
     expect(disclosure).toHaveAttribute('open');
@@ -853,7 +1062,7 @@ describe('Control room', () => {
   it('resuelve HITL con el identificador y revision de la pregunta', async () => {
     mockApi();
     const user = await enter();
-    await user.click(screen.getByRole('button', { name: /¿Debe conservarse el formato anterior/ }));
+    await selectRun(user);
     await user.click(screen.getByRole('button', { name: 'Sí, conservarlo' }));
     await user.click(screen.getByRole('button', { name: 'Answer and continue' }));
     await waitFor(() =>
@@ -865,6 +1074,7 @@ describe('Control room', () => {
     await waitFor(() =>
       expect(screen.queryByRole('button', { name: 'Answer and continue' })).not.toBeInTheDocument(),
     );
+    await user.click(screen.getByRole('tab', { name: 'Tasks & evidence' }));
     expect(screen.getByRole('heading', { name: 'Work plan' })).toBeVisible();
   });
 
@@ -881,7 +1091,7 @@ describe('Control room', () => {
     mockApi();
     const user = await enter();
     expect(screen.queryByText('Decisión caducada')).not.toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: /¿Debe conservarse el formato anterior/ }));
+    await selectRun(user);
     expect(screen.queryByText('Decisión caducada')).not.toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: 'Answer and continue' })).toHaveLength(1);
   });
@@ -896,7 +1106,7 @@ describe('Control room', () => {
       },
     });
     const user = await enter();
-    await user.click(screen.getByRole('button', { name: /¿Debe conservarse el formato anterior/ }));
+    await selectRun(user);
     await user.type(screen.getByLabelText('Your answer'), 'Conservar el formato anterior');
     await user.click(screen.getByRole('button', { name: 'Answer and continue' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('La pregunta pertenece a otra revision');
@@ -906,7 +1116,7 @@ describe('Control room', () => {
   it('pide confirmar la cancelación antes de llamar a la API', async () => {
     mockApi();
     const user = await enter();
-    await user.click(screen.getByRole('button', { name: /¿Debe conservarse el formato anterior/ }));
+    await selectRun(user);
     await user.click(screen.getByRole('button', { name: 'Cancel run' }));
     expect(writes).toHaveLength(0);
     await user.click(screen.getByRole('button', { name: 'Confirm cancellation' }));
@@ -917,7 +1127,8 @@ describe('Control room', () => {
     orders[0].status = 'paused';
     mockApi();
     const user = await enter();
-    await user.click(screen.getByRole('button', { name: /¿Debe conservarse el formato anterior/ }));
+    await selectRun(user);
+    await user.click(screen.getByRole('tab', { name: 'Limits & scope' }));
     await user.click(screen.getByText('Change request'));
     await user.clear(screen.getByLabelText('New objective'));
     await user.type(screen.getByLabelText('New objective'), 'Corregir solo los errores de sintaxis');
@@ -937,7 +1148,8 @@ describe('Control room', () => {
   it('exige pausar el encargo antes de aplicar un cambio de alcance', async () => {
     mockApi();
     const user = await enter();
-    await user.click(screen.getByRole('button', { name: /¿Debe conservarse el formato anterior/ }));
+    await selectRun(user);
+    await user.click(screen.getByRole('tab', { name: 'Limits & scope' }));
     await user.click(screen.getByText('Change request'));
     expect(screen.getByRole('button', { name: 'Update scope' })).toBeDisabled();
     expect(screen.getByText('Pause the run before applying this change.')).toBeVisible();
@@ -954,7 +1166,7 @@ describe('Control room', () => {
     mockApi();
     const user = await enter();
     await user.click(
-      within(screen.getByRole('region', { name: 'Run history' })).getByRole('button', {
+      within(runList()).getByRole('button', {
         name: new RegExp(order.objective),
       }),
     );
@@ -973,7 +1185,7 @@ describe('Control room', () => {
     await user.click(screen.getByRole('button', { name: '+ New run' }));
     await user.type(screen.getByLabelText('What do you need?'), 'Añadir validación de entradas');
     await user.type(screen.getByLabelText('Acceptance criteria'), 'Rechaza entradas vacías');
-    await user.type(screen.getByLabelText('Maximum budget · USD'), '2');
+    await user.type(screen.getByLabelText('Maximum paid API spend · USD'), '2');
     await user.click(screen.getByRole('button', { name: 'Launch flow' }));
     await waitFor(() => expect(writes.some((write) => write.path === '/work')).toBe(true));
     const body = writes.find((write) => write.path === '/work')!.body!;
@@ -983,24 +1195,43 @@ describe('Control room', () => {
       objective: 'Añadir validación de entradas',
       acceptance: ['Rechaza entradas vacías'],
       channel: 'web',
-      budget: { max_cost_usd: 2, max_calls: 40, max_tokens: 100000, active_seconds: 3600 },
+      budget: {
+        max_cost_usd: 2,
+        max_calls: null,
+        max_tokens: null,
+        active_seconds: null,
+        policy: {
+          version: 1,
+          tokens: { primary: 100000, reserve: 0, absolute: 100000 },
+          invocations: { primary: 40, reserve: 0, absolute: 40 },
+          active_seconds: { primary: 3600, reserve: 0, absolute: 3600 },
+          repairs: { primary: 2, reserve: 0, absolute: 2 },
+          no_progress_threshold: 3,
+        },
+      },
     });
     expect(body.idempotency_key).toMatch(/[a-f0-9-]{36}/);
   });
 
-  it('crea un encargo CLI por agente sin cuotas acumuladas ni autorización de gasto API', async () => {
+  it('crea un encargo CLI con métricas sin tope explícito y sin autorización de gasto API', async () => {
     mockApi({ 'GET /status': { status: 200, body: cliStatus } });
     const user = await enter();
     await user.click(screen.getByRole('button', { name: '+ New run' }));
-    expect(screen.getByLabelText('Run controls')).toHaveValue('budget');
-    expect(screen.getByLabelText('Tokens')).toHaveValue(100000);
-    await user.selectOptions(screen.getByLabelText('Run controls'), 'agent');
-    expect(screen.queryByLabelText('Tokens')).not.toBeInTheDocument();
-    expect(screen.queryByLabelText('Maximum budget · USD')).not.toBeInTheDocument();
-    expect(screen.getByText(/50 steps or 10 minutes per agent/)).toBeVisible();
-    await user.selectOptions(screen.getByLabelText('Run controls'), 'budget');
-    expect(screen.getByLabelText('Tokens')).toHaveValue(100000);
-    await user.selectOptions(screen.getByLabelText('Run controls'), 'agent');
+    expect(screen.getByLabelText('Tokens policy')).toHaveValue('bounded');
+    expect(screen.getByLabelText('Tokens primary ceiling')).toHaveValue(100000);
+    await user.selectOptions(screen.getByLabelText('Tokens policy'), 'uncapped');
+    expect(screen.queryByLabelText('Tokens primary ceiling')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Maximum paid API spend · USD')).toHaveValue(0);
+    expect(screen.getByText(/CLI aggregate token usage may be known only after an invocation/)).toBeVisible();
+    await user.selectOptions(screen.getByLabelText('Tokens policy'), 'bounded');
+    expect(screen.getByLabelText('Tokens primary ceiling')).toHaveValue(100000);
+    for (const label of [
+      'Tokens policy',
+      'Model invocations policy',
+      'Active time · seconds policy',
+      'Repair cycles policy',
+    ])
+      await user.selectOptions(screen.getByLabelText(label), 'uncapped');
     await user.type(screen.getByLabelText('What do you need?'), 'Añadir validación de entradas');
     await user.type(screen.getByLabelText('Acceptance criteria'), 'Rechaza entradas vacías');
     await user.click(screen.getByRole('button', { name: 'Launch flow' }));
@@ -1010,6 +1241,14 @@ describe('Control room', () => {
       max_tokens: null,
       active_seconds: null,
       max_cost_usd: 0,
+      policy: {
+        version: 1,
+        tokens: { primary: null, reserve: 0, absolute: null },
+        invocations: { primary: null, reserve: 0, absolute: null },
+        active_seconds: { primary: null, reserve: 0, absolute: null },
+        repairs: { primary: null, reserve: 0, absolute: null },
+        no_progress_threshold: 3,
+      },
     });
   });
 
@@ -1023,8 +1262,14 @@ describe('Control room', () => {
     const user = await enter();
     await user.click(screen.getByRole('button', { name: '+ New run' }));
     expect(screen.queryByLabelText('Run controls')).not.toBeInTheDocument();
-    expect(screen.getByLabelText('Tokens')).toHaveValue(100000);
-    expect(screen.getByLabelText('Maximum budget · USD')).toHaveValue(0);
+    expect(screen.getByLabelText('Tokens primary ceiling')).toHaveValue(100000);
+    expect(screen.getByLabelText('Model invocations primary ceiling')).toHaveValue(40);
+    expect(screen.getByLabelText('Maximum paid API spend · USD')).toHaveValue(0);
+    expect(
+      screen.getByText(
+        'CLI subscription usage is recorded separately. Zero does not authorize paid API calls.',
+      ),
+    ).toBeVisible();
   });
 
   it.each([false, true])(
@@ -1057,7 +1302,9 @@ describe('Control room', () => {
       window.history.replaceState(null, '', '/work/work-one');
       const user = userEvent.setup();
       render(<App />);
-      await user.click(await screen.findByRole('button', { name: 'Use per-agent controls' }));
+      await screen.findByRole('heading', { level: 2, name: 'Patch Importkit' });
+      await user.click(screen.getByRole('tab', { name: 'Limits & scope' }));
+      await user.click(screen.getByRole('button', { name: 'Use per-agent controls' }));
       await waitFor(() =>
         expect(
           mock.mock.calls.filter(
@@ -1093,8 +1340,7 @@ describe('Control room', () => {
   it('rechaza comandos no estructurados sin enviarlos al backend', async () => {
     mockApi();
     const user = await enter();
-    await user.click(screen.getByRole('link', { name: 'Config' }));
-    await user.click(screen.getByRole('link', { name: 'Projects' }));
+    await legacyRoute('/projects');
     await user.click(screen.getByRole('button', { name: '+ Register project' }));
     await user.type(screen.getByLabelText('Project name'), 'Otro proyecto');
     await user.type(screen.getByLabelText('Repository'), 'https://github.com/example/otro');
@@ -1119,7 +1365,7 @@ describe('Control room', () => {
     await user.click(screen.getByRole('button', { name: '+ New run' }));
     await user.type(screen.getByLabelText('What do you need?'), 'Añadir validación de entradas');
     await user.type(screen.getByLabelText('Acceptance criteria'), 'Rechaza entradas vacías');
-    await user.type(screen.getByLabelText('Maximum budget · USD'), '2');
+    await user.type(screen.getByLabelText('Maximum paid API spend · USD'), '2');
     await user.click(screen.getByRole('button', { name: 'Launch flow' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Servicio temporalmente ocupado');
     await user.click(screen.getByRole('button', { name: 'Launch flow' }));
@@ -1152,11 +1398,14 @@ describe('Control room', () => {
     mockApi();
     const user = await enter();
     await user.click(screen.getByRole('link', { name: 'Memory' }));
-    await user.click(await screen.findByRole('button', { name: 'Approve memory' }));
-    await screen.findByText('Active');
-    expect(screen.getByText('abc123')).toBeVisible();
-    await user.click(screen.getByRole('button', { name: 'Invalidate' }));
-    await screen.findByText('Invalidated');
+    await user.click(await screen.findByRole('button', { name: 'Proposals' }));
+    await user.click(await screen.findByRole('button', { name: 'Inspect memory memory-one' }));
+    const inspector = screen.getByRole('dialog', { name: 'Memory provenance' });
+    await user.click(within(inspector).getByRole('button', { name: 'Approve memory' }));
+    await within(inspector).findByText('Approved');
+    expect(within(inspector).getByText('abc123')).toBeVisible();
+    await user.click(within(inspector).getByRole('button', { name: 'Invalidate memory' }));
+    await within(inspector).findByText('Invalidated');
     expect(writes.map((write) => write.path)).toEqual([
       '/memory/memory-one/approve',
       '/memory/memory-one/invalidate',
@@ -1166,7 +1415,8 @@ describe('Control room', () => {
   it('muestra la cadena de seguridad sin afirmar una aprobación inexistente', async () => {
     mockApi();
     const user = await enter();
-    await user.click(screen.getByRole('button', { name: /¿Debe conservarse el formato anterior/ }));
+    await selectRun(user);
+    await user.click(screen.getByRole('tab', { name: 'Tasks & evidence' }));
     const security = screen.getByRole('heading', { name: 'Security pipeline' }).closest('section')!;
     expect(within(security).getByText(/has not produced a result for this delivery/)).toBeVisible();
   });
@@ -1199,16 +1449,17 @@ describe('Control room', () => {
     mockApi();
     const user = await enter();
     await user.click(
-      within(screen.getByRole('region', { name: 'Run history' })).getByRole('button', {
+      within(runList()).getByRole('button', {
         name: new RegExp(order.objective),
       }),
     );
+    await user.click(screen.getByRole('tab', { name: 'Tasks & evidence' }));
     await user.click(screen.getByRole('button', { name: 'Temporary security exception' }));
     await user.selectOptions(screen.getByLabelText('Finding'), finding.fingerprint);
     const justification = 'Mitigación temporal verificada por el propietario.';
     await user.type(screen.getByLabelText('Exception justification'), justification);
     const expiry = '2026-11-20T12:30';
-    fireEvent.change(screen.getByLabelText('Caducidad · hora local'), { target: { value: expiry } });
+    fireEvent.change(screen.getByLabelText('Expiry · local time'), { target: { value: expiry } });
     await user.click(screen.getByRole('button', { name: 'Temporarily approve this risk' }));
     await waitFor(() =>
       expect(writes).toContainEqual({
@@ -1263,10 +1514,11 @@ describe('Control room', () => {
     mockApi();
     const user = await enter();
     await user.click(
-      within(screen.getByRole('region', { name: 'Run history' })).getByRole('button', {
+      within(runList()).getByRole('button', {
         name: new RegExp(order.objective),
       }),
     );
+    await user.click(screen.getByRole('tab', { name: 'Tasks & evidence' }));
     expect(screen.queryByRole('button', { name: 'Temporary security exception' })).not.toBeInTheDocument();
   });
 
@@ -1298,10 +1550,11 @@ describe('Control room', () => {
     mockApi();
     const user = await enter();
     await user.click(
-      within(screen.getByRole('region', { name: 'Run history' })).getByRole('button', {
+      within(runList()).getByRole('button', {
         name: new RegExp(order.objective),
       }),
     );
+    await user.click(screen.getByRole('tab', { name: 'Tasks & evidence' }));
     expect(screen.queryByRole('button', { name: 'Temporary security exception' })).not.toBeInTheDocument();
   });
 
@@ -1321,12 +1574,13 @@ describe('Control room', () => {
       mockApi();
       const user = await enter();
       await user.click(
-        within(screen.getByRole('region', { name: 'Run history' })).getByRole('button', {
+        within(runList()).getByRole('button', {
           name: new RegExp(order.objective),
         }),
       );
+      await user.click(screen.getByRole('tab', { name: 'Tasks & evidence' }));
       expect(screen.getByRole('heading', { name: 'Remediation proposals' })).toBeVisible();
-      expect(screen.getByRole('heading', { level: 1, name: 'Monitoring Importkit' })).toBeVisible();
+      expect(screen.getByRole('heading', { level: 2, name: 'Monitoring Importkit' })).toBeVisible();
       expect(screen.queryByRole('button', { name: 'Resume' })).not.toBeInTheDocument();
       expect(screen.queryByRole('button', { name: 'Pause' })).not.toBeInTheDocument();
       expect(screen.queryByText('Change request')).not.toBeInTheDocument();

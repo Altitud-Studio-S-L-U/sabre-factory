@@ -1,5 +1,12 @@
 import { useEffect, useState } from 'react';
-import { type Api, type SequencedEvent, type WorkOrder } from './api';
+import {
+  type Api,
+  type AuditView,
+  type ProcessTopology,
+  type RunInspection,
+  type SequencedEvent,
+  type WorkOrder,
+} from './api';
 import ExecutionConsole from './ExecutionConsole';
 import './ExecutionTimeline.css';
 
@@ -20,14 +27,71 @@ export default function ExecutionTimeline({
   workId,
   active,
   order,
+  audit,
 }: {
   api: Api;
   workId: string;
   active: boolean;
   order: WorkOrder;
+  audit?: AuditView | null;
 }) {
   const [entries, setEntries] = useState<SequencedEvent[]>([]);
   const [error, setError] = useState('');
+  const [topology, setTopology] = useState<ProcessTopology | null>(null);
+  const [inspection, setInspection] = useState<RunInspection | null>(null);
+  const [inspectorError, setInspectorError] = useState('');
+  const [query, setQuery] = useState<{
+    role?: string;
+    agentId?: string;
+    after: number;
+    checkpointId?: string;
+  }>({ after: 0 });
+  useEffect(() => {
+    let current = true;
+    void api
+      .flowTopology(order.mode)
+      .then((value) => {
+        if (current && Array.isArray(value.lanes)) setTopology(value);
+      })
+      .catch(() => {
+        if (current) setTopology(null);
+      });
+    return () => {
+      current = false;
+    };
+  }, [api, order.mode]);
+  useEffect(() => {
+    let current = true;
+    void api
+      .inspection(workId, query.role, query.agentId, query.after, query.checkpointId)
+      .then((value) => {
+        if (!current) return;
+        if (!Array.isArray(value.records)) throw new Error('Recorded inspection data is not available.');
+        setInspection((prior) =>
+          query.after && prior?.agent_id === value.agent_id && prior?.checkpoint_id === value.checkpoint_id
+            ? {
+                ...value,
+                records: [
+                  ...new Map(
+                    [...prior.records, ...value.records].map((record) => [
+                      `${record.sequence}:${record.id}`,
+                      record,
+                    ]),
+                  ).values(),
+                ],
+              }
+            : value,
+        );
+        setInspectorError('');
+      })
+      .catch(() => {
+        if (current)
+          setInspectorError('Inspection could not be refreshed. Recorded timeline data is still available.');
+      });
+    return () => {
+      current = false;
+    };
+  }, [api, workId, query, order.calls_used, order.phase, order.status]);
   useEffect(() => {
     let stopped = false;
     let cursor = 0;
@@ -67,7 +131,25 @@ export default function ExecutionTimeline({
         <span className="count-label">Measured events</span>
       </div>
       {error && <p role="alert">{error}</p>}
-      <ExecutionConsole entries={entries} order={order} />
+      <ExecutionConsole
+        api={api}
+        entries={entries}
+        order={order}
+        topology={topology}
+        audit={audit}
+        inspection={inspection}
+        inspectorError={inspectorError}
+        onInspect={(role, agentId) => setQuery({ role, agentId, after: 0 })}
+        onMore={() => {
+          if (inspection?.checkpoint_id && inspection.agent_id)
+            setQuery((prior) => ({
+              ...prior,
+              agentId: inspection.agent_id ?? undefined,
+              checkpointId: inspection.checkpoint_id ?? undefined,
+              after: inspection.next_cursor,
+            }));
+        }}
+      />
       {!entries.length && !error && (
         <p className="quiet-state">
           Events appear as the flow runs. Historical runs may have no timing measurements.
@@ -79,46 +161,49 @@ export default function ExecutionTimeline({
           API.
         </p>
       )}
-      <ol className="execution-phases">
-        {[...phases].map(([phase, events]) => {
-          const stages = events.filter((item) => item.kind === 'stage');
-          const last = stages.at(-1) || events.at(-1)!;
-          const measured = stages.filter((item) => item.duration_ms != null);
-          return (
-            <li key={phase} className={`execution-phase state-${last.state}`}>
-              <div className="execution-phase-heading">
-                <h3>{phase.replaceAll('_', ' ')}</h3>
-                <span>
-                  {last.state === 'started' ? (active ? 'Running' : 'No completion recorded') : last.state}
-                </span>
-                <time>
-                  {measured.length
-                    ? duration(measured.reduce((sum, item) => sum + (item.duration_ms || 0), 0))
-                    : 'Not measured'}
-                </time>
-              </div>
-              <details>
-                <summary>
-                  {events.filter((item) => item.kind === 'tool').length} tool calls ·{' '}
-                  {events.filter((item) => item.kind === 'agent').length} agent steps
-                </summary>
-                <ul className="execution-calls">
-                  {events
-                    .filter((item) => item.kind !== 'stage')
-                    .map((item) => (
-                      <li key={item.correlation_id}>
-                        <span className="event-kind">{item.kind}</span>
-                        <strong>{item.name}</strong>
-                        <span>{item.model || item.error_code || item.state}</span>
-                        <time>{duration(item.duration_ms)}</time>
-                      </li>
-                    ))}
-                </ul>
-              </details>
-            </li>
-          );
-        })}
-      </ol>
+      <details className="recorded-event-list">
+        <summary>Recorded event list</summary>
+        <ol className="execution-phases">
+          {[...phases].map(([phase, events]) => {
+            const stages = events.filter((item) => item.kind === 'stage');
+            const last = stages.at(-1) || events.at(-1)!;
+            const measured = stages.filter((item) => item.duration_ms != null);
+            return (
+              <li key={phase} className={`execution-phase state-${last.state}`}>
+                <div className="execution-phase-heading">
+                  <h3>{phase.replaceAll('_', ' ')}</h3>
+                  <span>
+                    {last.state === 'started' ? (active ? 'Running' : 'No completion recorded') : last.state}
+                  </span>
+                  <time>
+                    {measured.length
+                      ? duration(measured.reduce((sum, item) => sum + (item.duration_ms || 0), 0))
+                      : 'Not measured'}
+                  </time>
+                </div>
+                <details>
+                  <summary>
+                    {events.filter((item) => item.kind === 'tool').length} tool calls ·{' '}
+                    {events.filter((item) => item.kind === 'agent').length} agent steps
+                  </summary>
+                  <ul className="execution-calls">
+                    {events
+                      .filter((item) => item.kind !== 'stage')
+                      .map((item) => (
+                        <li key={item.correlation_id}>
+                          <span className="event-kind">{item.kind}</span>
+                          <strong>{item.name}</strong>
+                          <span>{item.model || item.error_code || item.state}</span>
+                          <time>{duration(item.duration_ms)}</time>
+                        </li>
+                      ))}
+                  </ul>
+                </details>
+              </li>
+            );
+          })}
+        </ol>
+      </details>
     </section>
   );
 }
