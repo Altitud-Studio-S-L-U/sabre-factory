@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "sabre": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["bin/sabre.mjs", "mcp-stdio"]
+    }
+  }
+}

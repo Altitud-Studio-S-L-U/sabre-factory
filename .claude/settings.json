@@ -1,0 +1,33 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(node --test infra/*.test.mjs)",
+      "Bash(node infra/dev.mjs test:*)",
+      "Bash(node infra/dev.mjs lint:*)",
+      "Bash(node infra/dev.mjs types:*)",
+      "Bash(node bin/sabre.mjs status)",
+      "Bash(node bin/sabre.mjs bench:*)",
+      "Bash(node bin/sabre.mjs help)",
+      "mcp__sabre__sabre_list_projects",
+      "mcp__sabre__sabre_system_info",
+      "mcp__sabre__sabre_get_model_configuration",
+      "mcp__sabre__sabre_supervisor_messages"
+    ],
+    "deny": [
+      "Bash(git push:*)",
+      "Bash(git push)",
+      "Bash(gh pr merge:*)",
+      "Bash(gh release:*)",
+      "Bash(gh repo edit:*)",
+      "Bash(docker volume rm:*)",
+      "Bash(docker volume prune:*)",
+      "Read(./.env)",
+      "Read(./.env.*)"
+    ]
+  },
+  "enableAllProjectMcpServers": false
+}
