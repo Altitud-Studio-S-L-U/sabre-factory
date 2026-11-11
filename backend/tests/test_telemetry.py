@@ -136,7 +136,8 @@ async def test_execution_events_link_nested_actions_and_real_trace_ids(recorded)
 
     work = SimpleNamespace(id="synthetic-run", plan_revision=1, phase="implementation")
     with span("agent.role", role="developer"):
-        async with observe(Repository(), work, "agent", "developer") as parent:
+        async with observe(Repository(), work, "agent", "developer") as boundary:
+            parent = boundary.correlation
             with span("tool.call", tool="read_file"):
                 async with observe(Repository(), work, "tool", "read_file"):
                     assert current_execution.get() != parent

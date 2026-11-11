@@ -22,6 +22,8 @@ class ExecutionEvent(StrictContract):
     name: str = Field(min_length=1, max_length=200)
     timestamp: datetime
     duration_ms: int | None = Field(default=None, ge=0)
+    # Size of a tool result handed back to the model; never its content.
+    output_bytes: int | None = Field(default=None, ge=0, exclude_if=lambda value: value is None)
     error_code: str | None = Field(default=None, max_length=100)
     provider: str | None = None
     model: str | None = None

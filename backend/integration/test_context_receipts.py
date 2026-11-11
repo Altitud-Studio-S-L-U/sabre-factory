@@ -31,9 +31,12 @@ async def test_context_receipt_shares_reservation_and_survives_settlement_withou
     after = await rows(repo, work.id)
     assert next(row for row in after if row["id"] == legacy) == before[0]
     settled = next(row for row in after if row["id"] == current)
-    assert {key: value for key, value in settled.items() if key not in {"actual_tokens", "actual_usd"}} == {
-        key: value for key, value in saved.items() if key not in {"actual_tokens", "actual_usd"}}
-    assert settled["actual_tokens"] == 65
+    # Settlement adds measured totals and its time; without a provider split those columns stay unknown.
+    changed = {"actual_tokens", "actual_usd", "settled_at"}
+    assert {key: value for key, value in settled.items() if key not in changed} == {
+        key: value for key, value in saved.items() if key not in changed}
+    assert settled["actual_tokens"] == 65 and saved["settled_at"] is None and settled["settled_at"] is not None
+    assert (settled["input_tokens"], settled["output_tokens"], settled["cache_read_tokens"]) == (None, None, None)
     assert (await repo.audit_context_usage(work.id)) == report
     usage = await repo.audit_usage(work.id)
     assert (usage["calls"], usage["tokens"], usage["unknown_reserved_tokens"]) == (2, 165, 100)

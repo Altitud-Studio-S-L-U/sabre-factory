@@ -46,7 +46,8 @@ class ScriptedModel(BaseChatModel):
 
 class Repository:
     def __init__(self):
-        self.reservations, self.settled = [], []
+        self.reservations, self.settled, self.breakdowns = [], [], []
+        self.events = []
         self.context_receipts = []
         self.reject = False
 
@@ -60,8 +61,12 @@ class Repository:
         self.context_receipts.append(context_receipt)
         return str(len(self.reservations))
 
-    async def settle_usage(self, *args):
+    async def settle_usage(self, *args, breakdown=None):
         self.settled.append(args)
+        self.breakdowns.append(breakdown)
+
+    async def record_execution_event(self, event):
+        self.events.append(event)
 
 
 class Executor:
@@ -95,6 +100,27 @@ async def test_langchain_role_executes_tools_and_restores_completed_checkpoint_w
     assert (await restored.run("developer", work, project, "Implement the task")).summary == result.summary
     assert model._calls == 2
     assert len(executor.writes) == 1
+
+
+async def test_settlement_records_the_provider_token_split_and_tool_result_size():
+    work, project, config = setup()
+    repo, executor = Repository(), Executor()
+
+    class CachingModel(ScriptedModel):
+        def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+            result = super()._generate(messages, stop=stop, run_manager=run_manager, **kwargs)
+            result.generations[0].message.usage_metadata["input_token_details"] = {"cache_read": 6}
+            return result
+
+    model = CachingModel()
+    team = AgentTeam(config, repo, executor, SecretGuard(), model_factory=lambda: model)
+    await team.run("developer", work, project, "Implement the task")
+    assert repo.breakdowns == [{"input_tokens": 10, "output_tokens": 20, "cache_read_tokens": 6}] * 2
+    writes = [event for event in repo.events if event.kind == "tool" and event.state == "completed"]
+    assert [(event.name, event.output_bytes) for event in writes] == [("write_file", len('{"written":true}'))]
+    started = [event for event in repo.events if event.state == "started"]
+    assert started and all(event.output_bytes is None for event in started)
+    assert all("output_bytes" not in event.model_dump(mode="json") for event in started)
 
 
 @pytest.mark.parametrize("role", ["qa", "developer"])

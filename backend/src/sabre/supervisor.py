@@ -16,6 +16,7 @@ from langchain_core.tools import tool
 from pydantic import SecretStr
 
 from sabre.agent_catalog import definition_errors
+from sabre.agents import cache_read_tokens
 from sabre.audit import AuditUsage, RunUsageSnapshot
 from sabre.budget_views import budget_view
 from sabre.credentials import model_secret_id
@@ -97,8 +98,10 @@ class ChatGuard(AgentMiddleware):
         if usages:
             inputs = sum(item.get("input_tokens", 0) for item in usages)
             outputs = sum(item.get("output_tokens", 0) for item in usages)
+            cached = sum(cache_read_tokens(item) for item in usages)
             cost = (inputs * input_rate + outputs * output_rate) / 1_000_000
-            await self.repository.settle_usage(usage_id, inputs + outputs, cost)
+            await self.repository.settle_usage(usage_id, inputs + outputs, cost, breakdown={
+                "input_tokens": inputs, "output_tokens": outputs, "cache_read_tokens": cached})
             observation.set(input_tokens=inputs, output_tokens=outputs, tokens=inputs + outputs, cost_usd=cost)
             if cli and inputs + outputs > input_bound + output_bound:
                 raise DomainError("CLI_USAGE_EXCEEDED", "The CLI consumed more tokens than reserved; review limits before resuming")

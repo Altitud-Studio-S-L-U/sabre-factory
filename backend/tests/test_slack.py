@@ -108,7 +108,7 @@ class FakeRepository:
         self.reservations.append(args)
         return f"usage-{len(self.reservations)}"
 
-    async def settle_usage(self, *args):
+    async def settle_usage(self, *args, breakdown=None):
         self.settled.append(args)
 
 
