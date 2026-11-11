@@ -44,6 +44,12 @@ from sabre.models import (
     WorkOrderCreate,
 )
 from sabre.notifications import DeliveryStatus
+from sabre.operator_contracts import (
+    OperatorMessagePage,
+    OperatorMessageRequest,
+    OperatorMessageResume,
+    OperatorMessageView,
+)
 from sabre.panel_sessions import (
     COOKIE,
     COOKIE_PATH,
@@ -279,6 +285,18 @@ def create_app(service=None, config=None) -> FastAPI:
         from sabre.error_boundaries import guarded_call
         from sabre.slack import admit_message
         return await guarded_call(admit_message, svc().guard, "SLACK_ADMISSION_FAILED", svc(), body)
+
+    @application.get("/api/v1/operator/messages", response_model=OperatorMessagePage)
+    async def operator_messages(work_id: str | None = None):
+        return await svc().queue.operator_conversation.list(work_id)
+
+    @application.post("/api/v1/operator/messages", response_model=OperatorMessageView, status_code=202)
+    async def operator_message(body: OperatorMessageRequest):
+        return await svc().queue.operator_conversation.admit(body)
+
+    @application.post("/api/v1/operator/messages/{message_id}/resume", response_model=OperatorMessageView, status_code=202)
+    async def resume_operator_message(message_id: str, body: OperatorMessageResume):
+        return await svc().queue.operator_conversation.resume(message_id, body)
 
     @application.get("/internal/credentials/github-read", include_in_schema=False)
     async def github_read_credentials():

@@ -90,7 +90,19 @@ In bounded orders, embedding lookups consume the order's call, token and USD lim
 
 Changing provider in a role override requires that provider's explicit credential; it does not inherit another provider's key or endpoint. Custom endpoints are accepted only under the explicit `local` configuration. Integrations use LangChain's maintained OpenAI, Anthropic and Google packages, with no automatic provider fallback.
 
-## MCP
+## Owner Supervisor conversation
+
+The persistent Supervisor control is available throughout the authenticated panel. Choose the factory context for coordination or a specific run for scoped supervision. The control worker processes replies independently of the work queue; paused runs do not close their conversations. A provider must still be connected and an explicit model configured. Conversation inference uses the existing separately bounded chat allowance and monthly spend policy, not an automatic increase to a run budget.
+
+Messages default to read-only. Grant specific action tools for each message when you want the Supervisor to act. Run-scoped messages cannot start another run, register projects or modify other runs. No conversational grant can increase budgets, waive security controls, merge or deploy. Positive API-spend authorization for a new run must be explicit in the owner message. An advisory warning stays in the conversation unless an authorized tool changes the run; it is not automatically injected into an in-flight worker's context.
+
+Admission and worker enqueue commit together, with a stable message request key. History survives navigation and service restarts. If a response is uncertain, reconcile the recorded message before submitting a new request. A blocked message can be explicitly reconciled and resumed with its original identity and action grants; it cannot acquire new permissions during resumption. Provider failures and the three-minute conversation timeout are displayed as blocked states, with unknown inference reservations retained. Starting a new message does not silently recover an older incomplete checkpoint.
+
+The owner MCP exposes `sabre_talk_supervisor`, `sabre_supervisor_messages` and `sabre_resume_supervisor_message`. These tools are owner-authorized capabilities. They must not be used as a substitute for scoped delegated-client authentication. The existing Slack gateway credential cannot call the owner conversation HTTP endpoints.
+
+This feature introduces migration 5. Back up before upgrading and retain the exact previously running images and protected bootstrap/master volumes. Returning to a runtime that only understands migration 4 requires restoring its matching backup; do not point that older runtime at the upgraded database.
+
+## MCP access
 
 The authenticated Streamable HTTP endpoint is `/mcp/`. Register that endpoint and its bearer-token environment variable through the client's supported configuration UI. No setup helper edits the owner's Codex home.
 

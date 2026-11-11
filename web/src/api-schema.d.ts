@@ -307,6 +307,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/operator/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Operator Messages */
+        get: operations["operator_messages_api_v1_operator_messages_get"];
+        put?: never;
+        /** Operator Message */
+        post: operations["operator_message_api_v1_operator_messages_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/operator/messages/{message_id}/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Resume Operator Message */
+        post: operations["resume_operator_message_api_v1_operator_messages__message_id__resume_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects": {
         parameters: {
             query?: never;
@@ -1816,6 +1851,76 @@ export interface components {
              */
             max_output_tokens: number;
         };
+        /** OperatorMessagePage */
+        OperatorMessagePage: {
+            /** Items */
+            items: components["schemas"]["OperatorMessageView"][];
+            /** Truncated */
+            truncated: boolean;
+        };
+        /** OperatorMessageRequest */
+        OperatorMessageRequest: {
+            /**
+             * Version
+             * @constant
+             */
+            version: 1;
+            /** Text */
+            text: string;
+            /** Idempotency Key */
+            idempotency_key: string;
+            /** Work Id */
+            work_id?: string | null;
+            /** Allowed Actions */
+            allowed_actions?: ("register_project" | "submit_work" | "answer_question" | "control_work" | "change_scope" | "propose_memory" | "resolve_memory")[];
+        };
+        /** OperatorMessageResume */
+        OperatorMessageResume: {
+            /**
+             * Version
+             * @constant
+             */
+            version: 1;
+            /** Expected Error Code */
+            expected_error_code: string | null;
+        };
+        /** OperatorMessageView */
+        OperatorMessageView: {
+            /**
+             * Version
+             * @default 1
+             * @constant
+             */
+            version: 1;
+            /** Id */
+            id: string;
+            /**
+             * Source
+             * @default web
+             * @enum {string}
+             */
+            source: "web" | "mcp";
+            /** Work Id */
+            work_id: string | null;
+            /** Text */
+            text: string;
+            /** Allowed Actions */
+            allowed_actions: ("register_project" | "submit_work" | "answer_question" | "control_work" | "change_scope" | "propose_memory" | "resolve_memory")[];
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "queued" | "running" | "completed" | "blocked";
+            /** Reply */
+            reply: string | null;
+            /** Error Code */
+            error_code: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
         /** PackageVersion */
         PackageVersion: {
             /** Distribution */
@@ -3106,6 +3211,105 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    operator_messages_api_v1_operator_messages_get: {
+        parameters: {
+            query?: {
+                work_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperatorMessagePage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    operator_message_api_v1_operator_messages_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OperatorMessageRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperatorMessageView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    resume_operator_message_api_v1_operator_messages__message_id__resume_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                message_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OperatorMessageResume"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperatorMessageView"];
                 };
             };
             /** @description Validation Error */

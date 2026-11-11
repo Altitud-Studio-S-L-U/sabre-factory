@@ -290,9 +290,10 @@ async def test_unknown_model_outcome_keeps_its_spending_reservation():
     assert not svc.repository.settled
 
 
-async def test_cli_chat_overrun_keeps_actual_usage_and_no_api_charge():
+@pytest.mark.parametrize("provider", ["codex_cli", "claude_cli"])
+async def test_cli_chat_overrun_keeps_actual_usage_and_no_api_charge(provider):
     svc = service()
-    svc.config.model_provider = "codex_cli"
+    svc.config.model_provider = provider
     middleware = ChatGuard(svc.repository, svc.config, svc.guard, "Ev12345678")
     request = SimpleNamespace(messages=[HumanMessage(content="Estado del proyecto")], tools=[], system_message=None)
 

@@ -193,6 +193,8 @@ class Runtime:
         self.service = FactoryService(self.repository, self.factory, memory, self, guard, cfg)
         from sabre.slack import register_jobs
         await register_jobs(self)
+        from sabre.operator_conversation import register_operator_job
+        await register_operator_job(self)
         return self
 
     async def __aexit__(self, exc_type, exc, tb):
