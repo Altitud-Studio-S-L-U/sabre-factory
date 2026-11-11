@@ -254,7 +254,7 @@ if (action === 'init') {
     'SABRE_MODEL_OUTPUT_USD_PER_MILLION=0', 'SABRE_OTLP_ENDPOINT=',
     'SABRE_EMBEDDING_MODEL=', 'SABRE_EMBEDDING_USD_PER_MILLION=0', 'SABRE_CHAT_BUDGET_USD=0.25',
     'SABRE_MCP_SERVERS={}', 'SABRE_ROLE_MODELS={}',
-    'SABRE_ALLOWED_ORIGINS=["http://localhost:8000","http://127.0.0.1:8000","http://localhost:5173","http://127.0.0.1:5173"]',
+    'SABRE_ALLOWED_ORIGINS=["http://localhost:8000","http://127.0.0.1:8000"]',
     'SABRE_SLACK_OWNER_ID=', 'SABRE_CLAUDE_ENABLED=false', '',
   ].join('\n'), { flag: 'wx', mode: 0o600 });
   console.log('Local configuration created; external providers remain disabled.');

@@ -7,7 +7,6 @@ from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from pydantic.json_schema import models_json_schema
 
@@ -159,9 +158,6 @@ def create_app(service=None, config=None) -> FastAPI:
         if request.url.path.startswith(("/api/", "/mcp", "/internal/")):
             response.headers["Cache-Control"] = "no-store"
         return response
-
-    application.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
-        allow_methods=["GET", "POST", "PUT", "DELETE"], allow_headers=["Authorization", "Content-Type"])
 
     @application.exception_handler(DomainError)
     async def domain_error(request, error):
