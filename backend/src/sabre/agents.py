@@ -6,7 +6,7 @@ import math
 import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, replace
-from typing import Any
+from typing import Any, Literal
 
 from langchain.agents import create_agent
 from langchain.agents.middleware import AgentMiddleware
@@ -447,20 +447,20 @@ class AgentTeam:
                     result = saved.values
                 else:
                     timeout_s = 600
-                    durability = "sync" if self.checkpointer else None
+                    durability: Literal["sync"] | None = "sync" if self.checkpointer else None
                     try:
                         async with asyncio.timeout(timeout_s):
-                            result = None
+                            completed: dict[str, Any] | None = None
                             try:
-                                result = await agent.ainvoke(None if saved and saved.values else input_value, graph_config, durability=durability)
+                                completed = result = await agent.ainvoke(None if saved and saved.values else input_value, graph_config, durability=durability)
                                 if not result.get("structured_response"):
                                     raise DomainError("MODEL_OUTPUT_INVALID", "The agent did not return a structured result")
                             except DomainError as error:
                                 # One corrective retry on the same thread. A checkpoint keeps prior work;
                                 # without one only a completed turn's own history can be replayed safely.
-                                if error.code not in RETRYABLE_OUTPUT_ERRORS or (not self.checkpointer and result is None):
+                                if error.code not in RETRYABLE_OUTPUT_ERRORS or (not self.checkpointer and completed is None):
                                     raise
-                                retry = [correction_message(error)] if self.checkpointer else [*result["messages"], correction_message(error)]
+                                retry = [correction_message(error)] if self.checkpointer or completed is None else [*completed["messages"], correction_message(error)]
                                 result = await agent.ainvoke({"messages": retry}, graph_config, durability=durability)
                     except GraphRecursionError:
                         raise DomainError("AGENT_STEP_LIMIT", "The agent reached the 50-step stage limit; review the work before resuming") from None

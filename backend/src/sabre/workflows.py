@@ -152,7 +152,7 @@ def repair_feedback(state, failures: list[str], security: dict) -> str:
     failed = [item for item in evidence.get("results", []) if item.get("exit_code")]
     blocking = [finding for finding in security.get("findings", [])
                 if is_blocking_finding(SecurityFinding.model_validate(finding))]
-    value = {"kind": "repair_feedback",
+    value: dict[str, Any] = {"kind": "repair_feedback",
              "failed_checks": failed or [{"command": command} for command in failures],
              "blocking_security_findings": [{key: finding.get(key) for key in ("fingerprint", "scanner", "category", "severity", "title", "path", "line")}
                                             for finding in blocking[:20]],
