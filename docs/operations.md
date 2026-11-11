@@ -118,6 +118,14 @@ MCP clients differ in support for native elicitation and long-running task exten
 
 `sabre_resolve_question_native` offers native owner elicitation when supported. Declining or cancelling that prompt leaves the decision pending. It cannot resolve a question from an earlier plan revision.
 
+### Remote agents
+
+Remote agents and chat clients never receive the owner credential. The owner issues a delegated grant with `POST /api/v1/delegations` (principal, projects, operations among `work.submit`, `work.query`, `work.answer` and `work.cancel`, expiry up to 24 hours, cumulative call, token, cost and time limits, and a run count). The bearer (`sabre_d_...`) is returned once and stored only as a hash; `GET /api/v1/delegations` lists grants and `DELETE /api/v1/delegations/{id}` revokes one.
+
+The delegated endpoint is `/delegated/mcp/`. It accepts only an active delegated bearer, rejects the owner token and any browser `Origin`, and authenticates every tool call again, so a revocation or expiry applies to the next call. Its tools are `sabre_grant`, `sabre_list_projects` (granted projects only), `sabre_get_work` (runs this grant submitted) and `sabre_command`. Commands are limited to submitting work within the grant's limits, answering clarification questions and cancelling the grant's own runs. Delegated runs cannot publish a pull request, change dependencies or approve architecture; permission, architecture, scope and exception decisions, budgets and security exceptions stay with the owner in the console. Each command is recorded against its grant.
+
+SABRE publishes the API on loopback only. Reach it remotely through a tunnel that terminates TLS and authenticates the network path (for example a private mesh VPN); do not publish the port to the internet.
+
 ## GitHub and project gates
 
 Register a repository HTTPS URL and explicit argv arrays for its gate commands. A repository needs an initialized default branch. CREATE requires a prepared repository or an explicit owner step to create one. For example, stdlib-only Python fixtures can use `["python", "-m", "unittest", "discover"]`; Node fixtures can use `["node", "--test"]`.
