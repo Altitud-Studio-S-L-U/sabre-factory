@@ -281,8 +281,8 @@ class AgentTeam:
             **({"task_context": task_context} if task_context is not None else {}),
         }, ensure_ascii=False))]}
         self.guard.check({"provider": getattr(config, "model_provider", None), "model": getattr(config, "model_name", None)})
-        async with observe(self.repository, work, "agent", role, parent_id=child_id, provider=getattr(config, "model_provider", None), model=getattr(config, "model_name", None)):
-            with span("agent.role", role=role, work_id=work.id):
+        with span("agent.role", role=role, work_id=work.id):
+            async with observe(self.repository, work, "agent", role, parent_id=child_id, provider=getattr(config, "model_provider", None), model=getattr(config, "model_name", None)):
                 if saved and saved.values and not saved.next:
                     result = saved.values
                 else:

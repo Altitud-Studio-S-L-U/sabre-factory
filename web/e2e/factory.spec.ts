@@ -158,6 +158,8 @@ test('incremental timeline reconciles tool completion and pause reflects persist
       plan_revision: 1,
       correlation_id: 'synthetic-tool',
       parent_id: null,
+      trace_id: null,
+      span_id: null,
       kind: 'tool',
       state: 'started',
       name: 'read_file',
@@ -220,10 +222,17 @@ test('incremental timeline reconciles tool completion and pause reflects persist
   });
   await page.goto('/work/synthetic-run');
   const timeline = page.getByRole('region', { name: 'Execution timeline' });
-  await expect(timeline.getByText('1.5 s')).toBeVisible();
+  await expect(timeline.locator('.execution-phase-heading').getByText('1.5 s')).toBeVisible();
+  const map = timeline.getByRole('button', { name: 'implement · completed', exact: true });
+  await expect(map).toBeVisible();
+  await map.click();
+  const inspector = timeline.getByRole('region', { name: 'Execution inspector' });
+  await inspector.getByRole('button', { name: 'JSON', exact: true }).click();
+  await expect(inspector.locator('pre').first()).toContainText('synthetic-stage');
+  await expect(timeline.getByLabel('Recorded run state')).toContainText('100');
   await timeline.getByText('1 tool calls · 0 agent steps').click();
   await expect(timeline.getByText('read_file', { exact: true })).toHaveCount(1);
-  await expect(timeline.getByText('1.2 s')).toBeVisible();
+  await expect(timeline.locator('.execution-calls').getByText('1.2 s', { exact: true })).toBeVisible();
   // Development StrictMode replays the initial read; cursor advancement must still use the server receipt.
   expect([...new Set(cursors)].slice(0, 2)).toEqual([0, 1]);
   await page.getByRole('button', { name: 'Pause', exact: true }).click();

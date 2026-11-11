@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { type Api, type SequencedEvent } from './api';
+import { type Api, type SequencedEvent, type WorkOrder } from './api';
+import ExecutionConsole from './ExecutionConsole';
 import './ExecutionTimeline.css';
 
 const phaseNames: Record<string, string> = {
@@ -18,10 +19,12 @@ export default function ExecutionTimeline({
   api,
   workId,
   active,
+  order,
 }: {
   api: Api;
   workId: string;
   active: boolean;
+  order: WorkOrder;
 }) {
   const [entries, setEntries] = useState<SequencedEvent[]>([]);
   const [error, setError] = useState('');
@@ -64,6 +67,7 @@ export default function ExecutionTimeline({
         <span className="count-label">Measured events</span>
       </div>
       {error && <p role="alert">{error}</p>}
+      <ExecutionConsole entries={entries} order={order} />
       {!entries.length && !error && (
         <p className="quiet-state">
           Events appear as the flow runs. Historical runs may have no timing measurements.

@@ -300,14 +300,15 @@ describe('Control room', () => {
     expect(window.location.pathname).toBe('/work');
     const navigation = screen.getByRole('navigation', { name: 'Main navigation' });
     for (const [name, path] of [
-      ['Projects', '/projects'],
-      ['Security', '/security'],
+      ['Agents', '/agents'],
+      ['Tools', '/tools'],
       ['Memory', '/memory'],
-      ['Integrations', '/integrations'],
-      ['About', '/about'],
+      ['Config', '/config'],
     ])
       expect(within(navigation).getByRole('link', { name })).toHaveAttribute('href', path);
-    await user.click(within(navigation).getByRole('link', { name: 'Projects' }));
+    await user.click(within(navigation).getByRole('link', { name: 'Config' }));
+    await user.click(screen.getByRole('link', { name: 'Config' }));
+    await user.click(screen.getByRole('link', { name: 'Projects' }));
     expect(window.location.pathname).toBe('/projects');
     await user.click(within(navigation).getByRole('link', { name: /^Runs/ }));
     await user.click(
@@ -406,8 +407,12 @@ describe('Control room', () => {
   it('navega con teclado al encabezado de vista y encargo sin robar el foco al actualizar', async () => {
     const fetchMock = mockApi();
     const user = await enter();
+    await waitFor(() => expect(screen.getByRole('heading', { level: 1, name: 'Runs' })).toHaveFocus());
     const navigation = screen.getByRole('navigation', { name: 'Main navigation' });
-    within(navigation).getByRole('link', { name: 'Projects' }).focus();
+    within(navigation).getByRole('link', { name: 'Config' }).focus();
+    await user.keyboard('{Enter}');
+    await screen.findByRole('heading', { level: 1, name: 'Config' });
+    screen.getByRole('link', { name: 'Projects' }).focus();
     await user.keyboard('{Enter}');
     await waitFor(() => expect(screen.getByRole('heading', { level: 1, name: 'Projects' })).toHaveFocus());
     within(navigation).getByRole('link', { name: /^Runs/ }).focus();
@@ -434,7 +439,7 @@ describe('Control room', () => {
   it('gestiona las credenciales de una integración sin iniciar runs', async () => {
     mockApi();
     const user = await enter();
-    await user.click(screen.getByRole('link', { name: 'Integrations' }));
+    await user.click(screen.getByRole('link', { name: 'Tools' }));
     await user.click(
       await screen.findByRole('button', { name: 'Configure credentials of GitHub · repositorios' }),
     );
@@ -445,9 +450,11 @@ describe('Control room', () => {
   it('consulta About sin atribuir autenticación a la disponibilidad del ejecutor', async () => {
     mockApi();
     const user = await enter();
+    await user.click(screen.getByRole('link', { name: 'Config' }));
     await user.click(screen.getByRole('link', { name: 'Projects' }));
     expect(screen.getByText('1 configured check')).toBeVisible();
-    await user.click(screen.getByRole('link', { name: 'About' }));
+    await user.click(screen.getByRole('link', { name: 'Config' }));
+    await user.click(screen.getByRole('link', { name: 'System status' }));
     expect(await screen.findByRole('heading', { name: 'Services and connections' })).toBeVisible();
     const cli = within(screen.getByRole('heading', { name: 'Codex CLI' }).closest('li')!);
     expect(cli.getByText('Responde')).toBeVisible();
@@ -716,11 +723,13 @@ describe('Control room', () => {
     await user.click(screen.getByRole('button', { name: '+ New run' }));
     expect(screen.getByRole('heading', { name: 'Register a project to get started' })).toBeVisible();
     expect(writes).toEqual([]);
+    await user.click(screen.getByRole('link', { name: 'Config' }));
     await user.click(screen.getByRole('link', { name: 'Projects' }));
     expect(screen.getByRole('heading', { name: 'Your first project starts here' })).toBeVisible();
     await user.click(screen.getByRole('link', { name: 'Memory' }));
     expect(screen.getByRole('heading', { name: 'Register a project to save knowledge' })).toBeVisible();
-    await user.click(screen.getByRole('link', { name: 'Security' }));
+    await user.click(screen.getByRole('link', { name: 'Config' }));
+    await user.click(screen.getByRole('link', { name: 'Security policy' }));
     expect(await screen.findByRole('heading', { name: 'No recorded findings' })).toBeVisible();
     expect(writes).toEqual([]);
   });
@@ -1084,6 +1093,7 @@ describe('Control room', () => {
   it('rechaza comandos no estructurados sin enviarlos al backend', async () => {
     mockApi();
     const user = await enter();
+    await user.click(screen.getByRole('link', { name: 'Config' }));
     await user.click(screen.getByRole('link', { name: 'Projects' }));
     await user.click(screen.getByRole('button', { name: '+ Register project' }));
     await user.type(screen.getByLabelText('Project name'), 'Otro proyecto');

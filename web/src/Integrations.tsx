@@ -21,7 +21,15 @@ function failure(error: unknown) {
     : 'The operation could not be confirmed. Refresh status before retrying.';
 }
 
-export default function Integrations({ api, onChanged }: { api: Api; onChanged: () => Promise<void> }) {
+export default function Integrations({
+  api,
+  onChanged,
+  includeModels = true,
+}: {
+  api: Api;
+  onChanged: () => Promise<void>;
+  includeModels?: boolean;
+}) {
   const [items, setItems] = useState<IntegrationInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -190,7 +198,7 @@ export default function Integrations({ api, onChanged }: { api: Api; onChanged: 
           </section>
         )}
       </section>
-      <ModelConfiguration api={api} onChanged={changed} />
+      {includeModels && <ModelConfiguration api={api} onChanged={changed} />}
       {readConnection && (
         <GitHubRepositories api={api} enabled={readConnection.enabled} onChanged={onChanged} />
       )}

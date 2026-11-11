@@ -55,7 +55,7 @@
   border-color: #8b8b94;
 }
 .work-board-card:active {
-  background: #fafafc;
+  background: var(--surface-raised);
 }
 .work-board-card > span,
 .work-board-card strong {

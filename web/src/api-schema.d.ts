@@ -1318,6 +1318,10 @@ export interface components {
             provider: string | null;
             /** Model */
             model: string | null;
+            /** Trace Id */
+            trace_id: string | null;
+            /** Span Id */
+            span_id: string | null;
         };
         /** FlowConfiguration */
         "FlowConfiguration-Input": {

@@ -51,8 +51,8 @@ class ToolCatalog:
 
     async def invoke(self, name: str, arguments: dict, role: str, *, allow_external_write=False):
         internal = {"list_files", "read_file", "search_source", "read_file_range", "write_file", "execute", "prepare_dependencies", "resolve_dependencies", "read_context", "read_memory", "edit_source"}
-        async with self.observer(name) if self.observer else nullcontext():
-            with span("tool.call", tool=name if name in internal else "mcp", role=role):
+        with span("tool.call", tool=name if name in internal else "mcp", role=role):
+            async with self.observer(name) if self.observer else nullcontext():
                 return await guarded_call(self._invoke, self.guard, "TOOL_EXECUTION_FAILED", name, arguments, role, allow_external_write=allow_external_write)
 
     async def _invoke(self, name: str, arguments: dict, role: str, *, allow_external_write=False):

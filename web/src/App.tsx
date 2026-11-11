@@ -46,13 +46,28 @@ import FactoryOverview from './FactoryOverview';
 import Icon, { type IconName } from './Icon';
 import Field from './components/FormField';
 import Select from './components/Select';
+import ModelConfiguration from './ModelConfiguration';
 
-type View = 'work' | 'projects' | 'security' | 'memory' | 'settings' | 'system';
+type View =
+  | 'work'
+  | 'projects'
+  | 'security'
+  | 'memory'
+  | 'settings'
+  | 'system'
+  | 'agents'
+  | 'tools'
+  | 'config';
 const navigation: { id: View; path: string; label: string; icon: IconName }[] = [
   { id: 'work', path: '/work', label: 'Runs', icon: 'work' },
+  { id: 'agents', path: '/agents', label: 'Agents', icon: 'projects' },
+  { id: 'tools', path: '/tools', label: 'Tools', icon: 'settings' },
+  { id: 'memory', path: '/memory', label: 'Memory', icon: 'memory' },
+  { id: 'config', path: '/config', label: 'Config', icon: 'settings' },
+];
+const legacyNavigation: typeof navigation = [
   { id: 'projects', path: '/projects', label: 'Projects', icon: 'projects' },
   { id: 'security', path: '/security', label: 'Security', icon: 'security' },
-  { id: 'memory', path: '/memory', label: 'Memory', icon: 'memory' },
   { id: 'settings', path: '/integrations', label: 'Integrations', icon: 'settings' },
   { id: 'system', path: '/about', label: 'About', icon: 'info' },
 ];
@@ -383,7 +398,9 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
   const navigate = useNavigate();
   const workMatch = matchPath('/work/:workId', location.pathname);
   const selectedId = workMatch?.params.workId ?? null;
-  const view = workMatch ? 'work' : navigation.find((item) => matchPath(item.path, location.pathname))?.id;
+  const view = workMatch
+    ? 'work'
+    : [...navigation, ...legacyNavigation].find((item) => matchPath(item.path, location.pathname))?.id;
   const routeState = location.state as { form?: 'work' | 'project'; projectId?: string } | null;
   const [formState, setFormState] = useState<{ key: string; value: 'work' | 'project' | null } | null>(null);
   const form = formState?.key === location.key ? formState.value : (routeState?.form ?? null);
@@ -497,7 +514,7 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
   const changeView = (next: View) => {
     returnFocus.current = null;
     setForm(null);
-    void navigate(navigation.find((item) => item.id === next)!.path);
+    void navigate([...navigation, ...legacyNavigation].find((item) => item.id === next)!.path);
   };
   const openWork = (order: WorkOrder) => {
     returnFocus.current = null;
@@ -549,7 +566,10 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
         <header className="topbar">
           <div className="breadcrumb">
             SABRE <span aria-hidden="true">/</span>
-            <strong>{navigation.find((item) => item.id === view)?.label || 'Page not found'}</strong>
+            <strong>
+              {[...navigation, ...legacyNavigation].find((item) => item.id === view)?.label ||
+                'Page not found'}
+            </strong>
           </div>
           <div className="topbar-right">
             <span className="last-update">
@@ -826,14 +846,44 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
               )}
               {view === 'security' && <SecurityView api={api} projects={projects} orders={orders} />}
               {view === 'memory' && <MemoryView api={api} projects={projects} />}
-              {view === 'settings' && (
+              {view === 'agents' && (
+                <>
+                  <PageHeader
+                    eyebrow="Specialists"
+                    title="Agents"
+                    description="Assign providers and models to runtime roles. Explicit overrides take precedence over the factory default."
+                  />
+                  <ModelConfiguration api={api} onChanged={reload} scope="agents" />
+                  <p className="hint">
+                    The current runtime uses its registered specialist procedures. Editable procedures and the
+                    DevOps agent catalog are being introduced through the agent contract spec.
+                  </p>
+                </>
+              )}
+              {view === 'config' && (
+                <>
+                  <PageHeader
+                    eyebrow="Local factory"
+                    title="Config"
+                    description="Choose the factory default, manage project registration and inspect preparation before starting work."
+                  />
+                  <nav className="console-subnav" aria-label="Factory configuration">
+                    <Link to="/projects">Projects</Link>
+                    <Link to="/security">Security policy</Link>
+                    <Link to="/about">System status</Link>
+                    <Link to="/tools">Connections and credentials</Link>
+                  </nav>
+                  <ModelConfiguration api={api} onChanged={reload} scope="default" />
+                </>
+              )}
+              {(view === 'settings' || view === 'tools') && (
                 <>
                   <PageHeader
                     eyebrow="Factory capabilities"
-                    title="Integrations"
+                    title={view === 'tools' ? 'Tools' : 'Integrations'}
                     description="Connect services, inspect their tools and control when SABRE may use them."
                   />
-                  <Integrations api={api} onChanged={reload} />
+                  <Integrations api={api} onChanged={reload} includeModels={view === 'settings'} />
                 </>
               )}
               {view === 'system' && (
@@ -1464,14 +1514,15 @@ function WorkDetail({
         <summary>Full objective</summary>
         <p>{order.objective}</p>
       </details>
+      <ExecutionTimeline
+        key={order.id}
+        api={api}
+        workId={order.id}
+        order={order}
+        active={['running', 'queued'].includes(order.status)}
+      />
       <div className="detail-grid">
         <div className="detail-primary">
-          <ExecutionTimeline
-            key={order.id}
-            api={api}
-            workId={order.id}
-            active={['running', 'queued'].includes(order.status)}
-          />
           {order.evidence && (
             <section className="delivery-evidence">
               <div className="section-heading">

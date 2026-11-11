@@ -60,6 +60,23 @@ Specialist questions interrupt the graph, including planning, implementation, QA
 
 ## Trust boundaries
 
+The operator-console extension retains the following authority boundary:
+
+```mermaid
+flowchart LR
+    Human[Authenticated owner] --> Auth[Identity and grants]
+    Remote[Delegated agent / MCP or A2A client] --> Auth
+    Auth --> Supervisor[Supervisor: interpret or propose]
+    Supervisor --> Commands[Typed commands: principal, scope, revision and receipts]
+    Commands --> Policy[Application authorization and deterministic policy]
+    Policy --> Runtime[LangGraph execution / approved tools]
+    Runtime --> Records[Durable events, evidence and notifications]
+```
+
+This is the target boundary for delegated clients. The current local stdio bridge runs with owner authority and is restricted to trusted local clients. Message fields and external agent metadata cannot authenticate a caller. External delegated identities must be implemented before exposing such clients; they must not receive the owner bridge credential.
+
+LangGraph checkpoints own execution state. Durable sequenced events feed console projections and notifications; they are not a second workflow engine. Notifications use the existing transactional outbox. Context indexes and cached read projections are rebuildable and scoped to the source snapshot/version; model output is not automatically cached or promoted to a verified fact. LangChain integrates model and tool calls; registered code validates plans, permissions, budgets, transitions and publication evidence.
+
 Project contents, memory and tool results are data, not instructions with authority. The control process holds provider credentials. Jobs never receive them, the Docker socket or owner directory mounts. The executor broker is the only Docker-capable component. Workspaces and gate environments are separate; gates are evaluated against the approved source snapshot.
 
 The [credential storage decision](credential-storage.md) defines the separate vault database, authenticated encryption and automatic unlock. The project/memory role cannot connect to the vault. Only trusted API/worker/control processes receive its database credential and read-only master-key mount. Service-specific bootstrap files replace secret environment values. Fixed-purpose authenticated adapters supply GitHub read access to the executor and Slack tokens to the gateway; their tokens cannot access owner APIs or another adapter. Credential values are absent from OpenAPI output models, MCP tools and agent state.

@@ -1,6 +1,7 @@
 import re
 from contextlib import contextmanager, suppress
 from math import isfinite
+from typing import TypedDict
 
 from langgraph.errors import GraphBubbleUp
 from opentelemetry import trace
@@ -20,6 +21,19 @@ ERROR_TYPES = {"DomainError", "ValueError", "TypeError", "RuntimeError", "Timeou
                "HTTPStatusError", "ConnectError", "ReadTimeout", "WriteTimeout", "PoolTimeout",
                "APIConnectionError", "APITimeoutError", "RateLimitError", "AuthenticationError",
                "PermissionDeniedError", "InternalServerError", "BadRequestError"}
+
+
+class TraceIdentifiers(TypedDict):
+    trace_id: str | None
+    span_id: str | None
+
+
+def trace_identifiers() -> TraceIdentifiers:
+    with suppress(Exception):
+        context = trace.get_current_span().get_span_context()
+        if context.is_valid:
+            return {"trace_id": f"{context.trace_id:032x}", "span_id": f"{context.span_id:016x}"}
+    return {"trace_id": None, "span_id": None}
 
 
 def configure(endpoint: str | None):

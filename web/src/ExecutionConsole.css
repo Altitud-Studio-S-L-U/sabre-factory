@@ -1,0 +1,304 @@
+.run-console {
+  margin: 20px 0 30px;
+}
+.console-readout {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  border-block: 1px solid var(--line);
+  margin-bottom: 22px;
+}
+.console-readout > div {
+  padding: 18px 16px;
+  min-width: 0;
+}
+.console-readout span {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  margin-bottom: 8px;
+}
+.console-readout strong {
+  font-size: 16px;
+  text-transform: capitalize;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+.console-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--surface);
+}
+.observed-timeline {
+  min-width: 0;
+}
+.console-panel-heading {
+  padding: 18px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 18px;
+  border-bottom: 1px solid var(--line);
+}
+.console-panel-heading span {
+  font-size: 11px;
+  color: var(--muted);
+}
+.observed-scroll {
+  overflow: auto;
+}
+.observed-grid {
+  min-width: 640px;
+}
+.observed-row {
+  display: grid;
+  grid-template-columns: 145px minmax(0, 1fr);
+  border-bottom: 1px solid var(--line);
+  min-height: 70px;
+}
+.observed-label {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: var(--surface);
+  border-right: 1px solid var(--line);
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow-wrap: anywhere;
+}
+.phase-expander {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr);
+  width: 100%;
+  text-align: left;
+  gap: 6px;
+  padding: 0;
+}
+.phase-expander strong {
+  font-size: 12px;
+  text-transform: capitalize;
+}
+.phase-expander small {
+  grid-column: 2;
+  color: var(--muted);
+  font-size: 10px;
+}
+.observed-track {
+  position: relative;
+  margin-right: 18px;
+  min-width: 0;
+  background-image: linear-gradient(to right, var(--line) 1px, transparent 1px);
+  background-size: 25% 100%;
+}
+.observed-row.ruler {
+  min-height: 42px;
+}
+.ruler .observed-label {
+  font-size: 9px;
+  color: var(--muted);
+  letter-spacing: 0.6px;
+}
+.ruler .observed-track > span {
+  position: absolute;
+  top: 13px;
+  transform: translateX(-50%);
+  font: 10px monospace;
+  color: var(--muted);
+}
+.ruler .observed-track > span:first-child {
+  transform: none;
+}
+.ruler .observed-track > span:last-child {
+  transform: translateX(-100%);
+}
+.observed-bar {
+  position: absolute;
+  top: 14px;
+  height: 42px;
+  min-width: 8px;
+  border: 1px solid #6683af;
+  background: #2b3b54;
+  color: #e8eef7;
+  border-radius: 4px;
+  overflow: hidden;
+  padding: 5px 8px;
+  text-align: left;
+}
+.observed-bar strong,
+.observed-bar small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+}
+.observed-bar small {
+  font-size: 9px;
+  margin-top: 2px;
+}
+.observed-bar.kind-tool {
+  background: #243c39;
+  border-color: #6da892;
+}
+.observed-bar.state-failed {
+  background: #503039;
+  border-color: #de8c9c;
+}
+.observed-bar.state-started {
+  background: #2c4438;
+  border-color: #8bd3ac;
+}
+.observed-bar.state-interrupted {
+  background: #4a3d26;
+  border-color: #e2b76b;
+}
+.observed-bar[aria-pressed='true'] {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  z-index: 1;
+}
+.observed-row.child {
+  min-height: 36px;
+}
+.child .observed-label {
+  font-size: 10px;
+}
+.child .observed-label > span {
+  color: var(--muted);
+  font-size: 9px;
+}
+.child .observed-bar {
+  top: 7px;
+  height: 24px;
+  padding: 3px 6px;
+}
+.child .observed-bar small {
+  display: none;
+}
+.unmeasured-phase {
+  display: block;
+  padding: 24px 12px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.unmeasured-action {
+  margin: 5px 10px;
+  color: inherit;
+  background: transparent;
+  border: 1px dashed var(--line);
+  border-radius: 4px;
+  font-size: 10px;
+}
+.console-inspector {
+  padding: 20px;
+  border-left: 1px solid var(--line);
+  min-width: 0;
+  background: var(--glass);
+  backdrop-filter: blur(16px);
+}
+.console-inspector h3 {
+  margin-bottom: 20px;
+}
+.console-inspector h4 {
+  overflow-wrap: anywhere;
+  margin: 0 0 15px;
+}
+.console-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 20px;
+}
+.console-tabs button {
+  border: 0;
+  background: transparent;
+  border-bottom: 2px solid transparent;
+  padding: 9px 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+.console-tabs button[aria-pressed='true'] {
+  border-bottom-color: var(--accent);
+  color: var(--ink);
+}
+.console-inspector dl {
+  display: grid;
+  grid-template-columns: 80px minmax(0, 1fr);
+  gap: 12px;
+  font-size: 12px;
+}
+.console-inspector dt {
+  color: var(--muted);
+}
+.console-inspector dd {
+  overflow-wrap: anywhere;
+}
+.console-inspector p {
+  font-size: 12px;
+  margin: 15px 0;
+}
+.run-console pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 420px;
+  overflow: auto;
+  background: var(--code-bg);
+  border: 1px solid var(--line);
+  padding: 16px;
+  border-radius: 5px;
+  font: 11px/1.8 monospace;
+}
+.console-footnote {
+  padding: 14px 18px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.console-inspector .console-footnote {
+  padding: 0;
+}
+.console-empty {
+  padding: 30px 20px;
+  color: var(--muted);
+}
+.console-contract {
+  padding: 16px 0;
+}
+.console-contract summary {
+  cursor: pointer;
+}
+@media (max-width: 1100px) {
+  .console-workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .console-inspector {
+    border-left: 0;
+    border-top: 1px solid var(--line);
+  }
+}
+@media (max-width: 700px) {
+  .console-readout {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .console-readout > div {
+    padding: 14px 8px;
+  }
+}
+@supports not (backdrop-filter: blur(1px)) {
+  .console-inspector {
+    background: var(--surface);
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .console-inspector {
+    background: var(--surface);
+    backdrop-filter: none;
+  }
+}

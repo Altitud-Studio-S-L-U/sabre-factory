@@ -5,7 +5,7 @@ import { createApi, type ModelConfigurationChange } from '../api';
 import ModelConfiguration from '../ModelConfiguration';
 import { configuration } from './modelConfigurationFixture';
 
-function setup(conflict = false) {
+function setup(conflict = false, scope: 'all' | 'default' | 'agents' = 'all') {
   const writes: ModelConfigurationChange[] = [];
   const onChanged = vi.fn(async () => undefined);
   vi.stubGlobal(
@@ -34,7 +34,7 @@ function setup(conflict = false) {
       return Response.json(configuration());
     }),
   );
-  render(<ModelConfiguration api={createApi('synthetic-csrf')} onChanged={onChanged} />);
+  render(<ModelConfiguration api={createApi('synthetic-csrf')} onChanged={onChanged} scope={scope} />);
   return { writes, onChanged };
 }
 
@@ -50,6 +50,26 @@ async function configureReviewer() {
 }
 
 describe('modelos por especialidad', () => {
+  it('edits one selected agent while retaining the factory default and other assignments', async () => {
+    const { writes } = setup(false, 'agents');
+    const user = userEvent.setup();
+    const selector = await screen.findByLabelText('Runtime specialists');
+    await user.click(within(selector).getByRole('button', { name: /Development/ }));
+    await user.click(screen.getByRole('checkbox', { name: 'Inherit the default model' }));
+    const role = screen.getByText('Development', { selector: 'summary strong' }).closest('details')!;
+    await user.selectOptions(within(role).getByLabelText('Provider'), 'anthropic');
+    await user.type(within(role).getByLabelText('Model'), 'synthetic-implementation-model');
+    await user.click(screen.getByRole('checkbox', { name: /I authorize sending/ }));
+    await user.click(screen.getByRole('button', { name: 'Save models' }));
+    await screen.findByText(/Configuration saved/);
+    expect(writes).toHaveLength(1);
+    expect(writes[0].default).toEqual(configuration().default);
+    expect(writes[0].roles.developer).toMatchObject({
+      provider: 'anthropic',
+      name: 'synthetic-implementation-model',
+    });
+    expect(writes[0].roles.qa).toBeNull();
+  });
   it('distingue la conexión de la selección y exige aprobar los destinos antes del cambio CAS', async () => {
     const { writes, onChanged } = setup();
     const user = await configureReviewer();
