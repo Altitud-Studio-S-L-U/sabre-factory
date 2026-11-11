@@ -23,6 +23,7 @@ from sabre.models import (
 )
 from sabre.private_credentials import fetch_credentials
 from sabre.repository import digest, payload
+from sabre.run_state import open_questions
 from sabre.security import SecretGuard
 from sabre.settings import load_bootstrap, reject_secret_environment
 from sabre.supervisor import (
@@ -281,7 +282,7 @@ async def deliver_notifications(repository, cfg, guard, *, store=None, client=No
                 if notices[0]["work_id"]:
                     work = await repository.work(notices[0]["work_id"])
                     thread_ts = await work_thread(repository, store, client, guard, work, channel)
-                    pending_questions = [item for item in work.questions if item.answer is None and item.plan_revision == work.plan_revision]
+                    pending_questions = open_questions(work)
                     state = {"work": work.id, "revision": work.plan_revision, "status": work.status, "phase": work.phase, "summary": work.summary, "questions": [payload(item) for item in pending_questions], "findings": [item.fingerprint for item in work.findings]}
                     text = f"{work.summary}\nStatus: {STATE_LABELS.get(work.status, 'in progress')} · Phase: {PHASE_LABELS.get(work.phase, 'in progress')}"
                     for question in pending_questions:

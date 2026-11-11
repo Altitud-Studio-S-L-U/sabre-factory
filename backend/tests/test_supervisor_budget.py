@@ -165,3 +165,36 @@ def test_tool_trace_is_bounded_and_does_not_invent_results_for_pending_calls():
     page = recorded_tools(messages, "message-a", SecretGuard())
     assert page.truncated and len(page.tools) == 50
     assert all(call.status == "pending" and call.output is None for call in page.tools)
+
+
+async def test_supervisor_reads_a_cancelled_runs_budget_block_as_history_without_losing_it():
+    service, event = setup()
+    work = await service.repository.work("run-a")
+    work.status, work.control, work.summary = "cancelled", "cancel", "Work order cancelled"
+    tools = {item.name: item for item in conversation_tools(service, None, event)}
+    result = await tools["get_work_budget"].ainvoke({"work_id": "run-a"})
+    assert result["error_code"] == "BUDGET_EXHAUSTED"
+    assert result["stop_reason"] == {"code": "BUDGET_EXHAUSTED", "basis": "historical"}
+    assert any("retained history" in note and "cannot be resumed" in note for note in result["notes"])
+
+
+async def test_supervisor_reports_a_blocked_runs_budget_block_as_current():
+    service, event = setup()
+    tools = {item.name: item for item in conversation_tools(service, None, event)}
+    result = await tools["get_work_budget"].ainvoke({"work_id": "run-a"})
+    assert result["stop_reason"] == {"code": "BUDGET_EXHAUSTED", "basis": "current"}
+    assert not any("retained history" in note for note in result["notes"])
+
+
+async def test_run_listing_reports_no_pending_questions_for_closed_runs():
+    from sabre.models import HumanQuestion
+    service, event = setup()
+    event.work_id = None
+    work = await service.repository.work("run-a")
+    question = HumanQuestion(work_id="run-a", plan_revision=work.plan_revision, prompt="Continue?", kind="clarification")
+    open_run = work.model_copy(update={"id": "run-open", "status": "waiting_input", "questions": [question]})
+    closed_run = work.model_copy(update={"id": "run-closed", "status": "cancelled", "questions": [question]})
+    service.repository.works.return_value = [open_run, closed_run]
+    tool = next(item for item in conversation_tools(service, None, event) if item.name == "list_work")
+    listed = {item["id"]: item["questions"] for item in await tool.ainvoke({})}
+    assert len(listed["run-open"]) == 1 and listed["run-closed"] == []
