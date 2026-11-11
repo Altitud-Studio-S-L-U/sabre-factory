@@ -20,7 +20,7 @@ from sabre.agent_contracts import (
     AgentValidation,
     StepResult,
 )
-from sabre.audit import AuditView, ProjectKnowledgeReport
+from sabre.audit import AuditUsage, AuditView, ProjectKnowledgeReport, RunUsageSnapshot
 from sabre.budget_contracts import BudgetAmendment, BudgetReconciliation, BudgetView
 from sabre.commands import CommandEnvelope, CommandResult, dispatch
 from sabre.create_flow import CreateFlowLaunch, launch_create
@@ -397,6 +397,14 @@ def create_app(service=None, config=None) -> FastAPI:
     @application.get("/api/v1/work/{work_id}", response_model=WorkOrder)
     async def work(work_id: str):
         return await svc().repository.work(work_id)
+
+    @application.get("/api/v1/work/{work_id}/usage", response_model=RunUsageSnapshot)
+    async def work_usage(work_id: str):
+        repository = svc().repository
+        work = await repository.work(work_id)
+        current = await repository.audit_usage_breakdown(work.id)
+        return RunUsageSnapshot(work_id=work.id, usage=AuditUsage(**current["usage"]),
+            measured_api_cost_usd=current["measured_api_cost_usd"], reserved_api_cost_usd=current["reserved_api_cost_usd"])
 
     @application.get("/api/v1/work/{work_id}/budget", response_model=BudgetView)
     async def work_budget(work_id: str):

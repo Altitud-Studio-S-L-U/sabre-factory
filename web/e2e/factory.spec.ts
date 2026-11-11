@@ -2,6 +2,7 @@ import { test, expect, type Page } from '@playwright/test';
 import { configuration } from '../src/test/modelConfigurationFixture';
 import { factoryConfiguration } from '../src/test/factoryConfigurationFixture';
 import { agentCatalog } from '../src/test/agentCatalogFixture';
+import { runUsageSnapshot } from '../src/test/runUsageFixture';
 import type { WorkOrder, SequencedEvent, DelegationCreate, DelegationGrant } from '../src/api';
 
 async function captureSource(page: Page, section: string) {
@@ -108,6 +109,8 @@ test.beforeEach(async ({ page }) => {
     if (path.endsWith('/configuration')) json = factoryConfiguration();
     if (path.endsWith('/releases')) json = { version: 1, items: [], truncated: false };
     if (path.endsWith('/a2a-tasks')) json = [];
+    if (path.endsWith('/execution-events')) json = { items: [], next_cursor: 0, has_more: false };
+    if (path.endsWith('/usage')) json = runUsageSnapshot(path.split('/').at(-2)!);
     if (path.endsWith('/agents')) json = path.includes('/a2a/') ? [] : agentCatalog();
     if (path.endsWith('/tools/catalog'))
       json = {
@@ -229,6 +232,105 @@ test.beforeEach(async ({ page }) => {
       ];
     await route.fulfill({ json });
   });
+});
+
+test('live usage updates within a phase and retains a stale ledger until explicit retry', async ({
+  page,
+}) => {
+  await page.clock.install();
+  let order = syntheticRun();
+  let snapshot = runUsageSnapshot(order.id, 1, 100);
+  let outage = false;
+  let usageRequests = 0;
+  let auditRequests = 0;
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  await page.route('**/api/v1/work**', async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/api/v1/work') {
+      await route.fulfill({ json: [order] });
+      return;
+    }
+    if (path === `/api/v1/work/${order.id}`) {
+      await route.fulfill({ json: order });
+      return;
+    }
+    if (path.endsWith('/usage')) {
+      usageRequests++;
+      await route.fulfill(
+        outage ? { status: 503, json: { message: 'Synthetic usage unavailable' } } : { json: snapshot },
+      );
+      return;
+    }
+    if (path.endsWith('/audit')) {
+      auditRequests++;
+      await route.fulfill({
+        json: {
+          work_id: order.id,
+          plan_revision: order.plan_revision,
+          status: order.status,
+          phase: order.phase,
+          context: null,
+          usage: runUsageSnapshot(order.id, 1, 100).usage,
+          agents: [],
+          tools: [],
+          checkpoint_count: 0,
+          checkpoint_threads: 0,
+          truncated: false,
+        },
+      });
+      return;
+    }
+    await route.fallback();
+  });
+  await page.goto(`/work/${order.id}`);
+  const readout = page.getByLabel('Recorded run state');
+  await expect(readout.getByText('100', { exact: true })).toBeVisible();
+  const auditAtStart = auditRequests;
+  expect(auditAtStart).toBeGreaterThan(0);
+  snapshot = {
+    ...runUsageSnapshot(order.id, 3, 2600),
+    usage: {
+      calls: 3,
+      settled_calls: 2,
+      unsettled_calls: 1,
+      tokens: 3600,
+      measured_tokens: 2600,
+      unknown_reserved_tokens: 1000,
+      cost_usd: 2.5,
+    },
+    measured_api_cost_usd: 0.25,
+    reserved_api_cost_usd: 2.25,
+  };
+  await page.clock.runFor(2000);
+  await expect(readout.getByText('2,600', { exact: true })).toBeVisible();
+  await expect(readout.getByText('Model calls').locator('..')).toContainText('3 / 40');
+  await expect(readout.getByText('$0.2500', { exact: true })).toBeVisible();
+  await expect(readout.getByText(/1 calls pending.*1,000 tokens reserved/)).toBeVisible();
+  expect(auditRequests).toBe(auditAtStart);
+  expect(order.calls_used).toBe(1);
+  expect(order.phase).toBe('implementation');
+  outage = true;
+  await page.clock.runFor(2000);
+  const stale = page.getByRole('alert').filter({ hasText: 'Live usage could not be refreshed' });
+  await expect(stale).toContainText('may be stale');
+  await expect(readout.getByText('2,600', { exact: true })).toBeVisible();
+  const failedCount = usageRequests;
+  await page.clock.runFor(6000);
+  expect(usageRequests).toBe(failedCount);
+  snapshot = runUsageSnapshot(order.id, 4, 3100);
+  outage = false;
+  await page.getByRole('button', { name: 'Retry usage', exact: true }).click();
+  await expect(readout.getByText('3,100', { exact: true })).toBeVisible();
+  await expect(stale).toHaveCount(0);
+  order = { ...order, status: 'cancelled' };
+  snapshot = runUsageSnapshot(order.id, 4, 3200);
+  await page.getByRole('button', { name: 'Refresh data', exact: true }).click();
+  await expect(readout.getByText('3,200', { exact: true })).toBeVisible();
+  const finalCount = usageRequests;
+  await page.clock.runFor(6000);
+  expect(usageRequests).toBe(finalCount);
+  expect(errors).toEqual([]);
 });
 
 test('inbound agent access requires explicit scope and revocation and never restores the one-time credential', async ({
@@ -491,6 +593,7 @@ test('incremental timeline reconciles tool completion and pause reflects persist
     let json: unknown = [];
     if (url.pathname === '/api/v1/work') json = [order];
     if (url.pathname.endsWith('/synthetic-run')) json = order;
+    if (url.pathname.endsWith('/usage')) json = runUsageSnapshot(order.id, 1, 100);
     if (url.pathname.endsWith('/pause')) {
       order = { ...order, status: 'paused', phase: 'implementation' };
       json = order;
@@ -984,6 +1087,10 @@ test('recorded process keeps phase attempts, agent tools, memory and failed chec
     }
     if (path.endsWith('/execution-events')) {
       await route.fulfill({ json: { items: recorded, next_cursor: recorded.length, has_more: false } });
+      return;
+    }
+    if (path.endsWith('/usage')) {
+      await route.fulfill({ json: runUsageSnapshot(order.id, 3, 2300) });
       return;
     }
     if (path.endsWith('/audit')) {

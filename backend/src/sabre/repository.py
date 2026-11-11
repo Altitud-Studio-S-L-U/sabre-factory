@@ -60,6 +60,12 @@ class UsageSummary(TypedDict):
     cost_usd: float
 
 
+class UsageBreakdown(TypedDict):
+    usage: UsageSummary
+    measured_api_cost_usd: float | None
+    reserved_api_cost_usd: float
+
+
 class KnowledgeInventory(TypedDict):
     memories: dict[str, int]
     checkpoints: dict[str, int]
@@ -649,6 +655,9 @@ class Repository:
             return await (await conn.execute("SELECT count(*) calls,coalesce(sum(coalesce(actual_tokens,reserved_tokens)),0) tokens,coalesce(sum(coalesce(actual_usd,reserved_usd)),0) usd FROM model_usage WHERE work_id=%s", (work_id,))).fetchone()
 
     async def audit_usage(self, work_id: str) -> UsageSummary:
+        return (await self.audit_usage_breakdown(work_id))["usage"]
+
+    async def audit_usage_breakdown(self, work_id: str) -> UsageBreakdown:
         async with self.connection() as conn:
             row = await (await conn.execute("""
                 SELECT count(*) calls,count(actual_tokens) settled_calls,
@@ -656,13 +665,18 @@ class Repository:
                     coalesce(sum(coalesce(actual_tokens,reserved_tokens)),0) tokens,
                     coalesce(sum(actual_tokens),0) measured_tokens,
                     coalesce(sum(reserved_tokens) FILTER(WHERE actual_tokens IS NULL),0) unknown_reserved_tokens,
-                    coalesce(sum(coalesce(actual_usd,reserved_usd)),0) cost_usd
+                    coalesce(sum(coalesce(actual_usd,reserved_usd)),0) cost_usd,
+                    sum(actual_usd) measured_api_cost_usd,
+                    coalesce(sum(reserved_usd) FILTER(WHERE actual_usd IS NULL),0) reserved_api_cost_usd
                 FROM model_usage WHERE work_id=%s
             """, (work_id,))).fetchone()
-            return UsageSummary(calls=int(row["calls"]), settled_calls=int(row["settled_calls"]),
+            usage = UsageSummary(calls=int(row["calls"]), settled_calls=int(row["settled_calls"]),
                 unsettled_calls=int(row["unsettled_calls"]), tokens=int(row["tokens"]),
                 measured_tokens=int(row["measured_tokens"]), unknown_reserved_tokens=int(row["unknown_reserved_tokens"]),
                 cost_usd=float(row["cost_usd"]))
+            return UsageBreakdown(usage=usage,
+                measured_api_cost_usd=float(row["measured_api_cost_usd"]) if row["measured_api_cost_usd"] is not None else None,
+                reserved_api_cost_usd=float(row["reserved_api_cost_usd"]))
 
     async def audit_context_usage(self, work_id: str) -> ContextUsageSummary | None:
         async with self.connection() as conn:

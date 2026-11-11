@@ -3,6 +3,7 @@ import type { Api, AuditView, ProcessTopology, RunInspection, SequencedEvent, Wo
 import { projectExecution, type ObservedSpan } from './executionProjection';
 import RunInspector, { specialistNames } from './RunInspector';
 import JsonView from './components/JsonView';
+import type { RunUsageState } from './useRunUsage';
 import './ExecutionConsole.css';
 
 const clock = (ms: number) =>
@@ -17,6 +18,7 @@ export default function RunProcessConsole({
   order,
   topology,
   audit,
+  liveUsage,
   inspection,
   inspectorError,
   onInspect,
@@ -27,6 +29,7 @@ export default function RunProcessConsole({
   order: WorkOrder;
   topology?: ProcessTopology | null;
   audit?: AuditView | null;
+  liveUsage?: RunUsageState;
   inspection?: RunInspection | null;
   inspectorError?: string;
   onInspect?: (role?: string, agentId?: string) => void;
@@ -40,6 +43,8 @@ export default function RunProcessConsole({
   const [now, setNow] = useState(() => Date.now());
   const spans = projectExecution(entries);
   const running = ['running', 'queued'].includes(order.status);
+  const usage = liveUsage?.snapshot?.usage ?? (audit?.work_id === order.id ? audit.usage : undefined);
+  const pendingUsage = (usage?.unsettled_calls ?? 0) > 0;
   useEffect(() => {
     if (!running) return;
     const timer = setInterval(() => setNow(Date.now()), 1000);
@@ -128,6 +133,23 @@ export default function RunProcessConsole({
   };
   return (
     <div className="run-console">
+      {liveUsage?.error && (
+        <p role={liveUsage.canRetry ? 'alert' : 'status'}>
+          {liveUsage.error}{' '}
+          {usage
+            ? 'Showing the last recorded usage snapshot; it may be stale.'
+            : 'No recorded usage snapshot is available.'}{' '}
+          <button
+            type="button"
+            className="button small"
+            disabled={!liveUsage.canRetry}
+            onClick={liveUsage.retry}
+          >
+            Retry usage
+          </button>
+        </p>
+      )}
+      {liveUsage?.loading && !liveUsage.snapshot && <p role="status">Loading recorded usage…</p>}
       <div className="console-readout" aria-label="Recorded run state">
         <div>
           <span>Current phase</span>
@@ -135,19 +157,19 @@ export default function RunProcessConsole({
         </div>
         <div>
           <span>Measured tokens</span>
-          <strong>{audit ? audit.usage.measured_tokens.toLocaleString('en-US') : 'Not available'}</strong>
+          <strong>{usage ? usage.measured_tokens.toLocaleString('en-US') : 'Not available'}</strong>
           <small>
-            {audit?.usage.unknown_reserved_tokens
-              ? `${audit.usage.unknown_reserved_tokens.toLocaleString('en-US')} reserved · pending`
-              : audit?.usage.unsettled_calls
-                ? `${audit.usage.unsettled_calls} calls pending · usage unknown`
-                : 'Settled provider usage'}
+            {pendingUsage
+              ? `${usage!.unsettled_calls} calls pending · ${usage!.unknown_reserved_tokens.toLocaleString('en-US')} tokens reserved · usage incomplete`
+              : usage
+                ? 'Settled provider usage'
+                : 'Provider usage unavailable'}
           </small>
         </div>
         <div>
           <span>Model calls</span>
           <strong>
-            {order.calls_used}
+            {usage ? usage.calls : 'Not available'}
             <small>
               {' '}
               /{' '}
@@ -164,9 +186,24 @@ export default function RunProcessConsole({
           <small>Excludes idle and operator waits</small>
         </div>
         <div>
-          <span>Recorded model API cost</span>
-          <strong>{audit ? `$${audit.usage.cost_usd.toFixed(4)}` : 'Unknown'}</strong>
-          <small>Subscription fees and unknown remote costs excluded</small>
+          <span>{liveUsage?.snapshot ? 'Recorded model API cost' : 'Model API cost · audit ledger'}</span>
+          <strong>
+            {liveUsage?.snapshot
+              ? liveUsage.snapshot.measured_api_cost_usd == null
+                ? 'Unknown'
+                : `$${liveUsage.snapshot.measured_api_cost_usd.toFixed(4)}`
+              : usage
+                ? `$${usage.cost_usd.toFixed(4)} ledger`
+                : 'Unknown'}
+          </strong>
+          <small>
+            {liveUsage?.snapshot && (pendingUsage || liveUsage.snapshot.reserved_api_cost_usd > 0)
+              ? `$${liveUsage.snapshot.reserved_api_cost_usd.toFixed(4)} reserved · pending cost unknown. `
+              : !liveUsage?.snapshot && usage
+                ? 'Ledger includes pending reservations. '
+                : ''}
+            Subscription fees and unknown remote costs excluded
+          </small>
         </div>
       </div>
       <div className="console-workspace">

@@ -30,6 +30,14 @@ class AuditUsage(Contract):
     cost_usd: float
 
 
+class RunUsageSnapshot(Contract):
+    version: Literal[1] = 1
+    work_id: str
+    usage: AuditUsage
+    measured_api_cost_usd: float | None = Field(ge=0)
+    reserved_api_cost_usd: float = Field(ge=0)
+
+
 class AuditAgent(Contract):
     id: str
     role: str

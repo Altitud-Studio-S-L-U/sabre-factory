@@ -23,6 +23,7 @@ export type SecretUpsert = components['schemas']['SecretUpsert'];
 export type SecretDeactivate = components['schemas']['SecretDeactivate'];
 export type SystemInfo = components['schemas']['SystemInfo'];
 export type AuditView = components['schemas']['AuditView'];
+export type RunUsageSnapshot = components['schemas']['RunUsageSnapshot'];
 export type ProjectKnowledgeReport = components['schemas']['ProjectKnowledgeReport'];
 export type IntegrationInfo = components['schemas']['IntegrationInfo'];
 export type IntegrationStateChange = components['schemas']['IntegrationStateChange'];
@@ -250,6 +251,8 @@ export function createApi(csrfToken: string, onUnauthorized?: (message: string) 
       request<Project>('/projects', { method: 'POST', body: JSON.stringify(value) }),
     work: () => request<WorkOrder[]>('/work'),
     getWork: (id: string) => request<WorkOrder>(`/work/${encodeURIComponent(id)}`),
+    usage: (id: string, signal?: AbortSignal) =>
+      request<RunUsageSnapshot>(`/work/${encodeURIComponent(id)}/usage`, { signal }),
     a2aTasks: (id: string) => request<A2ATaskInfo[]>(`/work/${encodeURIComponent(id)}/a2a-tasks`),
     pollA2ATask: (id: string, attemptKey: string) =>
       request<A2ATaskInfo>(`/work/${encodeURIComponent(id)}/a2a-tasks/poll`, {

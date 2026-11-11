@@ -583,6 +583,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/work/{work_id}/usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Work Usage */
+        get: operations["work_usage_api_v1_work__work_id__usage_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/work/{work_id}/budget": {
         parameters: {
             query?: never;
@@ -4188,6 +4205,22 @@ export interface components {
             /** Current */
             current: boolean;
         };
+        /** RunUsageSnapshot */
+        RunUsageSnapshot: {
+            /**
+             * Version
+             * @default 1
+             * @constant
+             */
+            version: 1;
+            /** Work Id */
+            work_id: string;
+            usage: components["schemas"]["AuditUsage"];
+            /** Measured Api Cost Usd */
+            measured_api_cost_usd: number | null;
+            /** Reserved Api Cost Usd */
+            reserved_api_cost_usd: number;
+        };
         /** RuntimeInfo */
         RuntimeInfo: {
             /** Python */
@@ -5987,6 +6020,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WorkOrder"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    work_usage_api_v1_work__work_id__usage_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                work_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunUsageSnapshot"];
                 };
             };
             /** @description Validation Error */

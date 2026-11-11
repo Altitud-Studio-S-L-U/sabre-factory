@@ -8,6 +8,7 @@ import {
   type WorkOrder,
 } from './api';
 import ExecutionConsole from './ExecutionConsole';
+import type { RunUsageState } from './useRunUsage';
 import './ExecutionTimeline.css';
 
 const phaseNames: Record<string, string> = {
@@ -28,12 +29,14 @@ export default function ExecutionTimeline({
   active,
   order,
   audit,
+  liveUsage,
 }: {
   api: Api;
   workId: string;
   active: boolean;
   order: WorkOrder;
   audit?: AuditView | null;
+  liveUsage?: RunUsageState;
 }) {
   const [entries, setEntries] = useState<SequencedEvent[]>([]);
   const [error, setError] = useState('');
@@ -137,6 +140,7 @@ export default function ExecutionTimeline({
         order={order}
         topology={topology}
         audit={audit}
+        liveUsage={liveUsage}
         inspection={inspection}
         inspectorError={inspectorError}
         onInspect={(role, agentId) => setQuery({ role, agentId, after: 0 })}

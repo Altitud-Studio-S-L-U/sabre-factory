@@ -1,8 +1,15 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import RunProcessConsole from '../RunProcessConsole';
-import type { ProcessTopology, SequencedEvent, WorkOrder } from '../api';
+import {
+  createApi,
+  type ProcessTopology,
+  type RunUsageSnapshot,
+  type SequencedEvent,
+  type WorkOrder,
+} from '../api';
+import useRunUsage from '../useRunUsage';
 
 function order(status: WorkOrder['status']): WorkOrder {
   return {
@@ -203,5 +210,167 @@ describe('Recorded process console', () => {
       'aria-pressed',
       'false',
     );
+  });
+});
+
+function liveSnapshot(measured = 100, calls = 1, unsettled = 0): RunUsageSnapshot {
+  return {
+    version: 1,
+    work_id: 'synthetic-live',
+    usage: {
+      calls,
+      settled_calls: calls - unsettled,
+      unsettled_calls: unsettled,
+      tokens: measured + unsettled * 1000,
+      measured_tokens: measured,
+      unknown_reserved_tokens: unsettled * 1000,
+      cost_usd: 2.5,
+    },
+    measured_api_cost_usd: unsettled === calls ? null : 0.25,
+    reserved_api_cost_usd: unsettled ? 2.25 : 0,
+  };
+}
+function UsageConsole({
+  api,
+  connected = true,
+  status = 'running',
+  id = 'synthetic-live',
+}: {
+  api: ReturnType<typeof createApi>;
+  connected?: boolean;
+  status?: WorkOrder['status'];
+  id?: string;
+}) {
+  const liveUsage = useRunUsage(api, id, status, connected);
+  return <RunProcessConsole order={{ ...order(status), id }} entries={[]} liveUsage={liveUsage} />;
+}
+const flushUsage = () =>
+  act(async () => {
+    await vi.advanceTimersByTimeAsync(0);
+  });
+
+describe('Live ledger usage', () => {
+  it('updates within the same phase, preserves disconnected values, and refreshes once at cancellation', async () => {
+    vi.useFakeTimers();
+    try {
+      let snapshot = liveSnapshot();
+      const fetch = vi.fn(async (input: string) => {
+        if (!input.endsWith('/synthetic-live/usage')) throw new Error('Unexpected fixture request');
+        return Response.json(snapshot);
+      });
+      vi.stubGlobal('fetch', fetch);
+      const api = createApi('synthetic-csrf');
+      const view = render(<UsageConsole api={api} />);
+      await flushUsage();
+      const readout = screen.getByLabelText('Recorded run state');
+      expect(within(readout).getByText('100', { exact: true })).toBeVisible();
+      expect(within(readout).getByText('$0.2500', { exact: true })).toBeVisible();
+      snapshot = liveSnapshot(750, 3, 1);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+      });
+      expect(within(readout).getByText('750', { exact: true })).toBeVisible();
+      expect(within(readout).getByText('Model calls').parentElement).toHaveTextContent('3 / 40');
+      expect(within(readout).getByText(/1 calls pending.*1,000 tokens reserved/)).toBeVisible();
+      expect(within(readout).getByText('$0.2500', { exact: true })).toBeVisible();
+      expect(within(readout).getByText(/\$2.2500 reserved.*pending cost unknown/)).toBeVisible();
+      expect(fetch).toHaveBeenCalledTimes(2);
+      expect(fetch.mock.calls.every((call) => String(call[0]).endsWith('/synthetic-live/usage'))).toBe(true);
+      view.rerender(<UsageConsole api={api} connected={false} />);
+      expect(screen.getByText(/Disconnected.*snapshot; it may be stale/)).toHaveAttribute('role', 'status');
+      expect(within(readout).getByText('750', { exact: true })).toBeVisible();
+      expect(screen.getByRole('button', { name: 'Retry usage' })).toBeDisabled();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(6000);
+      });
+      expect(fetch).toHaveBeenCalledTimes(2);
+      snapshot = liveSnapshot(900, 4);
+      view.rerender(<UsageConsole api={api} status="cancelled" />);
+      await flushUsage();
+      expect(within(readout).getByText('900', { exact: true })).toBeVisible();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(6000);
+      });
+      expect(fetch).toHaveBeenCalledTimes(3);
+      view.unmount();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(6000);
+      });
+      expect(fetch).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it('retains a stale snapshot after failure, stops polling and recovers only on explicit retry', async () => {
+    vi.useFakeTimers();
+    try {
+      let failed = false;
+      const fetch = vi.fn(async () =>
+        failed
+          ? Response.json({ message: 'Synthetic outage' }, { status: 503 })
+          : Response.json(liveSnapshot()),
+      );
+      vi.stubGlobal('fetch', fetch);
+      const api = createApi('synthetic-csrf');
+      const view = render(<UsageConsole api={api} />);
+      await flushUsage();
+      failed = true;
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+      });
+      expect(screen.getByRole('alert')).toHaveTextContent('may be stale');
+      expect(screen.getByText('100', { exact: true })).toBeVisible();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10000);
+      });
+      expect(fetch).toHaveBeenCalledTimes(2);
+      failed = false;
+      fireEvent.click(screen.getByRole('button', { name: 'Retry usage' }));
+      await flushUsage();
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      expect(fetch).toHaveBeenCalledTimes(3);
+      view.unmount();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it('aborts pending work on unmount and never invents zero usage or settled cost for an unsettled call', async () => {
+    vi.useFakeTimers();
+    try {
+      let requestSignal: AbortSignal | undefined;
+      let finish: (value: Response) => void = () => {};
+      const fetch = vi.fn((_input: string, options: RequestInit) => {
+        requestSignal = options.signal ?? undefined;
+        return new Promise<Response>((resolve) => {
+          finish = resolve;
+        });
+      });
+      vi.stubGlobal('fetch', fetch);
+      const api = createApi('synthetic-csrf');
+      const view = render(<UsageConsole api={api} />);
+      await flushUsage();
+      expect(screen.getAllByText('Not available')).toHaveLength(2);
+      expect(screen.getByText('Unknown', { exact: true })).toBeVisible();
+      view.unmount();
+      expect(requestSignal?.aborted).toBe(true);
+      finish(Response.json(liveSnapshot(0, 1, 1)));
+      await flushUsage();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(6000);
+      });
+      expect(fetch).toHaveBeenCalledTimes(1);
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => Response.json(liveSnapshot(0, 1, 1))),
+      );
+      const next = render(<UsageConsole api={api} status="blocked" />);
+      await flushUsage();
+      expect(screen.getByText('Unknown', { exact: true })).toBeVisible();
+      expect(screen.getByText(/1 calls pending.*1,000 tokens reserved/)).toBeVisible();
+      expect(screen.getByText(/\$2.2500 reserved.*pending cost unknown/)).toBeVisible();
+      next.unmount();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

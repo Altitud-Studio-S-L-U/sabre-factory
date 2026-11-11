@@ -35,6 +35,7 @@ import About from './About';
 import Integrations from './Integrations';
 import WorkAudit from './WorkAudit';
 import ExecutionTimeline from './ExecutionTimeline';
+import useRunUsage from './useRunUsage';
 import FlowConfiguration from './FlowConfiguration';
 import type { FlowConfiguration as FlowConfig } from './api';
 import Icon, { type IconName } from './Icon';
@@ -1331,6 +1332,7 @@ function WorkDetail({
   const [auditError, setAuditError] = useState('');
   const [auditLoading, setAuditLoading] = useState(true);
   const [auditRefresh, setAuditRefresh] = useState(0);
+  const liveUsage = useRunUsage(api, order.id, order.status, connected);
   useEffect(() => {
     let live = true;
     void api
@@ -1537,6 +1539,7 @@ function WorkDetail({
                   workId={order.id}
                   order={order}
                   audit={audit}
+                  liveUsage={liveUsage}
                   active={['running', 'queued'].includes(order.status)}
                 />
               </>

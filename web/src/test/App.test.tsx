@@ -1,6 +1,7 @@
 import { configuration } from './modelConfigurationFixture';
 import { factoryConfiguration } from './factoryConfigurationFixture';
 import { agentCatalog } from './agentCatalogFixture';
+import { runUsageSnapshot } from './runUsageFixture';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { StrictMode } from 'react';
@@ -133,6 +134,17 @@ function mockApi(overrides: Record<string, { status: number; body: unknown }> = 
     if (path === '/agents') return Response.json(agentCatalog());
     if (path === '/releases') return Response.json({ version: 1, items: [], truncated: false });
     if (path.endsWith('/a2a-tasks')) return Response.json([]);
+    if (path.endsWith('/usage')) {
+      const id = path.split('/').at(-2)!;
+      const selected = orders.find((item) => item.id === id);
+      return Response.json(
+        runUsageSnapshot(
+          id,
+          typeof selected?.calls_used === 'number' ? selected.calls_used : 0,
+          typeof selected?.tokens_used === 'number' ? selected.tokens_used : 0,
+        ),
+      );
+    }
     if (path === '/tools/catalog')
       return Response.json({
         version: 1,

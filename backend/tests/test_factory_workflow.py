@@ -381,15 +381,17 @@ async def test_answer_arriving_during_interrupt_publication_is_not_erased(build_
     assert completed.status == Status.COMPLETED
 
 
-async def test_create_stops_for_architecture_approval(build_factory):
+@pytest.mark.parametrize("answer", ["Aprobar", "Approve"])
+async def test_create_stops_for_architecture_approval(build_factory, answer):
     factory, repo, team, _, _, publisher = build_factory(mode="create")
     result = await factory.drive(repo.current.id)
     assert result.status == Status.WAITING_INPUT
     assert result.questions[-1].kind == "architecture"
+    assert result.questions[-1].options == ["Approve", "Revise"]
     assert "developer" not in team.calls
     assert publisher.calls == []
     question = result.questions[-1]
-    repo.answer_value = {"question_id": question.id, "plan_revision": question.plan_revision, "answer": "Aprobar"}
+    repo.answer_value = {"question_id": question.id, "plan_revision": question.plan_revision, "answer": answer}
     completed = await factory.drive(result.id)
     assert completed.status == Status.COMPLETED
 

@@ -152,8 +152,9 @@ export default function RunInspector({
             {active === 'Messages' && (
               <>
                 <p className="inspector-caption">
-                  Recorded instructions and visible responses for the invocation selected below. Historical
-                  stage events may have no invocation binding. Hidden reasoning is not collected.
+                  Invocation checkpoint snapshot; messages may include later steps/retries, not a
+                  reconstruction at selected event time. Historical stage events may have no invocation
+                  binding. Hidden reasoning is not collected.
                 </p>
                 {inspection?.agents.length ? (
                   <label className="inspection-agent-picker">
@@ -195,6 +196,10 @@ export default function RunInspector({
             )}
             {active === 'Evals' && (
               <>
+                <p className="inspector-caption">
+                  Run-level evaluation evidence from the current snapshot; it is not a reconstruction at the
+                  selected span's time.
+                </p>
                 {api && (
                   <BrowserReportsPanel
                     api={api}
@@ -223,6 +228,10 @@ export default function RunInspector({
             )}
             {active === 'Logs' && (
               <>
+                <p className="inspector-caption">
+                  Run-level logs from the current inspection snapshot. Entries may include later steps or
+                  retries beyond the selected span.
+                </p>
                 {inspection?.logs.length ? (
                   inspection.logs.map((entry, index) => (
                     <article className="inspection-log" key={String(entry.id ?? index)}>
@@ -275,7 +284,8 @@ export default function RunInspector({
             {inspection?.checkpoint_id && (
               <div className="inspector-caption">
                 <p>
-                  Recorded checkpoint <code>{inspection.checkpoint_id}</code>. Pages use this snapshot.
+                  Invocation checkpoint snapshot <code>{inspection.checkpoint_id}</code>. Messages may include
+                  later steps/retries. Pages use this snapshot, not a reconstruction at selected event time.
                 </p>
                 <button
                   className="button small"

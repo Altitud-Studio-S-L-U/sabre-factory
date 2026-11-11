@@ -387,7 +387,7 @@ class Factory:
             work.summary = result.summary
             return await self.finish(work, architecture_approved=True)
         proposal = result.summary + "\n" + "\n".join(result.decisions)
-        work.questions.append(HumanQuestion(work_id=work.id, plan_revision=work.plan_revision, kind="architecture", prompt=proposal, options=["Aprobar", "Revisar"]))
+        work.questions.append(HumanQuestion(work_id=work.id, plan_revision=work.plan_revision, kind="architecture", prompt=proposal, options=["Approve", "Revise"]))
         return await self.finish(work)
 
     async def architecture(self, state):
