@@ -12,6 +12,11 @@ STOPPED = frozenset({Status.PAUSED, Status.BLOCKED, Status.FAILED})
 CONTROL_OUTCOMES = {"PAUSE_REQUESTED": Status.PAUSED, "CANCEL_REQUESTED": Status.CANCELLED}
 
 
+def is_control_outcome(error: BaseException) -> bool:
+    """An owner pause/cancel request raised at a safe boundary: an interruption, not a failure."""
+    return getattr(error, "code", None) in CONTROL_OUTCOMES
+
+
 def open_questions(work: WorkOrder) -> list:
     """Unanswered questions of the current plan revision; a closed run has none."""
     if work.status in CLOSED:

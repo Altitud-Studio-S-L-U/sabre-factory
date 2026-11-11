@@ -477,11 +477,14 @@ class Repository:
 
     async def event(self, work: WorkOrder, kind: str, message: str):
         async with self.connection() as conn:
-            event_id = new_id()
-            await conn.execute("INSERT INTO work_events(id,work_id,kind,message) VALUES(%s,%s,%s,%s)", (event_id, work.id, kind, message))
-            await conn.execute("INSERT INTO notifications VALUES(%s,%s,%s,false)", (event_id, work.id, Jsonb({"kind": kind, "message": message})))
-            from sabre.notifications import enqueue_notifications
-            await enqueue_notifications(conn, self.notification_destinations, event_id, work)
+            await self._record_event(conn, work, kind, message)
+
+    async def _record_event(self, conn, work: WorkOrder, kind: str, message: str):
+        event_id = new_id()
+        await conn.execute("INSERT INTO work_events(id,work_id,kind,message) VALUES(%s,%s,%s,%s)", (event_id, work.id, kind, message))
+        await conn.execute("INSERT INTO notifications VALUES(%s,%s,%s,false)", (event_id, work.id, Jsonb({"kind": kind, "message": message})))
+        from sabre.notifications import enqueue_notifications
+        await enqueue_notifications(conn, self.notification_destinations, event_id, work)
 
     async def record_execution_event(self, event: ExecutionEvent):
         async with self.connection() as conn:
@@ -523,10 +526,14 @@ class Repository:
             work = WorkOrder.model_validate(row["data"])
             if row["control"] != command or work.status in {Status.COMPLETED, Status.CANCELLED}:
                 return False
+            previous = work.status
             work.status = Status.PAUSED if command == "pause" else Status.CANCELLED
             work.control, work.updated_at = "pause" if command == "pause" else "cancel", now()
             work.summary = "Work order paused" if command == "pause" else "Work order cancelled"
             await conn.execute("UPDATE work_orders SET data=%s,updated_at=now() WHERE id=%s", (Jsonb(payload(work)), work_id))
+            # Earlier error evidence is retained; record the owner's control in the same transaction, once.
+            if work.status != previous:
+                await self._record_event(conn, work, work.status.value, work.summary)
             return True
 
     async def control(self, work_id: str):
