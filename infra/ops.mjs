@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { readFileSync, writeFileSync, existsSync, renameSync, unlinkSync } from 'node:fs';
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { safeEnvironment, provisionBootstrap, rawSecretNames, readPrivate, privateJson, volumes as bootstrapVolumes,
@@ -12,7 +12,9 @@ import { provisionExecutorState } from './executor-state.mjs';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const windows = process.platform === 'win32';
 import { executable, prefix } from './platform.mjs';
-const [action = 'status', component = 'all', ...rest] = process.argv.slice(2);
+const cliArguments = process.argv.slice(2);
+const noOpen = cliArguments.includes('--no-open');
+const [action = 'status', component = 'all', ...rest] = cliArguments.filter((value) => value !== '--no-open');
 const invoked = Boolean(process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href);
 const configFiles = invoked ? ['.env', '.env.runtime'] : [];
 const config = {};
@@ -142,15 +144,44 @@ export async function runClaudeOwnerLogin({ input = process.stdin, output = proc
   }
 }
 
-export async function openPanelAccess({ platform = process.platform, input = process.stdin,
-  output = process.stdout, requestGrant, launchBrowser }) {
-  const requireOwnerTerminal = () => {
-    if (input.isTTY !== true || output.isTTY !== true) {
-      throw panelFailure('PANEL_OWNER_TERMINAL_REQUIRED', 'On Windows, run node bin/sabre.mjs open in your own interactive terminal without redirecting input or output.');
+/** Browser opener per platform. It only ever receives the one-use local relay address, never the grant. */
+export function browserOpener(platform = process.platform) {
+  if (platform === 'win32') return { command: 'explorer.exe', exitCodeReliable: false };
+  if (platform === 'darwin') return { command: 'open', exitCodeReliable: true };
+  return { command: 'xdg-open', exitCodeReliable: true };
+}
+
+/**
+ * One-use loopback relay: the browser fetches an unguessable local path and is redirected to the panel
+ * with the grant in the URL fragment. The grant never appears in process arguments, terminal output or logs.
+ */
+export async function serveHandoff(target, { timeoutMs = 60_000, createServer } = {}) {
+  const create = createServer ?? (await import('node:http')).createServer;
+  const path = `/${randomBytes(32).toString('base64url')}`;
+  let settle;
+  const delivered = new Promise((resolveDelivered) => { settle = resolveDelivered; });
+  const server = create((request, response) => {
+    const headers = { 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer', 'X-Content-Type-Options': 'nosniff' };
+    if (request.method !== 'GET' || request.url !== path) {
+      response.writeHead(404, headers).end();
+      return;
     }
-  };
-  // Owner-terminal action. Agents must not allocate a PTY to request or capture this link.
-  if (platform === 'win32') requireOwnerTerminal();
+    response.writeHead(303, { ...headers, Location: target }).end();
+    close(true);
+  });
+  const timer = setTimeout(() => close(false), timeoutMs);
+  function close(value) {
+    clearTimeout(timer);
+    server.close();
+    server.closeAllConnections?.();
+    settle(value);
+  }
+  await new Promise((ok, fail) => { server.once('error', fail); server.listen(0, '127.0.0.1', ok); });
+  return { address: `http://127.0.0.1:${server.address().port}${path}`, delivered, close: () => close(false) };
+}
+
+export async function openPanelAccess({ output = process.stdout, requestGrant, launchBrowser,
+  handoff = serveHandoff }) {
   let receipt;
   try { receipt = await requestGrant(); }
   catch { throw panelFailure('PANEL_UNAVAILABLE', 'Panel access could not be prepared. Check that SABRE is running.'); }
@@ -164,18 +195,51 @@ export async function openPanelAccess({ platform = process.platform, input = pro
     throw panelFailure('PANEL_GRANT_INVALID', 'SABRE returned an invalid temporary access grant.');
   }
   const url = `${receipt.origin}/#ticket=${encodeURIComponent(receipt.ticket)}`;
-  if (platform === 'win32') {
-    requireOwnerTerminal();
-    try {
-      output.write(`Open this link in your browser. It expires 60 seconds after issue and works once; do not share it.\n${url}\n`);
-    } catch {
-      throw panelFailure('PANEL_OUTPUT_UNAVAILABLE', 'The link could not be displayed. Run the command again for a new access grant.');
-    }
-    return;
+  let relay;
+  try { relay = await handoff(url); }
+  catch { throw panelFailure('PANEL_LAUNCH_FAILED', 'The local browser relay could not start. Run sabre open again.'); }
+  try { await launchBrowser(relay.address); }
+  catch {
+    relay.close();
+    throw panelFailure('PANEL_LAUNCH_FAILED', 'The browser could not open. Run sabre open again from your desktop session.');
   }
-  try { await launchBrowser(url); }
-  catch { throw panelFailure('PANEL_LAUNCH_FAILED', 'The browser could not open. Run the launcher from your local terminal for a new access grant.'); }
-  output.write('Panel opened with temporary access; no token copying is needed.\n');
+  if (!(await relay.delivered)) {
+    throw panelFailure('PANEL_LAUNCH_FAILED', 'The browser did not open SABRE within 60 seconds. Run sabre open again.');
+  }
+  try { output.write(`Panel opened in your browser at ${receipt.origin}. It stays signed in while you use it.\n`); }
+  catch { /* The browser already has its session; a closed terminal is not a failure. */ }
+}
+
+/** Starts the platform opener with only the local relay address. */
+export async function launchWithOpener(address, { platform = process.platform, spawnProcess = spawn } = {}) {
+  const opener = browserOpener(platform);
+  const child = spawnProcess(opener.command, [address], { stdio: 'ignore', windowsHide: true, detached: platform !== 'win32' });
+  await new Promise((ok, fail) => {
+    child.once('error', fail);
+    // explorer.exe reports 1 even after opening the default browser; delivery is confirmed by the relay.
+    child.once('exit', (code) => (code === 0 || !opener.exitCodeReliable ? ok() : fail(new Error('Opener failed'))));
+  });
+  child.unref?.();
+}
+
+const grantProgram = String.raw`
+import json,urllib.request
+from sabre.settings import Settings
+try:
+ cfg=Settings()
+ request=urllib.request.Request('http://127.0.0.1:8000/api/v1/panel/session-ticket',method='POST',headers={'Authorization':'Bearer '+cfg.auth_token.get_secret_value()})
+ with urllib.request.urlopen(request,timeout=10) as response: result=json.load(response)
+ print(json.dumps(result))
+except Exception:
+ print(json.dumps({'error':'PANEL_UNAVAILABLE'}))
+`;
+
+async function openPanel() {
+  await openPanelAccess({
+    // The grant is requested inside the API container with the owner credential, which never leaves it.
+    requestGrant: async () => privateJson((await privateDocker(['exec', 'sabre-factory-api-1', 'python', '-I', '-c', grantProgram])).toString()),
+    launchBrowser: (address) => launchWithOpener(address),
+  });
 }
 
 if (invoked) {
@@ -237,32 +301,8 @@ if (action === 'init') {
   console.log(privateConfig.auth_token);
 } else if (action === 'open') {
   if (component !== 'all' || rest.length) throw new Error('Use open without arguments.');
-  const program = String.raw`
-import json,urllib.request
-from sabre.settings import Settings
-try:
- cfg=Settings()
- request=urllib.request.Request('http://127.0.0.1:8000/api/v1/panel/session-ticket',method='POST',headers={'Authorization':'Bearer '+cfg.auth_token.get_secret_value()})
- with urllib.request.urlopen(request,timeout=10) as response: result=json.load(response)
- print(json.dumps(result))
-except Exception:
- print(json.dumps({'error':'PANEL_UNAVAILABLE'}))
-`;
-  try {
-    await openPanelAccess({
-      requestGrant: async () => privateJson((await privateDocker(['exec', 'sabre-factory-api-1', 'python', '-I', '-c', program])).toString()),
-      launchBrowser: async (url) => {
-        // Linux keeps the temporary grant on stdin, outside process arguments and console output.
-        const opener = start('python3', ['-I', '-c', 'import sys,webbrowser; raise SystemExit(0 if webbrowser.open(sys.stdin.read()) else 1)'], ['pipe', 'ignore', 'ignore']);
-        const completed = done(opener);
-        let inputFailed = false;
-        opener.stdin.on('error', () => { inputFailed = true; });
-        opener.stdin.end(url);
-        await completed;
-        if (inputFailed) throw new Error('The launcher did not receive its temporary grant');
-      },
-    });
-  } catch (error) {
+  try { await openPanel(); }
+  catch (error) {
     console.error(error.message);
     process.exitCode = 1;
   }
@@ -388,6 +428,11 @@ except Exception:
   if (usesClaude) await provisionClaude();
   await compose([...(usesCodex ? ['--profile', 'codex'] : []), ...(usesClaude ? ['--profile', 'claude'] : []),
     'up', '-d', '--wait', '--wait-timeout', '90', ...(component === 'all' ? [] : [component]), ...rest]);
+  if (component === 'all' && !rest.length && !noOpen && !process.env.CI) {
+    // Opening the panel is a convenience: services are already running if it fails.
+    try { await openPanel(); }
+    catch (error) { console.error(`${error.message} Services are running; open the panel later with sabre open.`); }
+  }
 } else if (action === 'prepare') {
   const volume = await prepareRules();
   const rendered = JSON.parse(await compose(['config', '--format', 'json'], undefined, true));

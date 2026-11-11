@@ -1,0 +1,8 @@
+{
+  "name": "sabre-factory",
+  "private": true,
+  "description": "Local software factory launcher. Install the sabre command with npm link.",
+  "type": "module",
+  "bin": { "sabre": "bin/sabre.mjs" },
+  "engines": { "node": ">=24" }
+}
