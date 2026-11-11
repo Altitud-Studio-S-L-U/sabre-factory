@@ -41,7 +41,7 @@ import ExecutionTimeline from './ExecutionTimeline';
 import useRunUsage from './useRunUsage';
 import FlowConfiguration from './FlowConfiguration';
 import type { FlowConfiguration as FlowConfig } from './api';
-import Icon, { type IconName } from './Icon';
+import Icon from './Icon';
 import Field from './components/FormField';
 import Select from './components/Select';
 import UsageMeter from './components/UsageMeter';
@@ -67,30 +67,7 @@ import {
   isClosed,
   pendingQuestions,
 } from './runState';
-
-type View =
-  | 'work'
-  | 'projects'
-  | 'security'
-  | 'memory'
-  | 'settings'
-  | 'system'
-  | 'agents'
-  | 'tools'
-  | 'config';
-const navigation: { id: View; path: string; label: string; icon: IconName }[] = [
-  { id: 'work', path: '/work', label: 'Runs', icon: 'work' },
-  { id: 'agents', path: '/agents', label: 'Agents', icon: 'projects' },
-  { id: 'tools', path: '/tools', label: 'Tools', icon: 'settings' },
-  { id: 'memory', path: '/memory', label: 'Memory', icon: 'memory' },
-  { id: 'config', path: '/config', label: 'Config', icon: 'settings' },
-];
-const legacyNavigation: typeof navigation = [
-  { id: 'projects', path: '/projects', label: 'Projects', icon: 'projects' },
-  { id: 'security', path: '/security', label: 'Security', icon: 'security' },
-  { id: 'settings', path: '/integrations', label: 'Integrations', icon: 'settings' },
-  { id: 'system', path: '/about', label: 'About', icon: 'info' },
-];
+import { legacyNavigation, navigation, type View } from './navigation';
 function usesOnlyCliModels(status: Record<string, unknown>): boolean {
   const model = status.model as { provider?: unknown } | undefined;
   const roles = status.roles as Record<string, { provider?: unknown }> | undefined;
@@ -133,7 +110,7 @@ const statusLabels: Record<string, string> = {
   info: 'Information',
 };
 const phaseLabels: Record<string, string> = {
-  clarification: 'Aclaraciones',
+  clarification: 'Clarification',
   task_clarification: 'Task clarification',
   scope_check: 'Scope check',
   scope_approval: 'Scope decision',
@@ -153,15 +130,15 @@ const phaseLabels: Record<string, string> = {
   planning: 'Planning',
   plan: 'Planning',
   design: 'Design',
-  architecture: 'Arquitectura',
+  architecture: 'Architecture',
   implement: 'Development',
   implementation: 'Development',
   verify: 'Verification',
   verification: 'Verification',
   review: 'Review',
   security: 'Security',
-  delivery: 'Entrega',
-  deliver: 'Entrega',
+  delivery: 'Delivery',
+  deliver: 'Delivery',
   complete: 'Completed',
   completed: 'Completed',
 };
@@ -582,7 +559,7 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
             <span className="last-update">
               {updated
                 ? `Updated ${updated.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`
-                : 'Sincronizando'}
+                : 'Synchronizing'}
             </span>
             <Button
               className="icon-button"
@@ -1623,7 +1600,7 @@ function WorkDetail({
                                 <div>
                                   <code>{gate.command.join(' ')}</code>
                                   <p>
-                                    Salida {gate.exit_code} ·{' '}
+                                    Exit {gate.exit_code} ·{' '}
                                     {matches ? 'Delivery snapshot' : 'Snapshot differs from delivery'}
                                   </p>
                                 </div>
