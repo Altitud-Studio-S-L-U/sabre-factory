@@ -239,11 +239,36 @@ class DockerBroker:
         self.locks: dict[str, asyncio.Lock] = {}
         self.slots = asyncio.Semaphore(2)
         self.restored: set[str] = set()
+        # The verified snapshot that matches each workspace's bytes. Set only right after
+        # the helper captured or installed those bytes; dropped before any mutation, so a
+        # failed persist or a broker restart falls back to reading through the helper.
+        self.current: dict[str, dict] = {}
         self.security_database_lock = asyncio.Lock()
         self.browser_runner = BrowserRunner(self)
 
     def lock(self, work_id: str) -> asyncio.Lock:
         return self.locks.setdefault(valid_work_id(work_id), asyncio.Lock())
+
+    def _remember(self, work_id: str, data: dict) -> None:
+        self.current[work_id] = {"digest": data["digest"], "files": data["files"],
+                                 "index": {entry["path"]: entry for entry in data["files"]}}
+
+    def _forget(self, work_id: str) -> None:
+        self.current.pop(work_id, None)
+
+    def _cached_entry(self, work_id: str, path: str) -> dict | None:
+        current = self.current.get(work_id)
+        return current["index"].get(path) if current else None
+
+    def _cached_text(self, work_id: str, path: str) -> str | None:
+        """Text the helper would return for this path, or None to ask the helper.
+
+        Mirrors the helper's read limits: UTF-8 only and at most 2,000,000 bytes.
+        """
+        entry = self._cached_entry(work_id, path)
+        if entry is None or entry["encoding"] != "utf-8" or len(entry["content"].encode()) > 2_000_000:
+            return None
+        return entry["content"]
 
     def _metadata_path(self, work_id: str) -> Path:
         return self.root / f"{valid_work_id(work_id)}.json"
@@ -288,6 +313,7 @@ class DockerBroker:
             if snapshot_digest(data["files"]) != data["digest"]:
                 raise DomainError("WORKSPACE_SNAPSHOT_CORRUPT", "The snapshot does not match the run bytes")
             await asyncio.to_thread(self._atomic_json, self._snapshot_path(work_id), data)
+            self._remember(work_id, data)
             return data
         except DomainError:
             raise
@@ -309,11 +335,13 @@ class DockerBroker:
             if work_id in self.restored and await self._helper(work_id, "identity") == work_id:
                 return metadata
         snapshot = self._load_snapshot(work_id)
+        self._forget(work_id)
         if volume:
             await asyncio.to_thread(self._remove_workspace_volume, work_id)
         await asyncio.to_thread(self._install_snapshot, work_id, snapshot)
         await self._helper(work_id, "set_identity", {"identity": work_id})
         self.restored.add(work_id)
+        self._remember(work_id, snapshot)
         return metadata
 
     def _metadata(self, work_id: str) -> dict:
@@ -545,6 +573,7 @@ class DockerBroker:
                     raise DomainError("WORKSPACE_CONFLICT", "That workspace belongs to another configuration")
                 return
             raw, commit = await self._github_archive(project)
+            self._forget(work_id)
             await asyncio.to_thread(self._install_archive, work_id, raw)
             try:
                 admission = parse_findings("gitleaks", await self._scanner(work_id, "gitleaks"))
@@ -560,13 +589,21 @@ class DockerBroker:
 
     async def list_files(self, work_id: str) -> list[str]:
         async with self.lock(work_id):
+            current = self.current.get(work_id)
+            if current is not None and self._metadata(work_id):
+                return [entry["path"] for entry in current["files"]]
             await self._ensure_workspace(work_id)
             return await self._helper(work_id, "list")
 
     async def read_file(self, work_id: str, path: str) -> str:
         async with self.lock(work_id):
+            name = valid_path(path)
+            cached = self._cached_text(work_id, name)
+            if cached is not None and self._metadata(work_id):
+                self.guard.check(cached)
+                return cached
             await self._ensure_workspace(work_id)
-            result = await self._helper(work_id, "read", {"path": valid_path(path)})
+            result = await self._helper(work_id, "read", {"path": name})
             self.guard.check(result)
             return result
 
@@ -577,9 +614,12 @@ class DockerBroker:
             if expected_content_digest is not None:
                 if not re.fullmatch(r"[a-f0-9]{64}", expected_content_digest):
                     raise DomainError("INVALID_DIGEST", "The file digest is invalid", 422)
-                current = await self._helper(work_id, "digest", {"path": valid_path(path)})
+                entry = self._cached_entry(work_id, valid_path(path))
+                current = (hashlib.sha256(base64.b64decode(entry["content"]) if entry["encoding"] == "base64" else entry["content"].encode()).hexdigest()
+                           if entry is not None else await self._helper(work_id, "digest", {"path": valid_path(path)}))
                 if current != expected_content_digest:
                     raise DomainError("SOURCE_CONTEXT_STALE", "The file changed before saving; read it again", 409)
+            self._forget(work_id)
             try:
                 await self._helper(work_id, "write", {"path": valid_path(path), "content": content})
             finally:
@@ -590,6 +630,7 @@ class DockerBroker:
             meta = await self._ensure_workspace(work_id)
             self.guard.check(argv)
             variable = "SABRE_PYTHON_IMAGE" if meta["project"]["profile"] == "python" else "SABRE_NODE_IMAGE"
+            self._forget(work_id)
             try:
                 return await asyncio.to_thread(self._run, self._image(variable), work_id, argv, timeout_s)
             finally:
@@ -659,6 +700,7 @@ class DockerBroker:
                 else:
                     command = ["/usr/local/bin/npm", "install", "--package-lock-only", "--ignore-scripts", "--no-audit", "--no-fund"]
                     locks = ["package-lock.json"]
+            self._forget(work_id)
             try:
                 await self._run_dependency_command(work_id, meta, command)
             finally:
@@ -673,6 +715,7 @@ class DockerBroker:
     async def prepare_dependencies(self, work_id: str) -> None:
         async with self.lock(work_id), self.slots:
             metadata = await self._ensure_workspace(work_id)
+            self._forget(work_id)
             try:
                 await self._prepare_dependencies(work_id, metadata)
             finally:
@@ -707,14 +750,22 @@ class DockerBroker:
 
     async def snapshot(self, work_id: str) -> dict:
         async with self.lock(work_id):
+            current = self.current.get(work_id)
+            if current is not None:
+                return {"digest": current["digest"], "files": [dict(entry) for entry in current["files"]],
+                        "base_commit": self._metadata(work_id)["base_commit"]}
             meta = await self._ensure_workspace(work_id)
             result = await self._helper(work_id, "snapshot")
+            if snapshot_digest(result["files"]) == result["digest"]:
+                self._remember(work_id, result)
             result["base_commit"] = meta["base_commit"]
             return result
 
     async def scan_snapshot(self, work_id: str, digest: str, baseline: list[str]) -> list[SecurityFinding]:
         async with self.lock(work_id), self.security_database_lock, self.slots:
             await self._ensure_workspace(work_id)
+            # Scanners mount the workspace; trust only the helper's view until they finish.
+            self._forget(work_id)
             initial = await self._helper(work_id, "snapshot")
             if initial["digest"] != digest:
                 raise DomainError("STALE_SNAPSHOT", "The workspace changed after gathering evidence")
@@ -725,8 +776,11 @@ class DockerBroker:
                     findings.extend(parse_findings(scanner, result))
                 except (DomainError, ValueError, docker.errors.DockerException):
                     findings.append(scanner_error(scanner))
-            if (await self._helper(work_id, "snapshot"))["digest"] != digest:
+            final = await self._helper(work_id, "snapshot")
+            if final["digest"] != digest:
                 raise DomainError("STALE_SNAPSHOT", "The workspace changed during review")
+            if snapshot_digest(final["files"]) == final["digest"]:
+                self._remember(work_id, final)
             return [finding.model_copy(update={"baseline": finding.fingerprint in baseline and finding.category not in {"secret", "scanner_error"}}) for finding in findings]
 
     async def security_version(self, work_id: str) -> str:
@@ -846,6 +900,7 @@ class DockerBroker:
             self._metadata_path(work_id).unlink(missing_ok=True)
             self._snapshot_path(work_id).unlink(missing_ok=True)
             self.restored.discard(work_id)
+            self._forget(work_id)
 
 
 class ExecutorClient:
