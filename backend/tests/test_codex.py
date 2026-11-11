@@ -215,6 +215,83 @@ async def test_process_timeout_kills_child_and_does_not_leak_stderr(tmp_path):
         assert stat_file.read_text().split()[2] == "Z"
 
 
+@pytest.mark.parametrize("cancelled", [False, True])
+async def test_capture_waits_for_child_exit_after_group_leader_has_exited(monkeypatch, tmp_path, cancelled):
+    group = 412345
+    proc = tmp_path / "proc"
+    child = proc / str(group + 1)
+    child.mkdir(parents=True)
+    stat_file = child / "stat"
+    stat_file.write_text(f"{group + 1} (child (nested) name) R 1 {group} {group} 0 0\n")
+    monkeypatch.setattr(codex_runner, "_PROC_ROOT", proc, raising=False)
+    leader_exited = asyncio.Event()
+
+    async def wait():
+        leader_exited.set()
+        return -9
+
+    stdout, stderr = asyncio.StreamReader(), asyncio.StreamReader()
+    stderr.feed_data(b"synthetic-sensitive-stderr")
+    process = SimpleNamespace(pid=group, returncode=-9, wait=wait, stdout=stdout, stderr=stderr,
+        stdin=SimpleNamespace(write=Mock(), drain=AsyncMock(), close=Mock()))
+    started = asyncio.Event()
+
+    async def spawn(*args, **kwargs):
+        started.set()
+        return process
+
+    monkeypatch.setattr(codex_runner.asyncio, "create_subprocess_exec", AsyncMock(side_effect=spawn))
+    kill = Mock()
+    monkeypatch.setattr(codex_runner.os, "killpg", kill)
+    capture = asyncio.create_task(codex_runner.capture_process(["synthetic-process"], env={}, cwd=str(tmp_path), timeout=60 if cancelled else 0))
+    try:
+        await started.wait()
+        if cancelled:
+            capture.cancel()
+        await leader_exited.wait()
+        if cancelled:
+            capture.cancel()  # Repeated cancellation must not interrupt cleanup.
+        assert not capture.done(), "A reaped leader is not proof that its child has stopped"
+        stat_file.write_text(f"{group + 1} (child (nested) name) Z 1 {group} {group} 0 0\n")
+        if cancelled:
+            with pytest.raises(asyncio.CancelledError):
+                await capture
+        else:
+            with pytest.raises(DomainError) as error:
+                await capture
+            assert error.value.code == "CODEX_TIMEOUT"
+            assert "synthetic-sensitive" not in str(error.value)
+        assert all(call.args == (group, codex_runner.signal.SIGKILL) for call in kill.call_args_list)
+    finally:
+        stat_file.write_text(f"{group + 1} (child) Z 1 {group} {group} 0 0\n")
+        await asyncio.gather(capture, return_exceptions=True)
+
+
+async def test_unconfirmed_process_group_cleanup_is_bounded_and_fails_closed(monkeypatch, tmp_path):
+    child = tmp_path / "42"
+    child.mkdir()
+    (child / "stat").write_text("42 (synthetic-private-process) D 1 41 41 0 0\n")
+    monkeypatch.setattr(codex_runner, "_PROC_ROOT", tmp_path)
+    monkeypatch.setattr(codex_runner, "_PROCESS_CLEANUP_TIMEOUT_S", 0)
+    monkeypatch.setattr(codex_runner.os, "killpg", Mock())
+    with pytest.raises(DomainError) as error:
+        await codex_runner._terminate_process_group(SimpleNamespace(pid=41, wait=AsyncMock()))
+    assert error.value.code == "CODEX_CLEANUP_FAILED"
+    assert "synthetic-private" not in str(error.value)
+
+
+@pytest.mark.parametrize("state,running", [("R", True), ("D", True), ("T", True), ("Z", False), ("X", False)])
+def test_process_group_observation_distinguishes_terminal_state_and_other_sessions(monkeypatch, tmp_path, state, running):
+    child = tmp_path / "42"
+    child.mkdir()
+    (child / "stat").write_text(f"42 (worker (name) with spaces) {state} 1 41 41 0 0\n")
+    foreign = tmp_path / "43"
+    foreign.mkdir()
+    (foreign / "stat").write_text("43 (another job) R 1 41 99 0 0\n")
+    monkeypatch.setattr(codex_runner, "_PROC_ROOT", tmp_path)
+    assert codex_runner._group_running(41) is running
+
+
 async def test_nonzero_and_output_limit_do_not_become_success(monkeypatch, tmp_path):
     tmp_path.chmod(0o700)
     runner = codex_runner.CodexRunner(tmp_path)
