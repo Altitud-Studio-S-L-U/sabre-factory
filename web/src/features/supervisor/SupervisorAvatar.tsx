@@ -73,6 +73,8 @@ export default function SupervisorAvatar({
         viewBox="0 0 64 64"
         width={size}
         height={size}
+        // Inline size wins over container rules such as a button's [&_svg]:size-4.
+        style={{ width: size, height: size }}
         role={labelled ? 'img' : undefined}
         aria-label={labelled ? `Supervisor · ${presenceLabels[presence]}` : undefined}
         aria-hidden={labelled ? undefined : true}
