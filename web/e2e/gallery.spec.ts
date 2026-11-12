@@ -26,6 +26,8 @@ const sections = [
   { name: 'config-access', path: '/config?section=access', ready: 'Paired browsers' },
   { name: 'config-environment', path: '/config?section=environment', ready: 'Set by the environment' },
   { name: 'config-history', path: '/config?section=history', ready: 'Revision history' },
+  { name: 'projects', path: '/projects', ready: 'Example project' },
+  { name: 'security', path: '/security', ready: 'Independent review' },
 ];
 
 test.describe('gallery', () => {

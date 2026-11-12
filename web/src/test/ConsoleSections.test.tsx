@@ -201,6 +201,7 @@ it('keeps model providers out of Tools and changes only the inspected adapter re
           { ...item, id: 'model.openai', kind: 'model', title: 'Model provider hidden' },
         ]);
       if (input.endsWith('/mcp-connections')) return Response.json([]);
+      if (input.endsWith('/repository-proposals')) return Response.json({ items: [], truncated: false });
       if (input.endsWith('/tools/catalog'))
         return Response.json({
           version: 1,

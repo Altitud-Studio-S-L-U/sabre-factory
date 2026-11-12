@@ -173,3 +173,47 @@ test('disconnection preserves the catalog and disables changes until explicit re
   await expect(page.getByRole('button', { name: 'Add MCP connection' })).toBeEnabled();
   await expect(page.getByRole('alert').filter({ hasText: 'Data could not be refreshed' })).toHaveCount(0);
 });
+
+test('earlier pages open inside the five sections', async ({ page }) => {
+  await page.route('**/api/v1/system', (route) =>
+    route.fulfill({
+      json: {
+        checked_at: '2026-11-12T09:00:00Z',
+        application: { name: 'SABRE', version: '0.0.0-synthetic', graph_version: 'synthetic' },
+        runtime: { python: '3.14.0', implementation: 'CPython', system: 'Linux', architecture: 'x86_64' },
+        packages: [],
+        components: [],
+        limits: {
+          concurrent_work: 2,
+          writers_per_repository: 1,
+          repair_cycles: 2,
+          codex_invocations: 1,
+          claude_invocations: null,
+        },
+        models: [],
+      },
+    }),
+  );
+  const sidebar = page.getByRole('navigation', { name: 'Main navigation' });
+  await page.goto('/integrations');
+  await expect(page).toHaveURL(/\/tools$/);
+  await expect(sidebar.getByRole('link', { name: 'Tools' })).toHaveAttribute('aria-current', 'page');
+  await page.goto('/about');
+  await expect(page).toHaveURL(/\/config\?section=about$/);
+  await expect(page.getByRole('button', { name: 'About', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(page.getByRole('region', { name: 'System information' })).toBeVisible();
+  for (const [path, label] of [
+    ['/projects', 'Projects'],
+    ['/security', 'Security findings'],
+  ]) {
+    await page.goto(path);
+    const area = page.getByRole('navigation', { name: 'Runs area' });
+    await expect(area.getByRole('link', { name: label })).toHaveAttribute('aria-current', 'page');
+    await expect(sidebar.getByRole('link', { name: 'Runs' })).toHaveAttribute('aria-current', 'page');
+  }
+  await page.getByRole('navigation', { name: 'Runs area' }).getByRole('link', { name: 'All runs' }).click();
+  await expect(page).toHaveURL(/\/runs$/);
+});

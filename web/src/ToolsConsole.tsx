@@ -11,6 +11,8 @@ import {
 } from './api';
 import Credentials from './Credentials';
 import MCPConnections from './MCPConnections';
+import Deliveries from './Deliveries';
+import RepoCreations from './RepoCreations';
 import { GitHubRepositories } from './Integrations';
 import Button from './components/Button';
 import CheckField from './components/CheckField';
@@ -629,6 +631,13 @@ export default function ToolsConsole({ api, projects, connected = true, onRefres
             </p>
           )}
         </aside>
+      </div>
+      {/* Outbound work that uses these connections: new repositories and owner notifications. */}
+      <div className="grid min-w-0 gap-4 border-t border-border pt-8">
+        <RepoCreations api={api} />
+      </div>
+      <div className="grid min-w-0 gap-4 border-t border-border pt-8">
+        <Deliveries api={api} />
       </div>
       {editor && (
         <MCPConnections

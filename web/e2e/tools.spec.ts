@@ -22,7 +22,7 @@ test('connection action links open the registered setup surface without saving',
 });
 
 test('failed notifications require explicit recovery and show pending after retry', async ({ page }) => {
-  await page.goto('/integrations');
+  await page.goto('/tools');
   await page.getByRole('button', { name: 'Refresh deliveries' }).click();
   const deliveries = page.getByRole('region', { name: 'Delivery notifications' });
   await expect(deliveries.getByRole('cell', { name: 'HTTP_503' })).toBeVisible();
@@ -53,7 +53,7 @@ test('new repository flow requires explicit authorization and submits selected l
       },
     });
   });
-  await page.goto('/integrations');
+  await page.goto('/tools');
   await page.getByText('Create a repository and launch its flow', { exact: true }).click();
   await page.getByLabel('Repository owner', { exact: true }).fill('example');
   await page.getByLabel('New repository name').fill('synthetic-project');
