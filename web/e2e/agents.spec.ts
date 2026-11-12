@@ -1,5 +1,10 @@
 import { test, expect } from '@playwright/test';
 import type { DelegationCreate, DelegationGrant } from '../src/api';
+import { mockFactoryApi } from './fixtures';
+
+test.beforeEach(async ({ page }) => {
+  await mockFactoryApi(page);
+});
 
 test('inbound agent access requires explicit scope and revocation and never restores the one-time credential', async ({
   page,
@@ -53,7 +58,7 @@ test('inbound agent access requires explicit scope and revocation and never rest
       });
   });
   await page.goto('/agents');
-  await page.getByRole('button', { name: 'External · MCP / A2A' }).click();
+  await page.getByRole('tab', { name: 'External · MCP / A2A' }).click();
   const panel = page.getByRole('region', { name: 'Inbound delegated access' });
   await expect(panel.getByText('No delegated access issued.')).toBeVisible();
   await panel.getByRole('button', { name: 'Issue access' }).click();
@@ -89,7 +94,7 @@ test('inbound agent access requires explicit scope and revocation and never rest
   });
   await page.getByRole('link', { name: 'Runs', exact: true }).click();
   await page.getByRole('link', { name: 'Agents', exact: true }).click();
-  await page.getByRole('button', { name: 'External · MCP / A2A' }).click();
+  await page.getByRole('tab', { name: 'External · MCP / A2A' }).click();
   await panel.getByRole('button', { name: 'Revoke synthetic-browser-partner' }).click();
   const revoke = page.getByRole('dialog', { name: 'Revoke delegated access?' });
   expect(writes).toBe(1);
