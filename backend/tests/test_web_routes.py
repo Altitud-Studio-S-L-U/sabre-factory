@@ -13,7 +13,7 @@ def console_app(tmp_path):
     return Starlette(routes=[Mount("/", ConsoleFiles(directory=tmp_path, html=True))])
 
 
-@pytest.mark.parametrize("path", ["/work", "/work/a-safe-id", "/agents", "/tools", "/config", "/projects", "/memory",
+@pytest.mark.parametrize("path", ["/runs", "/runs/a-safe-id", "/work", "/work/a-safe-id", "/agents", "/tools", "/config", "/projects", "/memory",
     "/integrations", "/security/", "/about", "/tools?connection=github.read", "/config?section=models"])
 async def test_console_deep_links_serve_entry(tmp_path, path):
     async with httpx.AsyncClient(transport=httpx.ASGITransport(console_app(tmp_path)), base_url="http://fixture") as client:
@@ -28,7 +28,7 @@ async def test_every_listed_console_section_serves_entry(tmp_path, section):
     assert response.status_code == 200 and response.headers["cache-control"] == REVALIDATE
 
 
-@pytest.mark.parametrize("path", ["/api/v1/unknown", "/mcp", "/internal/credentials", "/missing.js", "/work/a/b", "/unknown"])
+@pytest.mark.parametrize("path", ["/api/v1/unknown", "/mcp", "/internal/credentials", "/missing.js", "/work/a/b", "/runs/a/b", "/unknown"])
 async def test_console_fallback_does_not_hide_missing_resources_or_service_paths(tmp_path, path):
     async with httpx.AsyncClient(transport=httpx.ASGITransport(console_app(tmp_path)), base_url="http://fixture") as client:
         response = await client.get(path)

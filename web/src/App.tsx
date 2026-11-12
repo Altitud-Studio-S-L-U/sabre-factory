@@ -21,17 +21,17 @@ import Button from './components/Button';
 import Notice from './components/Notice';
 import EmptyState from './components/EmptyState';
 import LoadingState from './components/LoadingState';
-import PageHeader, { Eyebrow } from './components/PageHeader';
+import PageHeader from './components/PageHeader';
 import Dialog from './components/Dialog';
 import { buttonVariants } from './components/ui/button';
 import SupervisorConsole from './SupervisorConsole';
-import RunsWorkspace from './RunsWorkspace';
 import { pendingQuestions } from './runState';
-import { legacyNavigation, navigation, type View } from './navigation';
+import { legacyNavigation, navigation, redirects, type View } from './navigation';
 import AppShell from './app/AppShell';
 import type { PaletteCommand } from './app/CommandPalette';
 import Login from './app/Login';
 import RunDetail from './features/runs/RunDetail';
+import RunsTable, { runPath } from './features/runs/RunsTable';
 import CreateRunWizard from './features/runs/CreateRunWizard';
 import ProjectsView from './features/projects/ProjectsView';
 import SecurityView from './features/security/SecurityView';
@@ -140,6 +140,13 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<RootRedirect />} />
+        {redirects.map((item) => (
+          <Route
+            key={item.from}
+            path={`${item.from}/*`}
+            element={<MovedRedirect from={item.from} to={item.to} />}
+          />
+        ))}
         <Route path="*" element={<Session session={session} onLogout={disconnect} />} />
       </Routes>
     </BrowserRouter>
@@ -148,7 +155,13 @@ export default function App() {
 
 function RootRedirect() {
   const { search, hash } = useLocation();
-  return <Navigate to={{ pathname: '/work', search, hash }} replace />;
+  return <Navigate to={{ pathname: '/runs', search, hash }} replace />;
+}
+
+/** Keep an earlier address working: /work/abc opens /runs/abc with the same query and fragment. */
+function MovedRedirect({ from, to }: { from: string; to: string }) {
+  const { pathname, search, hash } = useLocation();
+  return <Navigate to={{ pathname: to + pathname.slice(from.length), search, hash }} replace />;
 }
 
 function Session({ session, onLogout }: { session: PanelSession; onLogout: (error?: string) => void }) {
@@ -156,7 +169,7 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
   usePrefetchSections();
   const location = useLocation();
   const navigate = useNavigate();
-  const workMatch = matchPath('/work/:workId', location.pathname);
+  const workMatch = matchPath('/runs/:workId', location.pathname);
   const selectedId = workMatch?.params.workId ?? null;
   const view = workMatch
     ? 'work'
@@ -288,7 +301,7 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
   const openWork = (order: WorkOrder) => {
     returnFocus.current = null;
     setForm(null);
-    void navigate(`/work/${encodeURIComponent(order.id)}`);
+    void navigate(runPath(order.id));
   };
 
   const sectionTitle =
@@ -314,7 +327,7 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
       group: 'Actions' as const,
       label: 'New run',
       icon: 'plus' as const,
-      run: () => void navigate('/work', { state: { form: 'work' } }),
+      run: () => void navigate('/runs', { state: { form: 'work' } }),
     },
     {
       id: 'refresh',
@@ -380,73 +393,28 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
             <>
               {view === 'work' && (!selectedId || selected) && (
                 <>
-                  <RunsWorkspace
-                    connected={!error}
-                    orders={orders}
-                    projects={projects}
-                    selectedId={selected?.id ?? orders[0]?.id}
-                    onOpen={openWork}
-                    onNew={() => setForm('work')}
-                  >
-                    {(selected ?? (!selectedId ? orders[0] : undefined)) ? (
-                      (() => {
-                        const activeOrder = selected ?? orders[0];
-                        return (
-                          <RunDetail
-                            connected={!error}
-                            key={activeOrder.id}
-                            api={api}
-                            order={activeOrder}
-                            project={projects.find((project) => project.id === activeOrder.project_id)}
-                            cliMode={cliMode}
-                            onChanged={reload}
-                          />
-                        );
-                      })()
-                    ) : (
-                      <div className="grid justify-items-start gap-4 rounded-xl border border-border bg-card p-8">
-                        <Eyebrow>Local software factory</Eyebrow>
-                        <h2 className="text-2xl font-semibold tracking-tight">Launch a verified process</h2>
-                        <p className="max-w-[60ch] text-sm text-muted-foreground">
-                          Choose a project, define acceptance checks and launch a registered process. Its
-                          phases, agents, tools, memory and evidence will appear here as the work progresses.
-                        </p>
-                        <ol className="flex flex-wrap items-center gap-1.5" aria-label="Process preview">
-                          {[
-                            'Preflight',
-                            'Spec',
-                            'Design',
-                            'Plan',
-                            'Build',
-                            'Verify',
-                            'Review',
-                            'Deliver',
-                          ].map((label, index) => (
-                            <li
-                              key={label}
-                              className="flex items-center gap-1.5 text-xs text-muted-foreground"
-                            >
-                              {index > 0 && <span aria-hidden="true">→</span>}
-                              <span className="rounded-md border border-dashed border-border px-2 py-1">
-                                {label}
-                              </span>
-                            </li>
-                          ))}
-                        </ol>
-                        <p className="text-xs text-muted-foreground">
-                          Process preview only. No execution has started.
-                        </p>
-                        <Button
-                          type="button"
-                          variant="primary"
-                          disabled={!!error}
-                          onClick={() => setForm('work')}
-                        >
-                          Create your first run
-                        </Button>
-                      </div>
-                    )}
-                  </RunsWorkspace>
+                  {selected ? (
+                    <section className="@container/run min-w-0" aria-label="Selected run">
+                      <RunDetail
+                        connected={!error}
+                        key={selected.id}
+                        api={api}
+                        order={selected}
+                        project={projects.find((project) => project.id === selected.project_id)}
+                        cliMode={cliMode}
+                        onChanged={reload}
+                      />
+                    </section>
+                  ) : (
+                    <RunsTable
+                      api={api}
+                      orders={orders}
+                      projects={projects}
+                      connected={!error}
+                      onNew={() => setForm('work')}
+                      onChanged={reload}
+                    />
+                  )}
                   <Dialog
                     open={form === 'work'}
                     onClose={() => setForm(null)}
@@ -486,7 +454,7 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
                       description={detailError || 'Reading the saved factory state.'}
                     />
                     {!detailError && <LoadingState label="Loading run…" />}
-                    <Link className={buttonVariants({ variant: 'link', className: 'px-0' })} to="/work">
+                    <Link className={buttonVariants({ variant: 'link', className: 'px-0' })} to="/runs">
                       ← All runs
                     </Link>
                   </div>
@@ -500,7 +468,7 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
                       title="Page not found"
                       description="This address does not match a SABRE section."
                     />
-                    <Link className={buttonVariants({ variant: 'secondary' })} to="/work">
+                    <Link className={buttonVariants({ variant: 'secondary' })} to="/runs">
                       Go to runs
                     </Link>
                   </div>
@@ -522,7 +490,7 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
                   onRegistered={reload}
                   onCreateRun={(project) => {
                     returnFocus.current = null;
-                    void navigate('/work', { state: { form: 'work', projectId: project.id } });
+                    void navigate('/runs', { state: { form: 'work', projectId: project.id } });
                   }}
                 />
               )}

@@ -110,7 +110,7 @@ test('incremental timeline reconciles tool completion and pause reflects persist
       };
     await route.fulfill({ json });
   });
-  await page.goto('/work/synthetic-run');
+  await page.goto('/runs/synthetic-run');
   const timeline = page.getByRole('region', { name: 'Execution timeline' });
   await timeline.getByText('Recorded event list', { exact: true }).click();
   await expect(timeline.getByTestId('phase-summary').getByText('1.5 s')).toBeVisible();
@@ -372,7 +372,7 @@ test('recorded process keeps phase attempts, agent tools, memory and failed chec
     }
     await route.fallback();
   });
-  await page.goto(`/work/${order.id}`);
+  await page.goto(`/runs/${order.id}`);
   const timeline = page.getByRole('region', { name: 'Execution timeline' });
   await expect(timeline.getByRole('button', { name: 'implement · failed', exact: true })).toBeVisible();
   await timeline.getByRole('button', { name: /Build Developer/ }).click();

@@ -71,7 +71,7 @@ test('five console sections keep inspection compact and modal drafts keyboard ac
     };
     await route.fulfill({ json: saved });
   });
-  await page.goto('/work');
+  await page.goto('/runs');
   const navigation = page.getByRole('navigation', { name: 'Main navigation' });
   await expect(navigation.getByRole('link')).toHaveCount(5);
   await expect(page.getByRole('heading', { level: 1, name: 'Runs' })).toBeVisible();

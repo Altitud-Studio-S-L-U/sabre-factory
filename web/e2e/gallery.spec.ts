@@ -6,8 +6,8 @@ import { mockFactoryApi, syntheticRun } from './fixtures';
 const label = process.env.SABRE_GALLERY;
 
 const sections = [
-  { name: 'runs', path: '/work', ready: 'Runs' },
-  { name: 'run-detail', path: '/work/synthetic-run', ready: 'Correct the synthetic example' },
+  { name: 'runs', path: '/runs', ready: 'Runs' },
+  { name: 'run-detail', path: '/runs/synthetic-run', ready: 'Correct the synthetic example' },
   { name: 'agents', path: '/agents', ready: 'Agents' },
   { name: 'tools', path: '/tools', ready: 'Tools' },
   { name: 'memory', path: '/memory', ready: 'Memory' },
@@ -80,7 +80,7 @@ test.describe('gallery', () => {
   }
 
   test('supervisor-open', async ({ page }) => {
-    await page.goto('/work/synthetic-run');
+    await page.goto('/runs/synthetic-run');
     await page.getByRole('button', { name: 'Supervisor', exact: true }).click();
     await expect(page.getByRole('region', { name: 'Supervisor conversation' })).toBeVisible();
     await page.waitForLoadState('networkidle');
