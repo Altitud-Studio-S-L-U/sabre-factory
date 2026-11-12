@@ -1,6 +1,11 @@
 import { test, expect } from '@playwright/test';
-import { captureSource } from './fixtures';
+import { captureSource, mockFactoryApi } from './fixtures';
 import { factoryConfiguration } from '../src/test/factoryConfigurationFixture';
+
+// Every journey runs against the synthetic API; nothing reaches a real factory.
+test.beforeEach(async ({ page }) => {
+  await mockFactoryApi(page);
+});
 
 test('five console sections keep inspection compact and modal drafts keyboard accessible', async ({
   page,
