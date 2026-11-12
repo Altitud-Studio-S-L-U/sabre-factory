@@ -32,7 +32,7 @@ const stateTones: Record<string, 'neutral' | 'info' | 'warning' | 'danger' | 'su
 
 export default function StatusBadge({ value, label }: { value: string; label?: string }) {
   return (
-    <Badge variant={stateTones[value] ?? 'neutral'} className={`badge badge-${value}`}>
+    <Badge variant={stateTones[value] ?? 'neutral'}>
       <Icon name={stateIcons[value] ?? 'info'} size={13} />
       {label ?? value.replaceAll('_', ' ')}
     </Badge>

@@ -43,7 +43,9 @@ describe('supervisor presence', () => {
     expect(presenceFor(facts({ messages: [message('running')], activeTool: 'get_work_budget' }))).toBe(
       'using-tool',
     );
-    expect(presenceFor(facts({ messages: [message('completed')], activeTool: 'get_work_budget' }))).toBe('idle');
+    expect(presenceFor(facts({ messages: [message('completed')], activeTool: 'get_work_budget' }))).toBe(
+      'idle',
+    );
   });
 
   it('holds a state for the minimum dwell time but shows faults immediately', () => {

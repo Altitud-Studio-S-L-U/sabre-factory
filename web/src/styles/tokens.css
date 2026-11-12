@@ -1,7 +1,6 @@
 /*
  * SABRE design tokens. Semantic shadcn variables in OKLCH, derived from the graphite and
  * gold identity. Dark is the default; .light redefines the same names for a light theme.
- * Legacy names (--ink, --surface, ...) alias the semantic ones until every screen migrates.
  * --muted (muted text) and --accent (gold) keep their legacy meaning; the shadcn muted and
  * accent surfaces are --muted-bg and --accent-bg, exposed as the muted and accent colours.
  */
@@ -71,28 +70,6 @@
   --track: #303743;
 
   --radius: 0.5rem;
-
-  /* Legacy aliases; removed with the last legacy sheet. */
-  --ink: var(--foreground);
-  --line: var(--border);
-  --canvas: var(--background);
-  --surface: var(--card);
-  --surface-raised: var(--secondary);
-  --glass: oklch(0.226 0.014 261 / 0.85);
-  --active-bg: var(--accent-bg);
-  --blue: var(--link);
-  --amber: var(--primary);
-  --code-bg: var(--code);
-  --status-neutral-ink: var(--neutral);
-  --status-neutral-bg: var(--neutral-bg);
-  --status-active-ink: var(--info);
-  --status-active-bg: var(--info-bg);
-  --status-wait-ink: var(--warning);
-  --status-wait-bg: var(--warning-bg);
-  --status-error-ink: var(--danger);
-  --status-error-bg: var(--danger-bg);
-  --status-success-ink: var(--success);
-  --status-success-bg: var(--success-bg);
 }
 
 .light {
@@ -131,7 +108,6 @@
   --neutral: oklch(0.4 0.02 260);
   --neutral-bg: oklch(0.95 0.005 260);
   --neutral-border: oklch(0.85 0.01 260);
-  --glass: oklch(1 0 0 / 0.85);
   --track: oklch(0.9 0.008 260);
 }
 

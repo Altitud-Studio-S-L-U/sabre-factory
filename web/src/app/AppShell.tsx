@@ -184,7 +184,7 @@ export default function AppShell({
           id="main-content"
           ref={mainRef}
           tabIndex={-1}
-          className="main-content w-full min-w-0 flex-1 px-4 pt-5 pb-28 focus:outline-none sm:px-6 lg:px-8 lg:pt-3 lg:pb-24"
+          className="mx-auto w-full max-w-[98rem] min-w-0 flex-1 px-4 pt-5 pb-28 focus:outline-none sm:px-6 lg:px-8 lg:pt-3 lg:pb-24"
         >
           {children}
         </main>
