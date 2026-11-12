@@ -12,6 +12,8 @@ import { configurationHistory, runtimeSettings } from '../src/test/runtimeFixtur
 // Visual evidence for design work: SABRE_GALLERY=<label> pnpm test:browser gallery
 // writes one full-page capture per section and viewport to work/gallery/<label>/.
 const label = process.env.SABRE_GALLERY;
+// SABRE_GALLERY_THEME=light captures the light theme (the console stores it per browser).
+const theme = process.env.SABRE_GALLERY_THEME;
 
 const sections = [
   { name: 'runs', path: '/runs', ready: 'Runs' },
@@ -34,6 +36,7 @@ test.describe('gallery', () => {
   test.skip(!label, 'Set SABRE_GALLERY=<label> to capture the gallery');
 
   test.beforeEach(async ({ page }) => {
+    if (theme) await page.addInitScript((value) => localStorage.setItem('sabre.theme', value), theme);
     await mockFactoryApi(page);
     const order = { ...syntheticRun(), status: 'waiting_input', phase: 'review' };
     await page.route('**/api/v1/work', (route) =>

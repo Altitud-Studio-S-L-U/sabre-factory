@@ -35,6 +35,7 @@ import SupervisorConsole from './SupervisorConsole';
 import { pendingQuestions } from './runState';
 import { navigation, redirects, sectionOf, workAreas, type View } from './navigation';
 import AppShell from './app/AppShell';
+import { setThemePreference } from './lib/theme';
 import type { PaletteCommand } from './app/CommandPalette';
 import Login from './app/Login';
 import RunDetail from './features/runs/RunDetail';
@@ -346,6 +347,19 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
       icon: 'refresh' as const,
       run: () => void reload(),
     },
+    ...(
+      [
+        ['dark', 'Use dark theme', 'moon'],
+        ['light', 'Use light theme', 'sun'],
+        ['system', 'Follow the system theme', 'settings'],
+      ] as const
+    ).map(([value, label, icon]) => ({
+      id: `theme-${value}`,
+      group: 'Actions' as const,
+      label,
+      icon,
+      run: () => setThemePreference(value),
+    })),
     {
       id: 'sign-out',
       group: 'Actions' as const,

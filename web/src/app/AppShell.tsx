@@ -2,6 +2,7 @@ import { useCallback, useState, type ReactNode, type RefObject } from 'react';
 import { Link } from 'react-router';
 import Icon from '../Icon';
 import { cn } from '../lib/utils';
+import { useTheme } from '../lib/theme';
 import type { NavigationItem, View } from '../navigation';
 import CommandPalette, { usePaletteShortcut, type PaletteCommand } from './CommandPalette';
 import { Logo } from './Logo';
@@ -70,6 +71,8 @@ export default function AppShell({
   const openPalette = useCallback(() => setPaletteOpen(true), []);
   usePaletteShortcut(openPalette);
   const build = shortBuild();
+  const { resolved, setPreference } = useTheme();
+  const nextTheme = resolved === 'light' ? 'dark' : 'light';
   return (
     // The sidebar column keeps its surface below the sticky aside on long pages.
     <div className="min-h-dvh bg-background text-foreground lg:grid lg:grid-cols-[15rem_minmax(0,1fr)] lg:bg-[linear-gradient(to_right,var(--sidebar)_15rem,var(--background)_15rem)]">
@@ -161,6 +164,15 @@ export default function AppShell({
               onClick={openPalette}
             >
               <Icon name="search" size={17} />
+            </button>
+            <button
+              type="button"
+              className={iconButton}
+              aria-label={`Use ${nextTheme} theme`}
+              title={`Use ${nextTheme} theme`}
+              onClick={() => setPreference(nextTheme)}
+            >
+              <Icon name={resolved === 'light' ? 'moon' : 'sun'} size={16} />
             </button>
             <button
               type="button"

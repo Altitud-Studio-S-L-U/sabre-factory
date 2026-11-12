@@ -217,3 +217,17 @@ test('earlier pages open inside the five sections', async ({ page }) => {
   await page.getByRole('navigation', { name: 'Runs area' }).getByRole('link', { name: 'All runs' }).click();
   await expect(page).toHaveURL(/\/runs$/);
 });
+
+test('the colour theme is chosen per browser and applied before the first paint', async ({ page }) => {
+  await page.goto('/runs');
+  const html = page.locator('html');
+  await expect(html).not.toHaveClass(/light/);
+  await page.getByRole('button', { name: 'Use light theme' }).click();
+  await expect(html).toHaveClass(/light/);
+  await page.reload();
+  // The inline script in index.html sets the class before the app renders.
+  expect(await page.evaluate(() => document.documentElement.classList.contains('light'))).toBe(true);
+  await page.getByRole('button', { name: 'Use dark theme' }).click();
+  await expect(html).not.toHaveClass(/light/);
+  expect(await page.evaluate(() => localStorage.getItem('sabre.theme'))).toBeNull();
+});

@@ -25,6 +25,8 @@ import {
   Search,
   Plus,
   Command,
+  Sun,
+  Moon,
 } from 'lucide-react';
 const icons = {
   work: PanelsTopLeft,
@@ -52,6 +54,8 @@ const icons = {
   search: Search,
   plus: Plus,
   command: Command,
+  sun: Sun,
+  moon: Moon,
 } as const;
 export type IconName = keyof typeof icons;
 export default function Icon({
