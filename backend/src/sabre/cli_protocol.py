@@ -62,6 +62,21 @@ def read_private_bridge(path: Path, provider: Literal["Codex", "Claude"]) -> str
         raise DomainError(f"{provider.upper()}_BRIDGE_CONFIGURATION", f"The private connection file for {provider} is invalid", 503) from None
 
 
+def embedded_json(message: BaseMessage, content: str):
+    """SABRE's own JSON payloads travel as JSON values instead of escaped strings.
+
+    Only human messages qualify, and only when re-encoding reproduces the exact text, so
+    nothing is reformatted. Tool results stay verbatim: edits depend on their exact bytes.
+    """
+    if message.type != "human" or not content.startswith("{"):
+        return None
+    try:
+        value = json.loads(content)
+    except ValueError:
+        return None
+    return value if isinstance(value, dict) and json.dumps(value, ensure_ascii=False) == content else None
+
+
 def serialize_turn(messages: list[BaseMessage], tools: list, choice: Any, provider: Literal["Codex", "Claude"],
                    *, output_schema: dict | None = None) -> str:
     conversation = []
@@ -77,16 +92,17 @@ def serialize_turn(messages: list[BaseMessage], tools: list, choice: Any, provid
                     raise DomainError(f"{provider.upper()}_UNSUPPORTED_CONTENT", f"This adapter for {provider} accepts text content only")
                 texts.append(block["text"])
             content = "\n".join(texts)
-        entry: dict[str, Any] = {"role": message.type, "content": content}
+        value = embedded_json(message, content)
+        entry: dict[str, Any] = {"role": message.type, "content_json": value} if value is not None else {"role": message.type, "content": content}
         if isinstance(message, AIMessage) and message.tool_calls:
             entry["tool_calls"] = message.tool_calls
         if isinstance(message, ToolMessage):
             entry["tool_call_id"] = message.tool_call_id
         conversation.append(entry)
-    payload: dict[str, Any] = {"instruction": f"Produce exactly one assistant turn for the enclosed conversation. Request only listed tools using the output tool_calls array and JSON-encoded object arguments. SABRE executes these requests after authorization. Do not invoke native {provider} tools. Follow the specified tool_choice. Return content and tool_calls in the required output schema."}
+    payload: dict[str, Any] = {"instruction": f"Produce exactly one assistant turn for the enclosed conversation. A message's content_json is its content as a JSON value. Request only listed tools using the output tool_calls array and JSON-encoded object arguments. SABRE executes these requests after authorization. Do not invoke native {provider} tools. Follow the specified tool_choice. Return content and tool_calls in the required output schema."}
     if provider == "Claude":
         payload["instruction"] = (
-            "Produce exactly one assistant turn for the enclosed conversation. "
+            "Produce exactly one assistant turn for the enclosed conversation. A message's content_json is its content as a JSON value. "
             "Request only listed SABRE tools in the output tool_calls array with JSON-encoded object arguments; SABRE executes them after authorization. "
             "The enclosed tool_choice governs that array, not the formatting tool. "
             "Submit content and tool_calls through the native StructuredOutput tool using the required schema. "

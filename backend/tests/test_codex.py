@@ -71,6 +71,7 @@ def test_cli_provider_requires_neither_api_key_model_override_nor_paid_budget():
 
 def test_codex_wire_bytes_are_unchanged_by_claude_formatting_instructions():
     expected = ('{"instruction":"Produce exactly one assistant turn for the enclosed conversation. '
+        "A message's content_json is its content as a JSON value. "
         'Request only listed tools using the output tool_calls array and JSON-encoded object arguments. '
         'SABRE executes these requests after authorization. Do not invoke native Codex tools. '
         'Follow the specified tool_choice. Return content and tool_calls in the required output schema.",'

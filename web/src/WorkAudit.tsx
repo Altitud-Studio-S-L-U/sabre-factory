@@ -13,6 +13,7 @@ const roles: Record<string, string> = {
 const tools: Record<string, string> = {
   list_files: 'List files',
   read_file: 'Read file',
+  read_files: 'Read files',
   search_source: 'Search source',
   read_file_range: 'Read lines',
   write_file: 'Write file',
