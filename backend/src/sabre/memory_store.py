@@ -7,6 +7,7 @@ the decision and its basis remain inspectable; invalidation stays final.
 """
 
 import json
+import re
 from typing import Any
 
 from psycopg import sql
@@ -101,6 +102,45 @@ def evaluate(baseline: dict[str, str], files: dict[str, str]) -> dict[str, Any]:
     return {"state": "valid", "basis": "citations_unchanged", "changed_paths": [], "digests": dict(sorted(baseline.items()))}
 
 
+# Overlap detection is deterministic and bounded: the newest OVERLAP_CANDIDATES active or pending memories of
+# the project are compared with a proposal. Lexical similarity is the mean of the Jaccard similarity of normalized
+# word sets and of word 2-shingles; with embeddings on both sides the cosine similarity is also considered.
+# A pair is an overlap when lexical >= OVERLAP_THRESHOLD or cosine >= VECTOR_OVERLAP_THRESHOLD.
+OVERLAP_THRESHOLD = 0.4
+VECTOR_OVERLAP_THRESHOLD = 0.92
+OVERLAP_CANDIDATES = 500
+MAX_OVERLAP_LINKS = 10
+MAX_DISTINCT_TERMS = 12
+STOPWORDS = frozenset("a an and are as at be by for from has have in is it its of on or that the this to was were will with".split())
+
+
+def normalized_tokens(text: str) -> list[str]:
+    return [token for token in re.findall(r"\w+", text.casefold()) if len(token) > 1 and token not in STOPWORDS]
+
+
+def jaccard(left: set, right: set) -> float:
+    union = left | right
+    return len(left & right) / len(union) if union else 0.0
+
+
+def lexical_similarity(left: list[str], right: list[str]) -> float:
+    words = jaccard(set(left), set(right))
+    if len(left) < 2 or len(right) < 2:
+        return words
+    return (words + jaccard(set(zip(left, left[1:], strict=False)), set(zip(right, right[1:], strict=False)))) / 2
+
+
+def overlap(proposal: str, existing: str, cosine: float | None = None) -> dict | None:
+    left, right = normalized_tokens(proposal), normalized_tokens(existing)
+    lexical = lexical_similarity(left, right)
+    if lexical < OVERLAP_THRESHOLD and (cosine is None or cosine < VECTOR_OVERLAP_THRESHOLD):
+        return None
+    return {"score": round(max(lexical, cosine or 0.0), 4), "lexical": round(lexical, 4),
+            "cosine": None if cosine is None else round(cosine, 4), "method": "shingle_jaccard_v1",
+            "only_source": sorted(set(left) - set(right))[:MAX_DISTINCT_TERMS],
+            "only_target": sorted(set(right) - set(left))[:MAX_DISTINCT_TERMS]}
+
+
 class MemoryStore:
     """Mixin for ``Repository``; every query is bounded and scoped by project."""
 
@@ -159,12 +199,23 @@ class MemoryStore:
                 await self._insert_citations(conn, item)
                 if item.supersedes is not None:
                     await self._link(conn, item, "supersedes", "memory", item.supersedes, {"recorded_at": "proposal"})
-                await self._after_create(conn, item, embedding)
+                if not item.active:
+                    await self._record_overlaps(conn, item, embedding)
             row = await (await conn.execute("SELECT data FROM memories WHERE id=%s", (item.id,))).fetchone()
             return item_from(row["data"])
 
-    async def _after_create(self, conn, item: MemoryItem, embedding: list[float] | None):
-        """Hook for derived links computed in the proposal transaction."""
+    async def _record_overlaps(self, conn, item: MemoryItem, embedding: list[float] | None):
+        """Store ``overlaps`` links to similar active or pending memories; never a conflict verdict."""
+        candidates = await (await conn.execute("""SELECT id,data->>'content' AS content,
+                CASE WHEN %(vector)s::text IS NOT NULL AND embedding IS NOT NULL THEN 1-(embedding <=> %(vector)s::vector) END AS cosine
+            FROM memories WHERE project_id=%(project)s AND id<>%(id)s AND data->>'invalidated_at' IS NULL
+                AND coalesce(data->'proposed_by'->>'channel','')<>'factory'
+            ORDER BY (data->>'created_at')::timestamptz DESC,id DESC LIMIT %(limit)s""",
+            {"vector": str(embedding) if embedding else None, "project": item.project_id, "id": item.id, "limit": OVERLAP_CANDIDATES})).fetchall()
+        found = [(row["id"], result) for row in candidates
+                 if (result := overlap(item.content, row["content"], None if row["cosine"] is None else float(row["cosine"]))) is not None]
+        for target, attrs in sorted(found, key=lambda value: (-value[1]["score"], value[0]))[:MAX_OVERLAP_LINKS]:
+            await self._link(conn, item, "overlaps", "memory", target, attrs)
 
     async def set_memory_state(self, memory_id: str, approve: bool, *, scope: str | None = None,
                                supersedes: str | None = None, related: list[str] | None = None):

@@ -181,3 +181,19 @@ async def test_supersession_invalidates_on_approval_and_graph_stays_bounded(repo
     with pytest.raises(DomainError) as hidden:
         await service.graph(project.id, foreign.id, 1, 50)
     assert hidden.value.code == "MEMORY_NOT_FOUND"
+
+
+async def test_overlaps_are_recorded_against_active_and_pending_memories_only(repository):
+    repo, project, work = await delivered(repository)
+    service = MemoryService(repo, SecretGuard())
+    approved = await service.update((await service.propose(proposal(project, work, "Parser keeps empty input returning zero"))).id, True)
+    pending = await service.propose(proposal(project, work, "The parser keeps empty input returning zero values"))
+    invalidated = await service.propose(proposal(project, work, "Parser keeps empty input returning zero always"))
+    await service.update(invalidated.id, False)
+    await service.propose(proposal(project, work, "Deployment uses a draft pull request"))
+    fresh = await service.propose(proposal(project, work, "Parser must keep empty input returning zero"))
+    async with repo.connection() as conn:
+        rows = await (await conn.execute("SELECT target_id,attrs FROM memory_links WHERE source_id=%s AND kind='overlaps' ORDER BY target_id", (fresh.id,))).fetchall()
+    targets = {row["target_id"]: row["attrs"] for row in rows}
+    assert set(targets) == {approved.id, pending.id}
+    assert targets[approved.id]["only_source"] == ["keep", "must"] and targets[approved.id]["method"] == "shingle_jaccard_v1"

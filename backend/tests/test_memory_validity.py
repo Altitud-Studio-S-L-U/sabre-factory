@@ -105,3 +105,17 @@ async def test_validator_refuses_commit_scoped_moved_or_stale_memories(change):
     with pytest.raises(DomainError) as error:
         await MemoryService(repository, SecretGuard()).context_validator("project-one", LATER)([ref])
     assert error.value.code == "MEMORY_CONTEXT_CHANGED"
+
+
+def test_overlap_is_deterministic_bounded_and_explains_the_differing_terms():
+    from sabre.memory_store import OVERLAP_THRESHOLD, overlap
+    result = overlap("The parser must keep empty input returning zero", "Parser keeps empty input returning zero values")
+    assert result is not None and result["score"] >= OVERLAP_THRESHOLD and result["cosine"] is None
+    assert result["only_source"] == ["keep", "must"] and result["only_target"] == ["keeps", "values"]
+    assert overlap("Parser keeps empty input", "Deployment uses a draft pull request") is None
+    assert overlap("Retry the upload twice", "Network calls back off", cosine=0.95)["score"] == 0.95
+    assert overlap("Retry the upload twice", "Network calls back off", cosine=0.5) is None
+    long = " ".join(f"word{index}" for index in range(200))
+    bounded = overlap(long, long + " extra")
+    assert len(bounded["only_source"]) == 0 and bounded["only_target"] == ["extra"]
+    assert overlap(long, long.replace("word1 ", "")) == overlap(long, long.replace("word1 ", ""))
