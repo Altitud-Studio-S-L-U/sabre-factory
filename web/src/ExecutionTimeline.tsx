@@ -9,7 +9,9 @@ import {
 } from './api';
 import ExecutionConsole from './ExecutionConsole';
 import type { RunUsageState } from './useRunUsage';
-import './ExecutionTimeline.css';
+import Disclosure from './components/Disclosure';
+import Notice from './components/Notice';
+import { SectionHeading } from './components/PageHeader';
 
 const phaseNames: Record<string, string> = {
   analyze: 'analysis',
@@ -128,12 +130,17 @@ export default function ExecutionTimeline({
     phases.set(phase, [...(phases.get(phase) || []), event]);
   }
   return (
-    <section className="execution-timeline" aria-labelledby="execution-timeline-title">
-      <div className="section-heading">
-        <h2 id="execution-timeline-title">Execution timeline</h2>
-        <span className="count-label">Measured events</span>
-      </div>
-      {error && <p role="alert">{error}</p>}
+    <section aria-labelledby="execution-timeline-title" className="grid min-w-0 gap-4">
+      <SectionHeading
+        id="execution-timeline-title"
+        title="Execution timeline"
+        actions={<span className="text-xs text-muted-foreground">Measured events</span>}
+      />
+      {error && (
+        <Notice tone="warning" role="alert">
+          {error}
+        </Notice>
+      )}
       <ExecutionConsole
         api={api}
         entries={entries}
@@ -155,59 +162,68 @@ export default function ExecutionTimeline({
         }}
       />
       {!entries.length && !error && (
-        <p className="quiet-state">
+        <p className="rounded-md border border-border bg-code px-4 py-3 text-sm text-muted-foreground">
           Events appear as the flow runs. Historical runs may have no timing measurements.
         </p>
       )}
       {entries.length >= 1000 && (
-        <p className="hint">
+        <p className="text-xs text-muted-foreground">
           Showing the most recent 1,000 loaded events. Earlier events remain available through the paginated
           API.
         </p>
       )}
-      <details className="recorded-event-list">
-        <summary>Recorded event list</summary>
-        <ol className="execution-phases">
+      <Disclosure summary="Recorded event list">
+        <ol className="grid gap-2">
           {[...phases].map(([phase, events]) => {
             const stages = events.filter((item) => item.kind === 'stage');
             const last = stages.at(-1) || events.at(-1)!;
             const measured = stages.filter((item) => item.duration_ms != null);
             return (
-              <li key={phase} className={`execution-phase state-${last.state}`}>
-                <div className="execution-phase-heading">
-                  <h3>{phase.replaceAll('_', ' ')}</h3>
-                  <span>
+              <li
+                key={phase}
+                data-state={last.state}
+                className="grid gap-2 rounded-md border border-border bg-code p-3"
+              >
+                <div data-testid="phase-summary" className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                  <h3 className="mr-auto text-sm font-semibold capitalize">{phase.replaceAll('_', ' ')}</h3>
+                  <span className="text-xs text-muted-foreground capitalize">
                     {last.state === 'started' ? (active ? 'Running' : 'No completion recorded') : last.state}
                   </span>
-                  <time>
+                  <time className="font-mono text-xs">
                     {measured.length
                       ? duration(measured.reduce((sum, item) => sum + (item.duration_ms || 0), 0))
                       : 'Not measured'}
                   </time>
                 </div>
-                <details>
-                  <summary>
-                    {events.filter((item) => item.kind === 'tool').length} tool calls ·{' '}
-                    {events.filter((item) => item.kind === 'agent').length} agent steps
-                  </summary>
-                  <ul className="execution-calls">
+                <Disclosure
+                  variant="plain"
+                  summary={`${events.filter((item) => item.kind === 'tool').length} tool calls · ${
+                    events.filter((item) => item.kind === 'agent').length
+                  } agent steps`}
+                >
+                  <ul data-testid="phase-calls" className="grid gap-1">
                     {events
                       .filter((item) => item.kind !== 'stage')
                       .map((item) => (
-                        <li key={item.correlation_id}>
-                          <span className="event-kind">{item.kind}</span>
-                          <strong>{item.name}</strong>
-                          <span>{item.model || item.error_code || item.state}</span>
-                          <time>{duration(item.duration_ms)}</time>
+                        <li
+                          key={item.correlation_id}
+                          className="grid grid-cols-[4rem_minmax(0,1fr)_auto_auto] items-center gap-3 text-xs"
+                        >
+                          <span className="font-mono text-muted-foreground">{item.kind}</span>
+                          <strong className="truncate font-medium">{item.name}</strong>
+                          <span className="truncate text-muted-foreground">
+                            {item.model || item.error_code || item.state}
+                          </span>
+                          <time className="font-mono">{duration(item.duration_ms)}</time>
                         </li>
                       ))}
                   </ul>
-                </details>
+                </Disclosure>
               </li>
             );
           })}
         </ol>
-      </details>
+      </Disclosure>
     </section>
   );
 }

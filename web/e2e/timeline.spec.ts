@@ -1,7 +1,12 @@
 import { test, expect } from '@playwright/test';
-import { captureSource, syntheticRun } from './fixtures';
+import { captureSource, syntheticRun, mockFactoryApi } from './fixtures';
 import { runUsageSnapshot } from '../src/test/runUsageFixture';
 import type { WorkOrder, SequencedEvent } from '../src/api';
+
+// Every journey runs against the synthetic API; nothing reaches a real factory.
+test.beforeEach(async ({ page }) => {
+  await mockFactoryApi(page);
+});
 
 test('incremental timeline reconciles tool completion and pause reflects persisted state', async ({
   page,
@@ -108,7 +113,7 @@ test('incremental timeline reconciles tool completion and pause reflects persist
   await page.goto('/work/synthetic-run');
   const timeline = page.getByRole('region', { name: 'Execution timeline' });
   await timeline.getByText('Recorded event list', { exact: true }).click();
-  await expect(timeline.locator('.execution-phase-heading').getByText('1.5 s')).toBeVisible();
+  await expect(timeline.getByTestId('phase-summary').getByText('1.5 s')).toBeVisible();
   const map = timeline.getByRole('button', { name: 'implement · completed', exact: true });
   await expect(map).toBeVisible();
   await map.click();
@@ -117,8 +122,8 @@ test('incremental timeline reconciles tool completion and pause reflects persist
   await expect(inspector.locator('pre').first()).toContainText('synthetic-stage');
   await expect(timeline.getByLabel('Recorded run state')).toContainText('100');
   await timeline.getByText('1 tool calls · 0 agent steps').click();
-  await expect(timeline.locator('.execution-calls').getByText('read_file', { exact: true })).toHaveCount(1);
-  await expect(timeline.locator('.execution-calls').getByText('1.2 s', { exact: true })).toBeVisible();
+  await expect(timeline.getByTestId('phase-calls').getByText('read_file', { exact: true })).toHaveCount(1);
+  await expect(timeline.getByTestId('phase-calls').getByText('1.2 s', { exact: true })).toBeVisible();
   // Development StrictMode replays the initial read; cursor advancement must still use the server receipt.
   expect([...new Set(cursors)].slice(0, 2)).toEqual([0, 1]);
   await page.getByRole('button', { name: 'Pause', exact: true }).click();
@@ -380,23 +385,25 @@ test('recorded process keeps phase attempts, agent tools, memory and failed chec
     'attempt 2',
   );
   await expect(timeline.getByText('Planned · not started').first()).toBeVisible();
-  await expect(timeline.locator('.child').filter({ hasText: 'read_memory' })).toContainText('memory');
+  await expect(timeline.getByTestId('timeline-child-row').filter({ hasText: 'read_memory' })).toContainText(
+    'memory',
+  );
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   if (test.info().project.name === 'desktop') {
     await page.evaluate(() => window.scrollTo(0, 0));
-    const workspace = await timeline.locator('.console-workspace').boundingBox();
+    const workspace = await timeline.getByTestId('run-workspace-grid').boundingBox();
     expect(workspace).not.toBeNull();
     expect(workspace!.y).toBeLessThanOrEqual(400);
     expect(
       await timeline
-        .locator('.observed-scroll')
+        .getByRole('region', { name: 'Scrollable process timeline' })
         .evaluate((element) => element.scrollWidth <= element.clientWidth),
     ).toBe(true);
   }
   if (test.info().project.name === 'mobile')
     expect(
       await timeline
-        .locator('.observed-scroll')
+        .getByRole('region', { name: 'Scrollable process timeline' })
         .evaluate((element) => element.scrollWidth > element.clientWidth),
     ).toBe(true);
   await captureSource(page, 'process');

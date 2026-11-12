@@ -72,3 +72,43 @@ export function ticks(horizonMs: number, zoom = 1): Tick[] {
     result.push({ ms, fraction: ms / horizon, label: formatTick(ms, step) });
   return result;
 }
+
+/** Zoom bounds: 100% fits the horizon; 3200% shows sub-second detail on long runs. */
+export const MIN_ZOOM = 1;
+export const MAX_ZOOM = 32;
+
+export function clampZoom(zoom: number): number {
+  if (!Number.isFinite(zoom)) return MIN_ZOOM;
+  return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom));
+}
+
+/** Continuous zoom from a wheel or pinch delta (negative delta zooms in). */
+export function wheelZoom(zoom: number, deltaY: number): number {
+  return clampZoom(zoom * Math.exp(-deltaY * 0.0015));
+}
+
+/**
+ * Scroll offset that keeps the instant under the cursor fixed while the content scales from
+ * `previous` to `next`. `cursor` is measured from the scroll container's left edge.
+ */
+export function anchoredScroll(scrollLeft: number, cursor: number, previous: number, next: number): number {
+  if (previous <= 0) return scrollLeft;
+  return Math.max(0, (scrollLeft + cursor) * (next / previous) - cursor);
+}
+
+/** Visible window of the scroll content as fractions (0 to 1) for the minimap. */
+export function viewportWindow(
+  scrollLeft: number,
+  clientWidth: number,
+  scrollWidth: number,
+): { left: number; width: number } {
+  if (scrollWidth <= 0 || clientWidth >= scrollWidth) return { left: 0, width: 1 };
+  const width = clientWidth / scrollWidth;
+  return { left: Math.min(1 - width, Math.max(0, scrollLeft / scrollWidth)), width };
+}
+
+/** Scroll offset that centres the visible window on a fraction of the content. */
+export function scrollForCentre(fraction: number, clientWidth: number, scrollWidth: number): number {
+  const max = Math.max(0, scrollWidth - clientWidth);
+  return Math.min(max, Math.max(0, fraction * scrollWidth - clientWidth / 2));
+}
