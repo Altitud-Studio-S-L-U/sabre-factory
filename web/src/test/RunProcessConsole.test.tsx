@@ -483,3 +483,38 @@ describe('Live ledger usage', () => {
     }
   });
 });
+
+describe('Idle time', () => {
+  const at = (sequence: number, name: string, timestamp: string): SequencedEvent => {
+    const base = event(sequence, name, `stage-${sequence}`);
+    return { ...base, event: { ...base.event, timestamp, duration_ms: 60_000 } };
+  };
+  const entries = [
+    at(1, 'analyze', '2026-11-07T12:01:00Z'),
+    at(2, 'implement', '2026-11-07T12:03:00Z'),
+    at(3, 'implement', '2026-11-07T14:01:00Z'),
+  ];
+
+  it('draws a long pause as a narrow labelled band that the owner can expand back to scale', async () => {
+    const user = userEvent.setup();
+    render(<RunProcessConsole order={order('completed')} topology={topology} entries={entries} />);
+    const toggle = screen.getByRole('button', { name: 'Collapse idle time' });
+    expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getAllByTestId('idle-band')).toHaveLength(1);
+    expect(screen.getByText('1 h 57 min idle')).toBeVisible();
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.queryByTestId('idle-band')).not.toBeInTheDocument();
+  });
+
+  it('offers no idle control when the run never paused for long', () => {
+    render(
+      <RunProcessConsole
+        order={order('completed')}
+        topology={topology}
+        entries={[at(1, 'analyze', '2026-11-07T12:01:00Z'), at(2, 'implement', '2026-11-07T12:02:30Z')]}
+      />,
+    );
+    expect(screen.queryByRole('button', { name: 'Collapse idle time' })).not.toBeInTheDocument();
+  });
+});

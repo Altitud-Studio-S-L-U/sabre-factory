@@ -112,3 +112,113 @@ export function scrollForCentre(fraction: number, clientWidth: number, scrollWid
   const max = Math.max(0, scrollWidth - clientWidth);
   return Math.min(max, Math.max(0, fraction * scrollWidth - clientWidth / 2));
 }
+
+/** A stretch with no recorded activity, drawn at a fixed small width when idle time is collapsed. */
+export interface IdleGap {
+  start: number;
+  end: number;
+  /** Position of the drawn band along the track, 0 to 1. */
+  from: number;
+  to: number;
+}
+
+/**
+ * Time axis for one run. With `collapse`, every stretch without activity that lasts at least a
+ * minute and a tenth of the run is drawn as a narrow band, so minutes of work stay readable next
+ * to hours of pause. Positions stay monotonic and ticks keep showing real elapsed time.
+ */
+export interface TimeAxis {
+  origin: number;
+  end: number;
+  horizon: number;
+  gaps: IdleGap[];
+  fraction: (ms: number) => number;
+  ticks: (zoom?: number) => Tick[];
+}
+
+export const IDLE_MIN_MS = MINUTE;
+export const IDLE_MIN_SHARE = 0.1;
+/** Share of the drawn track each collapsed gap takes. */
+export const IDLE_BAND_SHARE = 0.04;
+
+export function idleGaps(intervals: [number, number][], origin: number, end: number): [number, number][] {
+  const horizon = Math.max(1, end - origin);
+  const merged = intervals
+    .map(
+      ([start, stop]) => [Math.max(origin, start), Math.min(end, Math.max(start, stop))] as [number, number],
+    )
+    .filter(([start, stop]) => stop >= start)
+    .sort((a, b) => a[0] - b[0])
+    .reduce<[number, number][]>((all, [start, stop]) => {
+      const last = all.at(-1);
+      if (last && start <= last[1]) last[1] = Math.max(last[1], stop);
+      else all.push([start, stop]);
+      return all;
+    }, []);
+  const gaps: [number, number][] = [];
+  let cursor = origin;
+  for (const [start, stop] of merged) {
+    if (start - cursor >= Math.max(IDLE_MIN_MS, IDLE_MIN_SHARE * horizon)) gaps.push([cursor, start]);
+    cursor = Math.max(cursor, stop);
+  }
+  return gaps;
+}
+
+export function timeAxis(
+  origin: number,
+  end: number,
+  intervals: [number, number][] = [],
+  collapse = false,
+): TimeAxis {
+  const horizon = Math.max(1000, end - origin);
+  const real = (ms: number) => Math.max(0, Math.min(1, (ms - origin) / horizon));
+  const raw = collapse ? idleGaps(intervals, origin, origin + horizon) : [];
+  if (!raw.length)
+    return { origin, end, horizon, gaps: [], fraction: real, ticks: (zoom = 1) => ticks(horizon, zoom) };
+  const idle = raw.reduce((sum, [start, stop]) => sum + (stop - start), 0);
+  const active = Math.max(1, horizon - idle);
+  // Each band gets a fixed share of the drawn track; active time shares the rest.
+  const bandShare = Math.min(IDLE_BAND_SHARE, 0.5 / raw.length);
+  const activeShare = 1 - bandShare * raw.length;
+  const fraction = (ms: number) => {
+    const t = Math.max(origin, Math.min(origin + horizon, ms));
+    let activeBefore = 0;
+    let bands = 0;
+    let cursor = origin;
+    for (const [start, stop] of raw) {
+      if (t < start) break;
+      activeBefore += start - cursor;
+      if (t < stop)
+        return (activeBefore / active) * activeShare + (bands + (t - start) / (stop - start)) * bandShare;
+      bands += 1;
+      cursor = stop;
+    }
+    activeBefore += t - cursor;
+    return Math.min(1, (activeBefore / active) * activeShare + bands * bandShare);
+  };
+  const gaps = raw.map(([start, stop]) => ({ start, end: stop, from: fraction(start), to: fraction(stop) }));
+  const axisTicks = (zoom = 1): Tick[] => {
+    // Readable steps over active time, labelled with real elapsed time; none inside a band.
+    const step = tickStep(active, Math.round(5 * Math.max(zoom, 0.25)));
+    const result: Tick[] = [];
+    let cursor = origin;
+    const segments = [...raw, [origin + horizon, origin + horizon] as [number, number]];
+    for (const [start, stop] of segments) {
+      const first = Math.ceil((cursor - origin) / step) * step;
+      for (let ms = first; origin + ms <= start + 1e-6 && result.length < 200; ms += step)
+        result.push({ ms, fraction: fraction(origin + ms), label: formatTick(ms, step) });
+      cursor = stop;
+    }
+    return result;
+  };
+  return { origin, end, horizon, gaps, fraction, ticks: axisTicks };
+}
+
+/** "1 h 58 min" style duration for idle bands. */
+export function idleLabel(ms: number): string {
+  const minutes = Math.round(ms / MINUTE);
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest ? `${hours} h ${rest} min` : `${hours} h`;
+}
