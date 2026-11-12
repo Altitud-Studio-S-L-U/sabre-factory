@@ -29,6 +29,9 @@ from sabre.settings import reject_secret_environment
 BINARY = "/opt/codex/bin/codex"
 CODEX_HOME = Path("/var/lib/sabre-codex")
 STATUS_WAIT_TIMEOUT_S = 12
+_PROC_ROOT = Path("/proc")
+_PROCESS_CLEANUP_TIMEOUT_S = 5
+_PROCESS_CLEANUP_POLL_S = 0.01
 POLICY = {
     "approval_policy": "never", "default_permissions": "sabre", "web_search": "disabled",
     "cli_auth_credentials_store": "file", "forced_login_method": "chatgpt", "check_for_update_on_startup": False,
@@ -57,6 +60,47 @@ def cli_arguments(command: str = "exec", *, home: Path = CODEX_HOME, workspace: 
     filesystem = "{ " + ", ".join(f"{json.dumps(path)}={json.dumps(permission)}" for path, permission in paths.items()) + " }"
     args.extend(["-c", "permissions.sabre.filesystem=" + filesystem, "-c", "permissions.sabre.network.enabled=false"])
     return args
+
+
+def _group_running(group: int) -> bool:
+    for entry in _PROC_ROOT.iterdir():
+        if not entry.name.isdecimal():
+            continue
+        try:
+            fields = (entry / "stat").read_text(encoding="utf-8", errors="replace").rsplit(")", 1)[1].split()
+        except (FileNotFoundError, ProcessLookupError):
+            continue
+        # comm can contain spaces and parentheses; numeric fields begin after
+        # its final ')'. Zombies have exited even if init has not reaped them.
+        if int(fields[2]) == group and int(fields[3]) == group and fields[0] not in {"Z", "X", "x"}:
+            return True
+    return False
+
+
+async def _terminate_process_group(process):
+    try:
+        async with asyncio.timeout(_PROCESS_CLEANUP_TIMEOUT_S):
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            await process.wait()
+            while True:
+                if not _group_running(process.pid):
+                    # Confirm after a scheduling boundary so a fork completing
+                    # during the previous /proc scan cannot escape observation.
+                    await asyncio.sleep(0)
+                    if not _group_running(process.pid):
+                        break
+                # A child can finish forking while the first group signal is
+                # delivered. Keep the owned group stopped until no member runs.
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                await asyncio.sleep(_PROCESS_CLEANUP_POLL_S)
+    except (TimeoutError, OSError, ValueError, IndexError):
+        raise DomainError("CODEX_CLEANUP_FAILED", "Could not confirm that the invocation's process group stopped", 503) from None
 
 
 async def capture_process(args: list[str], *, env: dict[str, str], cwd: str, stdin: bytes = b"", timeout: int = INVOCATION_TIMEOUT_S):
@@ -100,11 +144,18 @@ async def capture_process(args: list[str], *, env: dict[str, str], cwd: str, std
         raise DomainError("CODEX_TIMEOUT", "The Codex invocation timed out", 503) from None
     finally:
         # Each invocation owns a new process group; cancellation never kills another job.
-        try:
-            os.killpg(process.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-        await process.wait()
+        cleanup = asyncio.create_task(_terminate_process_group(process))
+        interrupted = False
+        while True:
+            try:
+                await asyncio.shield(cleanup)
+                break
+            except asyncio.CancelledError:
+                interrupted = True
+                if cleanup.done():
+                    cleanup.result()
+        if interrupted:
+            raise asyncio.CancelledError
 
 
 def parse_events(raw: bytes) -> InvocationResponse:

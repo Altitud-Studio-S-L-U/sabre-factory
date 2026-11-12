@@ -1,0 +1,13 @@
+FROM node:24.22.2-bookworm-slim@sha256:c86ecead9e55a5210ac1727de38a4ca840bf03dcaf34dc9749addbf383b1920c
+COPY infra/apt-security.sh /tmp/apt-security.sh
+RUN sh /tmp/apt-security.sh && rm /tmp/apt-security.sh
+WORKDIR /opt/sabre-browser
+COPY infra/browser-runner/package.json infra/browser-runner/package-lock.json ./
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright
+RUN npm ci --ignore-scripts --no-audit --no-fund && \
+    node node_modules/playwright/cli.js install --with-deps chromium && \
+    rm -rf /root/.npm /var/lib/apt/lists/* && chmod -R a+rX /opt/playwright
+COPY infra/browser-runner/run.mjs ./run.mjs
+USER 10001:10001
+ENV HOME=/tmp
+CMD ["node", "/opt/sabre-browser/run.mjs"]

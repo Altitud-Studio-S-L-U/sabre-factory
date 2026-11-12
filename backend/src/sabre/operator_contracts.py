@@ -5,6 +5,7 @@ from typing import Literal
 
 from pydantic import Field, field_validator, model_validator
 
+from sabre.agent_contracts import AgentDefinitionSnapshot
 from sabre.contracts import StrictContract
 
 OperatorAction = Literal["register_project", "submit_work", "answer_question", "control_work", "change_scope", "propose_memory", "resolve_memory"]
@@ -36,6 +37,7 @@ class OperatorMessageRequest(StrictContract):
 class OperatorContext(OperatorMessageRequest):
     id: str
     source: Literal["web", "mcp"] = "web"
+    definition: AgentDefinitionSnapshot | None = None
 
     @property
     def event_id(self):
@@ -71,3 +73,30 @@ class OperatorMessagePage(StrictContract):
 class OperatorMessageResume(StrictContract):
     version: Literal[1]
     expected_error_code: str | None = Field(max_length=100)
+
+
+class OperatorToolTrace(StrictContract):
+    call_id: str
+    name: str
+    input: str
+    output: str | None = None
+    status: Literal["pending", "completed", "error"]
+    redacted: bool = False
+    truncated: bool = False
+
+
+class FactoryNavigationAction(StrictContract):
+    id: Literal["connect-github-read", "connect-github-publish", "configure-models", "connect-provider", "add-mcp-connection"]
+    kind: Literal["open_tool", "open_models", "open_tools"]
+    target: Literal["github.read", "github.publish", "model", "mcp"]
+    label: str = Field(max_length=80)
+
+
+class OperatorToolTracePage(StrictContract):
+    version: Literal[1] = 1
+    message_id: str
+    available: bool
+    checkpoint_id: str | None = None
+    truncated: bool = False
+    tools: list[OperatorToolTrace] = Field(default_factory=list, max_length=50)
+    actions: list[FactoryNavigationAction] = Field(default_factory=list, max_length=5)

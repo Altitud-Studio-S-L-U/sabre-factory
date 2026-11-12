@@ -34,13 +34,35 @@
   --amber: #e2b76b;
   --code-bg: #0d1015;
   --radius: 8px;
+  --status-neutral-ink: #c2cbd7;
+  --status-neutral-bg: #252b34;
+  --status-active-ink: #b7d1ff;
+  --status-active-bg: #233047;
+  --status-wait-ink: #f0cc8d;
+  --status-wait-bg: #30271a;
+  --status-error-ink: #ffc0c5;
+  --status-error-bg: #35232a;
+  --status-success-ink: #a1dfb8;
+  --status-success-bg: #1d3027;
   color: var(--ink);
   background: var(--canvas);
 }
-.button { color: var(--ink); border-color: var(--line); background: var(--surface-raised); }
-.button:hover:not(:disabled) { color: var(--ink); background: #303744; border-color: #667287; }
-.button.danger { color: #ffaab4; }
-.run-phase { color: var(--blue); }
+.button {
+  color: var(--ink);
+  border-color: var(--line);
+  background: var(--surface-raised);
+}
+.button:hover:not(:disabled) {
+  color: var(--ink);
+  background: #303744;
+  border-color: #667287;
+}
+.button.danger {
+  color: #ffaab4;
+}
+.run-phase {
+  color: var(--blue);
+}
 body {
   background:
     radial-gradient(ellipse at 92% 0%, #72583220, transparent 42%),
@@ -67,8 +89,9 @@ body {
   border-color: var(--accent);
   color: #17130d;
 }
-.button.primary:hover {
+.button.primary:hover:not(:disabled) {
   background: #f0ca88;
+  border-color: #f0ca88;
   color: #17130d;
 }
 input,

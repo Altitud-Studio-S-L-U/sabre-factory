@@ -1,3 +1,5 @@
+import asyncio
+
 from pydantic import SecretStr
 
 from sabre import __version__
@@ -23,13 +25,18 @@ class FactoryService:
         self.repository, self.factory, self.memory = repository, factory, memory
         self.queue, self.guard, self.config = queue, guard, config
 
+    def agent_catalog(self):
+        from sabre.agent_catalog import AgentCatalogService
+        return AgentCatalogService(self.repository, self.guard)
+
     async def create_project(self, request: ProjectCreate):
         self.guard.check(request.model_dump())
         repository = github_repository(request.repository)
         request = request.model_copy(update={"repository": f"https://github.com/{repository}"})
         if any(p.repository.casefold() == request.repository.casefold() for p in await self.repository.projects()):
             raise DomainError("PROJECT_EXISTS", "This repository is already registered")
-        return await self.repository.create_project(Project(**request.model_dump()))
+        return await self.repository.create_project(Project(**request.model_dump()),
+                                                    enqueue=getattr(self.queue, "enqueue_ingestion", None))
 
     async def enqueue(self, conn, work_id):
         row = await (await conn.execute("SELECT project_id FROM work_orders WHERE id=%s", (work_id,))).fetchone()
@@ -37,20 +44,58 @@ class FactoryService:
 
     async def submit(self, request: WorkOrderCreate):
         self.guard.check(request.model_dump())
+        from sabre.repository import digest
+        if hasattr(self.repository, "reconcile_admission"):
+            prior = await self.repository.reconcile_admission(request)
+            if prior is not None:
+                return prior
         if request.budget.progress_limits and not getattr(self.queue, "model_configuration", None):
             await self._cli_progress_selection()
         await self.repository.project(request.project_id)
         work = WorkOrder(**request.model_dump())
+        work.admission_request_digest = digest(request.model_dump(mode="json"))
         if getattr(self.queue, 'model_configuration', None):
+            from sabre.console_configuration import pinned_models, prepare_run_configuration
+            definitions = None
+            durable_launch = hasattr(self.repository, "connection") and hasattr(self.queue.model_configuration, "snapshot")
+            if durable_launch:
+                work, request = await prepare_run_configuration(self, work, request)
+                definitions = await self.agent_catalog().published()
+            policy = request.budget.policy or request.flow_config.budget_policy
+            if policy is None and durable_launch:
+                from sabre.budget_contracts import legacy_policy
+                policy = legacy_policy(request.budget, request.flow_config.repair_cycles)
+            if policy is not None:
+                work.budget.policy = policy.model_copy(deep=True)
+                work.effective_budget_policy = policy.model_copy(deep=True)
             from sabre.flows import resolve_flow
             work.resolved_flow = await resolve_flow(request.flow_config, request.mode,
-                self.queue.model_configuration, self.queue.credentials)
+                self.queue.model_configuration, self.queue.credentials, definitions, pinned_models(work))
             if request.budget.progress_limits:
                 if any(item.model.provider not in {'codex_cli', 'claude_cli'} for item in work.resolved_flow.phases.values()):
                     raise DomainError('MODEL_LIMITS_REQUIRED', 'API phases require explicit cumulative limits', 422)
         if work.resolved_flow:
             await self.preflight(work)
         return await self.repository.admit(work, self.enqueue)
+
+    async def amend_budget(self, work_id, request):
+        self.guard.check(request)
+        async with self.repository.project_lock((await self.repository.work(work_id)).project_id, execution_slot=False) as acquired:
+            if not acquired:
+                raise DomainError("PROJECT_BUSY", "Wait for the run to reach a safe point before changing its budget", 409)
+            if request.resume and await self.repository.unreconciled_usage(work_id):
+                raise DomainError("USAGE_RECONCILIATION_REQUIRED", "Reconcile uncertain model usage before resuming", 409)
+            work = await self.repository.amend_budget(work_id, request)
+            if request.resume:
+                return await self.repository.resume(work_id, self.enqueue)
+            return work
+
+    async def reconcile_budget_usage(self, work_id, request):
+        self.guard.check(request)
+        async with self.repository.project_lock((await self.repository.work(work_id)).project_id, execution_slot=False) as acquired:
+            if not acquired:
+                raise DomainError("PROJECT_BUSY", "Wait for the pending execution to stop before reconciling usage", 409)
+            return await self.repository.reconcile_budget_usage(work_id, request)
 
     async def preflight(self, work, project=None):
         project = project or await self.repository.project(work.project_id)
@@ -89,8 +134,18 @@ class FactoryService:
             async with self.repository.project_lock(work.project_id, execution_slot=False) as acquired:
                 if not acquired:
                     raise DomainError("PROJECT_BUSY", "Wait for the run to reach its pause point")
+                if work.effective_budget_policy is not None and await self.repository.unreconciled_usage(work_id):
+                    raise DomainError("USAGE_RECONCILIATION_REQUIRED", "Retain or reconcile the unsettled model reservations before resuming", 409)
                 return await self.repository.resume(work_id, self.enqueue)
         await self.repository.request_control(work_id, command)
+        if command == "cancel" and hasattr(self.factory.executor, "cancel_browser_jobs"):
+            await self.factory.executor.cancel_browser_jobs(work_id)
+        if command == "cancel" and getattr(self.queue, "outbound_a2a", None) is not None:
+            try:
+                async with asyncio.timeout(35):
+                    await self.queue.outbound_a2a.cancel_work(work_id)
+            except TimeoutError:
+                await self.repository.event(work, "external_cancel_uncertain", "Remote cancellation requires reconciliation")
         async with self.repository.project_lock(work.project_id, execution_slot=False) as acquired:
             if acquired:
                 applied = await self.repository.finalize_idle_control(work_id, command)

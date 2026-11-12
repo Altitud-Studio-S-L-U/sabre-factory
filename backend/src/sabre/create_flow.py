@@ -14,7 +14,7 @@ from pydantic import Field, field_validator
 from sabre.contracts import StrictContract
 from sabre.flow_contracts import FlowConfiguration
 from sabre.flows import resolve_flow
-from sabre.models import Budget, DomainError, Project, WorkOrder
+from sabre.models import Budget, DomainError, Project, WorkOrder, WorkOrderCreate
 from sabre.repo_creation import RepoCreationDecision, RepoCreationProposal, RepoCreationRequest
 
 
@@ -61,7 +61,24 @@ async def launch_create(service, request: CreateFlowLaunch) -> RepoCreationPropo
         work = WorkOrder(project_id=project.id, mode="create", objective=request.objective,
             acceptance=request.acceptance, constraints=request.constraints, budget=request.budget,
             flow_config=request.flow_config, channel=request.channel, idempotency_key=request.repository.idempotency_key)
-        work.resolved_flow = await resolve_flow(request.flow_config, "create", service.queue.model_configuration, service.queue.credentials)
+        from sabre.console_configuration import pinned_models, prepare_run_configuration
+        launch_fields = {key: getattr(work, key) for key in WorkOrderCreate.model_fields}
+        if "flow_config" not in request.model_fields_set:
+            launch_fields.pop("flow_config")
+        launch_request = WorkOrderCreate(**launch_fields)
+        if hasattr(service, "model_configuration"):
+            work, launch_request = await prepare_run_configuration(service, work, launch_request)
+        policy = launch_request.budget.policy or launch_request.flow_config.budget_policy
+        if policy is None and hasattr(service, "model_configuration"):
+            from sabre.budget_contracts import legacy_policy
+            policy = legacy_policy(launch_request.budget, launch_request.flow_config.repair_cycles)
+        if policy is not None:
+            work.budget.policy = policy.model_copy(deep=True)
+            work.effective_budget_policy = policy.model_copy(deep=True)
+        work.resolved_flow = await resolve_flow(launch_request.flow_config, "create", service.queue.model_configuration,
+                                                service.queue.credentials,
+                                                await service.agent_catalog().published() if hasattr(service, "agent_catalog") else None,
+                                                pinned_models(work))
         if request.budget.progress_limits and any(phase.model.provider not in {"codex_cli", "claude_cli"} for phase in work.resolved_flow.phases.values()):
             raise DomainError("MODEL_LIMITS_REQUIRED", "API phases require cumulative limits", 422)
         await service.preflight(work, project)
@@ -103,7 +120,7 @@ async def continue_create(service, proposal: RepoCreationProposal):
     work = WorkOrder.model_validate(row["work"])
     # Fixed IDs and the admission key make post-receipt retries safe.
     try:
-        await service.repository.create_project(project)
+        await service.repository.create_project(project, enqueue=getattr(service.queue, "enqueue_ingestion", None))
     except DomainError as error:
         if error.code != "PROJECT_EXISTS":
             raise

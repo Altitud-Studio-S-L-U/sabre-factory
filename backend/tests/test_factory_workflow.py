@@ -8,6 +8,7 @@ import pytest
 from langgraph.checkpoint.memory import InMemorySaver
 
 from sabre.artifacts import ArtifactStore
+from sabre.budget_diagnostics import dispatch_denial
 from sabre.models import (
     AgentResult,
     Budget,
@@ -192,6 +193,20 @@ def build_factory(tmp_path):
         factory = Factory(repo, team, executor, security, publisher, ArtifactStore(tmp_path, guard), guard, TestMemory(), saver or InMemorySaver())
         return factory, repo, team, executor, security, publisher
     return build
+
+
+async def test_budget_reservation_denial_survives_workflow_projection_without_generic_exhausted_metric(build_factory):
+    factory, repo, team, *_ = build_factory()
+    denial = dispatch_denial("tokens", 700, 400, 1000, used=600, reserved=100)
+
+    async def denied(*args, **kwargs):
+        raise DomainError("BUDGET_EXHAUSTED", "The pending reservation does not fit", budget_denial=denial)
+
+    team.run = denied
+    result = await factory.drive(repo.current.id)
+    assert result.status == Status.BLOCKED and result.error_code == "BUDGET_EXHAUSTED"
+    assert result.limiting_metric == "tokens" and result.budget_denial == denial
+    assert repo.current.budget_denial == denial
 
 
 @pytest.mark.parametrize("mode", ["patch", "maintain"])
@@ -381,15 +396,17 @@ async def test_answer_arriving_during_interrupt_publication_is_not_erased(build_
     assert completed.status == Status.COMPLETED
 
 
-async def test_create_stops_for_architecture_approval(build_factory):
+@pytest.mark.parametrize("answer", ["Aprobar", "Approve"])
+async def test_create_stops_for_architecture_approval(build_factory, answer):
     factory, repo, team, _, _, publisher = build_factory(mode="create")
     result = await factory.drive(repo.current.id)
     assert result.status == Status.WAITING_INPUT
     assert result.questions[-1].kind == "architecture"
+    assert result.questions[-1].options == ["Approve", "Revise"]
     assert "developer" not in team.calls
     assert publisher.calls == []
     question = result.questions[-1]
-    repo.answer_value = {"question_id": question.id, "plan_revision": question.plan_revision, "answer": "Aprobar"}
+    repo.answer_value = {"question_id": question.id, "plan_revision": question.plan_revision, "answer": answer}
     completed = await factory.drive(result.id)
     assert completed.status == Status.COMPLETED
 

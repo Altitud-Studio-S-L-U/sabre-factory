@@ -1,6 +1,7 @@
 import { useId } from 'react';
 import type { Project, WorkOrder } from './api';
 import './WorkBoard.css';
+import StatusBadge from './components/StatusBadge';
 
 const columns: { id: string; label: string; statuses: WorkOrder['status'][] }[] = [
   { id: 'pending', label: 'Pending', statuses: ['queued'] },
@@ -81,7 +82,7 @@ export default function WorkBoard({
                         {order.phase === 'security_watch' ? 'Security monitoring' : modeLabels[order.mode]}
                       </span>
                       <strong>{order.objective}</strong>
-                      <span className={`badge badge-${order.status}`}>{statusLabels[order.status]}</span>
+                      <StatusBadge value={order.status} label={statusLabels[order.status]} />
                       <span className="work-board-phase">
                         Etapa: {phaseLabels[order.phase] ?? order.phase}
                       </span>

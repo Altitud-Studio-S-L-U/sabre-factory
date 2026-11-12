@@ -4,7 +4,7 @@ import Field from './components/FormField';
 import Select from './components/Select';
 import './ModelConfiguration.css';
 
-const providers: Record<ModelSelection['provider'], { title: string; destination: string }> = {
+export const providers: Record<ModelSelection['provider'], { title: string; destination: string }> = {
   codex_cli: { title: 'Codex · CLI', destination: 'http://codex-runner:8091' },
   claude_cli: { title: 'Claude Code · CLI', destination: 'http://claude-runner:8092' },
   openai: { title: 'OpenAI · API', destination: 'https://api.openai.com/v1' },
@@ -71,7 +71,7 @@ export function SelectionFields({
         <input
           value={value.name}
           maxLength={128}
-          pattern="[A-Za-z0-9._:/-]*"
+          pattern={'[A-Za-z0-9._:\\/\\-]*'}
           required={!cli}
           autoComplete="off"
           onChange={(event) => onChange({ ...value, name: event.target.value })}

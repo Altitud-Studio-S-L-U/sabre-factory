@@ -13,114 +13,403 @@
   flex-direction: column;
   position: fixed;
   right: 20px;
-  top: 80px;
+  top: 76px;
   bottom: 82px;
-  width: 420px;
+  width: 620px;
   max-width: calc(100vw - 32px);
-  overflow: auto;
+  min-height: 0;
+  overflow: hidden;
   z-index: 11;
   border: 1px solid #667080;
-  border-radius: 10px;
+  border-radius: 14px;
   background: var(--glass);
   backdrop-filter: blur(24px);
   box-shadow: 0 15px 70px #0009;
-  padding: 22px;
+  padding: 0 20px;
 }
-.supervisor-drawer .section-heading {
-  margin-bottom: 20px;
+.supervisor-drawer.is-expanded {
+  inset: 16px;
+  width: auto;
+  max-width: none;
+  z-index: 90;
+  background: var(--surface);
+}
+.supervisor-drawer > .section-heading {
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  padding: 16px 0 12px;
+}
+.supervisor-drawer h2 {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 17px;
+}
+.supervisor-profile {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.supervisor-avatar {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border: 1px solid #e2b76b40;
+  border-radius: 50%;
+  background: #e2b76b12;
+  color: var(--accent);
+}
+.supervisor-reply-identity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+.supervisor-reply-identity .supervisor-avatar {
+  width: 28px;
+  height: 28px;
+}
+.supervisor-reply-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+.supervisor-action-card {
+  padding: 14px;
+  margin-top: 14px;
+  border: 1px solid #e2b76b40;
+  border-radius: 12px;
+  background: #e2b76b08;
+}
+.supervisor-action-card > p {
+  margin: 0 0 10px;
+  font-weight: 500;
+}
+.supervisor-action-card > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.supervisor-action-card > small {
+  display: block;
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.6;
+}
+.supervisor-pending {
+  display: grid;
+  gap: 7px;
+  margin: 12px 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+.supervisor-pending > span {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.supervisor-pending svg,
+.supervisor-sendbar button[data-submitting='true'] svg {
+  animation: supervisor-processing 1.4s linear infinite;
+}
+@keyframes supervisor-processing {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .supervisor-pending svg,
+  .supervisor-sendbar button[data-submitting='true'] svg {
+    animation: none;
+  }
+}
+.supervisor-pending small {
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+.supervisor-welcome {
+  display: flex;
+  min-height: 100%;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 12px;
+  text-align: center;
+}
+.supervisor-welcome > .supervisor-avatar {
+  width: 56px;
+  height: 56px;
+  margin-bottom: 18px;
+}
+.supervisor-welcome h3 {
+  font-size: 22px;
+  font-weight: 500;
+  letter-spacing: -0.5px;
+}
+.supervisor-welcome p {
+  max-width: 360px;
+  color: var(--muted);
+}
+.supervisor-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 14px;
+}
+.supervisor-suggestions .button {
+  border-radius: 20px;
+  background: transparent;
+}
+.supervisor-drawer .eyebrow {
+  margin-top: 4px;
+  font-size: 11px;
+}
+.supervisor-window-controls {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 6px;
+  align-items: center;
+}
+.supervisor-presence,
+.supervisor-message-state {
+  font-size: 10px;
+  color: #9cd7b5;
+  font-weight: 400;
+}
+.supervisor-presence::before {
+  content: '●';
+  margin-right: 5px;
+}
+.supervisor-presence[data-offline='true'],
+.supervisor-message-state.state-blocked {
+  color: #f0cc8d;
+}
+.supervisor-message-state {
+  margin-left: 8px;
+  text-transform: capitalize;
 }
 .supervisor-drawer p {
-  font-size: 12px;
-  margin: 10px 0;
+  font-size: 13px;
+  line-height: 1.7;
+  margin: 9px 0;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 .supervisor-scope,
 .supervisor-compose {
   display: grid;
-  gap: 8px;
-  font-size: 12px;
-  margin: 16px 0;
+  gap: 6px;
+  font-size: 11px;
 }
-.supervisor-compose textarea {
-  width: 100%;
-  resize: vertical;
-  min-height: 80px;
-  padding: 10px;
-  border-radius: 6px;
-  border: 1px solid var(--line);
-}
-.supervisor-history {
-  flex: 1;
-  min-height: 80px;
-  overflow: auto;
-  margin: 20px 0;
-}
-.supervisor-drawer > .section-heading {
-  flex-shrink: 0;
-  margin-bottom: 10px;
+.supervisor-drawer .supervisor-scope {
+  flex: 0 0 auto;
+  margin: 0 0 6px;
 }
 .supervisor-context {
+  flex: 0 0 auto;
   font-size: 11px;
-  margin: 8px 0;
+  margin: 0;
+  padding: 4px 0 10px;
+  border-bottom: 1px solid var(--line);
 }
 .supervisor-context summary {
   cursor: pointer;
   color: var(--muted);
 }
-.supervisor-drawer form {
+.supervisor-context .hint {
+  font-size: 11px;
+}
+.supervisor-attention {
   flex: 0 0 auto;
-  max-height: 55%;
+  border-bottom: 1px solid var(--line);
+  padding: 9px 0;
+  font-size: 11px;
+}
+.supervisor-attention summary {
+  cursor: pointer;
+  color: var(--accent);
+}
+.supervisor-attention-list {
+  max-height: 180px;
   overflow: auto;
+  overscroll-behavior: contain;
 }
-.supervisor-drawer .supervisor-scope {
-  margin: 8px 0;
+.supervisor-attention-list article {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+.supervisor-attention-list small {
+  display: block;
+  color: var(--muted);
+  margin: 5px 0;
+}
+.supervisor-attention p {
+  font-size: 11px;
+}
+.supervisor-drawer > .notice {
   flex-shrink: 0;
+  max-height: 90px;
+  overflow: auto;
+  font-size: 11px;
 }
-.supervisor-drawer .supervisor-compose {
-  margin: 8px 0;
+.supervisor-history {
+  flex: 1 1 0;
+  min-height: 80px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding: 18px 6px 8px 0;
+}
+.supervisor-history:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 .supervisor-exchange {
-  border-bottom: 1px solid var(--line);
-  padding-bottom: 18px;
-  margin-bottom: 18px;
+  max-width: 880px;
+  margin: 0 auto 24px;
 }
-.supervisor-exchange > strong,
+.supervisor-owner-message {
+  margin-left: 56px;
+  padding: 12px 15px;
+  border: 1px solid var(--line);
+  border-radius: 16px 16px 4px 16px;
+  background: var(--surface-raised);
+}
+.supervisor-owner-message > strong,
 .supervisor-reply > strong {
   font-size: 11px;
 }
-.supervisor-exchange > small {
+.supervisor-owner-message > small {
+  display: block;
   font-size: 10px;
   color: var(--muted);
+  overflow-wrap: anywhere;
 }
 .supervisor-reply {
-  border-left: 2px solid var(--accent);
-  padding-left: 12px;
-  margin-top: 15px;
+  padding: 16px 12px 0 0;
 }
 .supervisor-message-time {
   display: block;
   color: var(--muted);
   font-size: 10px;
-  margin-top: 5px;
+  margin-top: 4px;
+}
+.supervisor-drawer .supervisor-composer {
+  flex: 0 0 auto;
+  max-height: 45%;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 12px 0 16px;
+  border-top: 1px solid var(--line);
+}
+.supervisor-compose {
+  margin: 0;
+}
+.supervisor-compose textarea {
+  width: 100%;
+  resize: vertical;
+  min-height: 72px;
+  max-height: 180px;
+  border-radius: 14px;
+  padding: 14px;
+  background: var(--code-bg);
 }
 .supervisor-grants {
-  margin: 14px 0 18px;
-  font-size: 12px;
+  margin: 10px 0;
+  font-size: 11px;
 }
 .supervisor-grants summary {
   cursor: pointer;
+  color: var(--muted);
+}
+.supervisor-grants p {
+  font-size: 11px;
 }
 .supervisor-grants label {
   display: flex;
   gap: 9px;
   align-items: flex-start;
-  margin-top: 12px;
+  margin-top: 10px;
 }
 .supervisor-grants input {
   width: auto;
-  margin-top: 3px;
+  margin-top: 2px;
   flex-shrink: 0;
+}
+.supervisor-sendbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.supervisor-sendbar > small {
+  color: var(--muted);
+  font-size: 10px;
+}
+.supervisor-tools {
+  padding: 10px 12px;
+  margin-top: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--code-bg);
+  font-size: 11px;
+}
+.supervisor-tools summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+.supervisor-tools > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  list-style: none;
+  flex-wrap: wrap;
+}
+.supervisor-tools > summary::-webkit-details-marker {
+  display: none;
+}
+.supervisor-inspect-label {
+  margin-left: auto;
+  color: var(--ink);
+  font-size: 10px;
+}
+.supervisor-tool-peek {
+  color: var(--muted);
+  font-size: 10px;
+  flex-basis: 100%;
+  padding-left: 22px;
+}
+.supervisor-tool {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+.supervisor-tool header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.supervisor-tool pre {
+  margin: 8px 0 12px;
+  max-height: 240px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 10px;
+  line-height: 1.6;
+}
+.supervisor-tools .hint {
+  font-size: 10px;
 }
 @supports not (backdrop-filter: blur(1px)) {
   .supervisor-drawer {
@@ -134,13 +423,45 @@
   }
 }
 @media (max-width: 700px) {
-  .supervisor-drawer {
-    top: 14px;
-    right: 16px;
-    padding: 18px;
+  .supervisor-drawer,
+  .supervisor-drawer.is-expanded {
+    inset: 8px;
+    width: auto;
+    max-width: none;
+    padding: 0 12px;
+  }
+  .supervisor-drawer > .section-heading {
+    padding-top: 12px;
+  }
+  .supervisor-drawer .eyebrow {
+    display: none;
+  }
+  .supervisor-window-controls .button {
+    padding: 7px;
+    font-size: 11px;
+  }
+  .supervisor-owner-message {
+    margin-left: 24px;
+  }
+  .supervisor-profile {
+    gap: 7px;
+  }
+  .supervisor-profile > .supervisor-avatar {
+    width: 32px;
+    height: 32px;
+  }
+  .supervisor-presence {
+    font-size: 9px;
   }
   .supervisor-launcher.button {
     right: 16px;
     bottom: 16px;
+  }
+  .supervisor-sendbar {
+    align-items: flex-end;
+  }
+  .supervisor-sendbar > small {
+    max-width: 160px;
+    line-height: 1.5;
   }
 }

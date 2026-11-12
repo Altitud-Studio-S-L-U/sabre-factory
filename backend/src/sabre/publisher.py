@@ -12,6 +12,12 @@ from sabre.security import is_blocking_finding, security_policy_digest
 CHANGE_TYPES = {"create": "feat", "patch": "fix", "maintain": "chore"}
 
 
+def validate_commit_message(message: str):
+    if not re.fullmatch(r"(?:feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(?:\([a-z0-9][a-z0-9._/-]*\))?!?: [^\r\n]+(?:\n\n[\s\S]*)?", message) or any(ord(char) < 32 and char != "\n" for char in message) or not message.splitlines()[0].split(": ", 1)[1].strip():
+        raise DomainError("INVALID_COMMIT_MESSAGE", "Delivery requires a Conventional Commit with a non-empty subject", 422)
+    return message
+
+
 def github_repository(url: str) -> str:
     match = re.fullmatch(r"https://github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+?)(?:\.git)?/?", url)
     if not match or ".." in match[1].split("/"):
@@ -31,6 +37,10 @@ class GitHubPublisher:
         if not token:
             raise DomainError("GITHUB_NOT_CONFIGURED", "Configure SABRE access to GitHub")
         headers = {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
+        extra_headers = kwargs.pop("headers", {})
+        if set(extra_headers) - {"Content-Type"}:
+            raise DomainError("GITHUB_HEADERS_NOT_ALLOWED", "Only the fixed content type may extend GitHub request headers", 422)
+        headers.update(extra_headers)
         if self.client:
             response = await self.client.request(method, path, headers=headers, **kwargs)
         else:
@@ -58,6 +68,9 @@ class GitHubPublisher:
             raise DomainError("SECURITY_POLICY_CHANGED", "The policy changed or expired before publication")
 
     async def prepare_commit(self, work: WorkOrder, project: Project, snapshot: dict) -> str:
+        if work.mode not in CHANGE_TYPES:
+            raise DomainError("DELIVERY_NOT_AUTHORIZED", "This work mode cannot create a delivery commit", 403)
+        message = validate_commit_message(f"{CHANGE_TYPES[work.mode]}: {work.objective.splitlines()[0][:100]}\n\nSABRE work: {work.id}; revision: {work.plan_revision}")
         repo = github_repository(project.repository)
         await self.validate_base(project, snapshot["base_commit"])
         tree = await self.request("GET", f"/repos/{repo}/git/trees/{snapshot['base_commit']}", params={"recursive": "1"})
@@ -76,9 +89,8 @@ class GitHubPublisher:
             if item["type"] == "blob" and item["path"] not in files and not dependency_path:
                 entries.append({"path": item["path"], "mode": item["mode"], "type": "blob", "sha": None})
         new_tree = await self.request("POST", f"/repos/{repo}/git/trees", json={"base_tree": tree["sha"], "tree": entries})
-        kind = CHANGE_TYPES[work.mode]
         commit = await self.request("POST", f"/repos/{repo}/git/commits", json={
-            "message": f"{kind}: {work.objective.splitlines()[0][:100]}\n\nSABRE work: {work.id}; revision: {work.plan_revision}",
+            "message": message,
             "tree": new_tree["sha"], "parents": [snapshot["base_commit"]],
             "author": {"name": "SABRE", "email": "sabre@users.noreply.github.com", "date": work.created_at.isoformat()},
             "committer": {"name": "SABRE", "email": "sabre@users.noreply.github.com", "date": work.created_at.isoformat()},
@@ -111,17 +123,22 @@ class GitHubPublisher:
         prs = await self.request("GET", f"/repos/{repo}/pulls", params={"head": f"{repo.split('/')[0]}:{branch}", "state": "all"})
         if prs:
             pr = prs[0]
-            if pr["head"]["sha"] != evidence.commit or not pr["draft"] or pr.get("state", "open") != "open":
+            head, base = pr.get("head", {}), pr.get("base", {})
+            def same_repository(value):
+                return isinstance(value, str) and value.casefold() == repo.casefold()
+            if head.get("sha") != evidence.commit or head.get("ref") != branch or pr.get("draft") is not True or pr.get("state") != "open" or base.get("ref") != project.default_branch or not same_repository(base.get("repo", {}).get("full_name")) or ("repo" in head and (not isinstance(head["repo"], dict) or not same_repository(head["repo"].get("full_name")))):
                 raise DomainError("DELIVERY_CONFLICT", "The existing PR does not match the reviewed delivery")
         else:
             await self.validate_base(project, expected_base)
             if not ref:
                 await self.validate_policy(work, project)
                 await self.request("POST", f"/repos/{repo}/git/refs", json={"ref": f"refs/heads/{branch}", "sha": evidence.commit})
-            body = "## Request\n\n" + work.objective + "\n\n## Verification\n\n"
+            body = "## Scope\n\n" + work.objective + "\n\n## Acceptance\n\n" + "\n".join("- " + item for item in work.acceptance) + "\n\n## Verification\n\n"
             body += f"Commit: `{evidence.commit}`\n\nSnapshot: `{evidence.snapshot_digest}`\n\n"
-            body += "\n".join(f"- {' '.join(g.command)}: exit {g.exit_code}, artefacto `{g.output_digest}`" for g in evidence.gates)
+            body += "\n".join(f"- {' '.join(g.command)}: exit {g.exit_code}, artifact `{g.output_digest}`" for g in evidence.gates)
             body += "\n\n## Review\n\n" + evidence.review
+            body += "\n\n## Constraints and limitations\n\n" + ("\n".join("- " + item for item in work.constraints) if work.constraints else "No additional run constraints were recorded.")
+            body += "\n\nThis draft contains the recorded checks for the exact snapshot above. Merge, deployment and release publication require separate authorization."
             await self.validate_policy(work, project)
             pr = await self.request("POST", f"/repos/{repo}/pulls", json={"head": branch, "base": project.default_branch,
                 "title": f"[{work.mode}] {work.objective.splitlines()[0][:180]}", "body": body, "draft": True})

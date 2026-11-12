@@ -24,7 +24,9 @@ On Windows, run `open` in your own interactive terminal and follow the single-us
 
 Connect an official Codex or Claude CLI session with `codex-login` or `claude-login`. Choose the factory default in Config and explicit role overrides in Agents; API credentials and external connections are managed in Tools. Select explicit model names, approved destinations, prices and limits. Register a repository through Config → Projects with its real verification commands, then launch a flow. Alternatively, authorize creation of a new repository and its flow together in Tools. See [operations](docs/operations.md) for login, isolation, backup and recovery.
 
-The Supervisor conversation is available throughout the authenticated panel and through owner MCP tools. Messages are durable and read-only by default. Grant individual action tools per message when you want the Supervisor to act; run-scoped conversations cannot modify another run. Replies use the control worker independently of execution. A blocked message retains its checkpoint and can be explicitly reconciled and resumed. The editable agent-procedure catalog, delegated external-agent authentication and other planned console capabilities remain specified under [implementation specs](docs/specs/README.md).
+The Supervisor conversation is available throughout the authenticated panel and through owner MCP tools. Messages are durable and read-only by default. Grant individual action tools per message when you want the Supervisor to act; run-scoped conversations cannot modify another run. Replies use the control worker independently of execution. Each new message pins its published Supervisor definition. Conversation, run coordination and independent judging retain separate contexts. A blocked message retains its checkpoint and can be explicitly reconciled and resumed.
+
+Agents provides seven versioned specialists, with revision-checked drafts, validation and publication. Runs pin published instructions, registered procedures, skills and tool restrictions. Publishing a later version affects future launches. Tools also manages separately authenticated delegated clients and reviewed external-agent connections; external metadata and instructions cannot grant owner authority. See [configuration](docs/configuration.md) for these contracts and [implementation specs](docs/specs/README.md) for the agreed scope.
 
 ## Flows
 
@@ -35,7 +37,7 @@ The Supervisor conversation is available throughout the authenticated panel and 
 | `create` | Requirements and architecture, implementation, checks and draft PR |
 | `audit` | Checks and an evidence report; project changes block completion |
 
-Flows use code-defined transitions. YAML selects registered models and skills; it cannot execute code or grant new tool permissions. Each run retains its resolved configuration and skill digests. Verification failures block publication. Repair defaults to two cycles and can be reduced. API cost, invocation, token and active-time limits are checked by the runtime.
+Flows use code-defined transitions. YAML selects registered models and skills; it cannot execute code or grant new tool permissions. Each run retains its resolved configuration and skill digests. Verification failures block publication. Budgets default to 40 invocations, 100,000 tokens, one hour and two repairs. Each metric can instead have an explicitly authorized finite reserve or no cumulative ceiling; paid API spend remains separately bounded. Repeated identical failed evidence requires intervention even with uncapped repairs. Unknown consumption remains unknown, and CLI token consumption may only be measured after an invocation.
 
 [Flow configuration and integrations](docs/configuration.md) describe per-phase precedence, skills, Slack and signed webhooks. The panel shows measured phase, agent and tool events. Unknown measurements remain unknown. Browser tests use synthetic responses and are not evidence of a live provider run.
 

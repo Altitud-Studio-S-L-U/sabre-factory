@@ -43,7 +43,7 @@ for (const name of readdirSync(source, { recursive: true }).filter((name) => nam
 const hostDigest = sum.digest('hex');
 const canary = 'synthetic-access-log-canary-20261105';
 const program = String.raw`
-import asyncio, hashlib, json, pathlib, urllib.request, urllib.error
+import asyncio, hashlib, json, pathlib, re, urllib.request, urllib.error
 import httpx2
 from mcp import Client
 from mcp.client.streamable_http import streamable_http_client
@@ -55,8 +55,24 @@ def get(path,authorized=True):
  try:
   with urllib.request.urlopen(request,timeout=10) as response: return response.status
  except urllib.error.HTTPError as error: return error.code
+def read(path):
+ request=urllib.request.Request('http://127.0.0.1:8000'+path,headers=headers)
+ with urllib.request.urlopen(request,timeout=20) as response: return response.read()
 async def main():
  if get('/health')!=200 or get('/api/v1/status')!=200 or get('/api/v1/status',False)!=401: raise RuntimeError('API authentication check failed')
+ agents=json.loads(read('/api/v1/agents'))
+ if len(agents.get('agents',[]))!=7: raise RuntimeError('Specialist catalog is incomplete')
+ if json.loads(read('/api/v1/configuration')).get('configuration',{}).get('version')!=1: raise RuntimeError('Canonical configuration is unavailable')
+ if not any(item.get('name')=='browser_verify' for item in json.loads(read('/api/v1/tools/catalog')).get('items',[])): raise RuntimeError('Browser QA tool is absent')
+ for mode in ['patch','maintain','create','audit']:
+  if not json.loads(read('/api/v1/flows/'+mode+'/topology')).get('lanes'): raise RuntimeError('Flow topology is absent')
+ if 'items' not in json.loads(read('/api/v1/releases')): raise RuntimeError('Release candidate inspection is unavailable')
+ html=read('/').decode()
+ asset=re.search(r'src="(/assets/[A-Za-z0-9._-]+\.js)"',html)
+ if not asset: raise RuntimeError('The console bundle is unavailable')
+ served=read(asset.group(1))
+ installed=pathlib.Path('/app/web/dist'+asset.group(1)).read_bytes()
+ if served!=installed: raise RuntimeError('The served console differs from the installed bundle')
  get('/api/v1/memory/search?project_id=synthetic-log-check&query=synthetic-access-log-canary-20261105&commit='+'a'*40)
  async with httpx2.AsyncClient(headers=headers,timeout=30) as http:
   async with Client(streamable_http_client('http://127.0.0.1:8000/mcp/',http_client=http)) as client:
@@ -67,7 +83,7 @@ async def main():
  base=pathlib.Path('/app/src/sabre')
  for path in sorted(base.rglob('*.py')):
   digest.update(path.relative_to(base).as_posix().encode()+b'\0'); digest.update(path.read_bytes())
- print(json.dumps({'api_health':200,'authenticated_status':200,'unauthorized_status':401,'mcp_tools':len(tools.tools),'source_digest':digest.hexdigest()}))
+ print(json.dumps({'api_health':200,'authenticated_status':200,'unauthorized_status':401,'mcp_tools':len(tools.tools),'specialists':len(agents['agents']),'console_bundle_verified':True,'source_digest':digest.hexdigest()}))
 try: asyncio.run(main())
 except Exception as error: print(json.dumps({'check_error':type(error).__name__}))
 `;

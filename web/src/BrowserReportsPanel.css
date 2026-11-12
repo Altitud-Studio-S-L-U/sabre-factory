@@ -1,0 +1,96 @@
+.browser-evidence {
+  display: grid;
+  gap: 12px;
+  margin-top: 20px;
+  min-width: 0;
+}
+.browser-evidence-heading,
+.browser-report > header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.browser-evidence-heading h4 {
+  margin: 0;
+}
+.browser-visual-status,
+.browser-history-label {
+  color: var(--muted, #94a3b8);
+  font-size: 11px;
+}
+.browser-report {
+  display: grid;
+  gap: 14px;
+  border: 1px solid var(--border, #293445);
+  padding: 14px;
+  border-radius: 8px;
+  min-width: 0;
+}
+.browser-report-metadata {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 6px 12px;
+  margin: 0;
+  font-size: 12px;
+}
+.browser-report-metadata dt {
+  color: var(--muted, #94a3b8);
+}
+.browser-report-metadata dd {
+  margin: 0;
+  min-width: 0;
+}
+.browser-report code,
+.browser-artifact code {
+  display: block;
+  overflow-wrap: anywhere;
+  font-size: 11px;
+}
+.browser-viewport-result {
+  display: grid;
+  gap: 8px;
+  font-size: 12px;
+}
+.browser-viewport-result ul {
+  margin: 0;
+  padding-left: 18px;
+}
+.browser-viewport-result ul:empty {
+  display: none;
+}
+.browser-viewport-result summary {
+  cursor: pointer;
+  color: var(--muted, #94a3b8);
+}
+.browser-artifacts,
+.browser-artifact {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+.browser-artifact {
+  padding-top: 10px;
+  border-top: 1px solid var(--border, #293445);
+  font-size: 12px;
+}
+.browser-artifact img {
+  width: 100%;
+  max-height: 600px;
+  object-fit: contain;
+  object-position: top left;
+  background: #fff;
+  border-radius: 4px;
+}
+.browser-artifact button {
+  justify-self: start;
+}
+.browser-artifact small {
+  color: var(--muted, #94a3b8);
+}
+@media (max-width: 600px) {
+  .browser-report-metadata {
+    grid-template-columns: 1fr;
+  }
+}

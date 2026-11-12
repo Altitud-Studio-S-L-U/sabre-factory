@@ -50,9 +50,15 @@ class OperatorConversationStore:
                     raise DomainError("OPERATOR_MESSAGE_CONFLICT", "This message key was already used for different content", 409)
                 return view(row)
             await self._check_capacity(conn, scope)
+            from sabre.agent_catalog import AgentCatalogService
+            catalog = AgentCatalogService(self.repository, self.guard)
+            definition_row = await catalog.seeded(conn, "manager")
+            definition = catalog.entry("manager", definition_row).published
+            self.guard.check(definition)
             identifier = new_id()
             row = await (await conn.execute("""INSERT INTO operator_messages(id,scope,request_key,request_digest,data)
-                VALUES(%s,%s,%s,%s,%s) RETURNING *""", (identifier, scope, request.idempotency_key, fingerprint, Jsonb({**content, "source": source})))).fetchone()
+                VALUES(%s,%s,%s,%s,%s) RETURNING *""", (identifier, scope, request.idempotency_key, fingerprint,
+                    Jsonb({**content, "source": source, "definition": definition.model_dump(mode="json")})))).fetchone()
             await self.enqueue(conn, identifier, scope)
         return view(row)
 

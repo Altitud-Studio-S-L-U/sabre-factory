@@ -121,8 +121,8 @@ export default function Integrations({
                 >
                   {item.toggleable
                     ? item.enabled
-                      ? 'Activada'
-                      : 'Desactivada'
+                      ? 'Enabled'
+                      : 'Disabled'
                     : item.kind === 'model'
                       ? 'Configuration by role'
                       : 'Instance configuration'}
@@ -139,9 +139,9 @@ export default function Integrations({
                         <code>{tool.name}</code>
                         <span>
                           {tool.effect === 'read'
-                            ? 'Lectura'
+                            ? 'Read'
                             : tool.effect === 'external_write'
-                              ? 'Escritura externa controlada'
+                              ? 'Controlled external write'
                               : tool.effect === 'configuration'
                                 ? 'Local configuration'
                                 : tool.effect}
@@ -209,7 +209,7 @@ export default function Integrations({
   );
 }
 
-function GitHubRepositories({
+export function GitHubRepositories({
   api,
   enabled,
   onChanged,
@@ -335,7 +335,7 @@ function GitHubRepositories({
           />
         </label>
         <button className="button primary" type="submit" disabled={!enabled || busy}>
-          {busy && !selected ? 'Consultando…' : 'Search repositories'}
+          {busy && !selected ? 'Searching…' : 'Search repositories'}
         </button>
       </form>
       {error && (
@@ -368,7 +368,7 @@ function GitHubRepositories({
                   <span className="muted">
                     {repository.visibility === 'private' ? 'Private' : 'Public'}
                     {repository.language ? ` · ${repository.language}` : ''}
-                    {repository.archived ? ' · Archivado' : ''}
+                    {repository.archived ? ' · Archived' : ''}
                     {repository.disabled ? ' · Unavailable' : ''}
                   </span>
                 </div>
@@ -383,9 +383,9 @@ function GitHubRepositories({
                     !repository.default_branch
                   }
                   onClick={() => choose(repository)}
-                  aria-label={`Importar ${repository.full_name}`}
+                  aria-label={`Import ${repository.full_name}`}
                 >
-                  Importar<span className="sr-only"> {repository.full_name}</span>
+                  Import<span className="sr-only"> {repository.full_name}</span>
                 </button>
               </li>
             ))}
@@ -416,7 +416,7 @@ function GitHubRepositories({
           onSubmit={(event) => void importRepository(event)}
           aria-labelledby={`${id}-import-heading`}
         >
-          <h3 id={`${id}-import-heading`}>Importar {selected.full_name}</h3>
+          <h3 id={`${id}-import-heading`}>Import {selected.full_name}</h3>
           <p className="muted">SABRE will check the repository again and use its default branch.</p>
           <label htmlFor={`${id}-name`}>
             Project name
@@ -459,7 +459,7 @@ function GitHubRepositories({
           </p>
           <div className="integration-actions">
             <button className="button primary" type="submit" disabled={busy || !enabled}>
-              {busy ? 'Importando…' : 'Register project'}
+              {busy ? 'Importing…' : 'Register project'}
             </button>
             <button className="button small" type="button" disabled={busy} onClick={() => setSelected(null)}>
               Cancel import

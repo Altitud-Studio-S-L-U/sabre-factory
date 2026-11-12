@@ -7,6 +7,8 @@ from uuid import uuid4
 
 from pydantic import AwareDatetime, ConfigDict, Field, SecretStr, field_validator, model_validator
 
+from sabre.browser_contracts import BrowserPreview
+from sabre.budget_contracts import BudgetDenial, BudgetPolicy
 from sabre.contracts import Contract
 from sabre.flow_contracts import FlowConfiguration, ResolvedFlow
 
@@ -73,9 +75,12 @@ class Budget(Contract):
     max_tokens: int | None = Field(default=100000, ge=1, le=10000000)
     max_cost_usd: float = Field(default=0, ge=0, le=1000, description="API spend authorization; zero permits only invocations with no API charge recorded by SABRE")
     active_seconds: int | None = Field(default=3600, ge=60, le=86400)
+    policy: BudgetPolicy | None = Field(default=None, exclude_if=lambda value: value is None)
 
     @model_validator(mode="after")
     def cumulative_limits_are_coherent(self):
+        if self.policy is not None:
+            return self
         caps = (self.max_calls, self.max_tokens, self.active_seconds)
         if any(cap is None for cap in caps) and (any(cap is not None for cap in caps) or self.max_cost_usd != 0):
             raise ValueError("CLI progress controls require all cumulative caps null and no API spend")
@@ -83,7 +88,7 @@ class Budget(Contract):
 
     @property
     def progress_limits(self) -> bool:
-        return self.max_calls is None and self.max_tokens is None and self.active_seconds is None
+        return self.policy is None and self.max_calls is None and self.max_tokens is None and self.active_seconds is None
 
 
 class ProjectCreate(Contract):
@@ -94,6 +99,7 @@ class ProjectCreate(Contract):
     gate_commands: list[list[str]] = Field(min_length=1, max_length=12)
     allowed_mcp_servers: list[str] = Field(default_factory=list)
     approved_baseline: list[str] = Field(default_factory=list)
+    browser_preview: BrowserPreview | None = None
 
     @model_validator(mode="after")
     def commands_are_argv(self):
@@ -236,6 +242,16 @@ class WorkOrder(WorkOrderCreate):
     phase: str = "intake"
     graph_version: str = "sabre-v1"
     resolved_flow: ResolvedFlow | None = None
+    configuration_snapshot: dict[str, Any] | None = None
+    admission_request_digest: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+    effective_budget_policy: BudgetPolicy | None = None
+    budget_revision: int = Field(default=0, ge=0)
+    limiting_metric: str | None = None
+    budget_denial: BudgetDenial | None = None
+    repair_cycles_used: int = Field(default=0, ge=0)
+    last_failure_fingerprint: str | None = None
+    identical_failure_count: int = Field(default=0, ge=0)
+    last_failure_cycle: int = Field(default=-1, ge=-1)
     plan_revision: int = 1
     created_at: datetime = Field(default_factory=now)
     updated_at: datetime = Field(default_factory=now)
@@ -252,6 +268,12 @@ class WorkOrder(WorkOrderCreate):
     cost_usd: float = 0
     active_seconds_used: float = 0
     control: Literal["pause", "cancel"] | None = None
+
+    @model_validator(mode="after")
+    def initialize_budget_policy(self):
+        if self.effective_budget_policy is None and self.budget.policy is not None:
+            self.effective_budget_policy = self.budget.policy.model_copy(deep=True)
+        return self
 
 
 class Answer(Contract):
@@ -313,8 +335,9 @@ class MemoryItem(MemoryCreate):
 
 
 class DomainError(Exception):
-    def __init__(self, code: str, message: str, status_code: int = 409):
+    def __init__(self, code: str, message: str, status_code: int = 409, *, budget_denial: BudgetDenial | None = None):
         self.code = code
         self.message = message
         self.status_code = status_code
+        self.budget_denial = budget_denial
         super().__init__(message)

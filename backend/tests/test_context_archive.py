@@ -225,6 +225,118 @@ async def test_memory_used_in_history_is_revalidated_before_next_model_reservati
     handler.assert_not_awaited()
 
 
+async def test_two_recent_read_batches_resume_with_scoped_recovery_without_clearing_history(tmp_path):
+    source = "Exact recoverable source evidence.\n" * 250
+
+    class BatchModel(ScriptedModel):
+        def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+            index = self._calls
+            self._calls += 1
+            if index < 2:
+                calls = [{"id": f"batch-{index}-{item}", "name": "read_file", "args": {"path": f"{index}-{item}.py"}}
+                         for item in range(5)]
+            elif index == 2:
+                ref = json.loads(next(m.content for m in messages if isinstance(m, ToolMessage) and m.tool_call_id == "batch-1-4"))
+                assert ref["sabre_context_reference"] == 2
+                assert any(isinstance(m, HumanMessage) and "Preserve approvals" in m.content for m in messages)
+                calls = [{"id": "recover-recent", "name": "read_context", "args": {
+                    "tool_call_id": ref["tool_call_id"], "response_digest": ref["response_digest"], "offset": 0, "limit": 128}}]
+            else:
+                page = json.loads(next(m.content for m in messages if isinstance(m, ToolMessage) and m.tool_call_id == "recover-recent"))
+                assert page["content"] == source[:128]
+                calls = [{"id": "done", "name": "AgentResult", "args": AgentResult(accepted=True, summary="Recovered recent evidence").model_dump(mode="json")}]
+            return ChatResult(generations=[ChatGeneration(message=AIMessage(content="", tool_calls=calls,
+                usage_metadata={"input_tokens": 10, "output_tokens": 5, "total_tokens": 15}))])
+
+    class BatchExecutor(Executor):
+        async def read_file(self, work_id, path):
+            return source + path
+
+    work, project, config = setup()
+    config.context_input_max_bytes = 70000
+    config.context_dedup_keep_model_turns = 2
+    config.context_archive_enabled = True
+    config.context_dedup_enabled = True
+    repository, executor, model, saver = Repository(), BatchExecutor(), BatchModel(), InMemorySaver()
+    interrupted = False
+
+    async def pause_after_batches(work_id):
+        nonlocal interrupted
+        if model._calls == 2 and not interrupted:
+            interrupted = True
+            return "pause"
+        return None
+
+    repository.control = pause_after_batches
+    store = ArtifactStore(tmp_path, SecretGuard())
+
+    def team():
+        return AgentTeam(config, repository, executor, SecretGuard(), model_factory=lambda: model, checkpointer=saver, artifacts=store)
+
+    with pytest.raises(DomainError) as paused:
+        await team().run("developer", work, project, "Preserve approvals and inspect source")
+    assert paused.value.code == "PAUSE_REQUESTED"
+    assert model._calls == len(repository.reservations) == 2
+    result = await team().run("developer", work, project, "Preserve approvals and inspect source")
+    assert result.accepted
+    assert model._calls == len(repository.reservations) == len(repository.settled) == 4
+    receipt = repository.context_receipts[2]
+    assert receipt.original_bytes > config.context_input_max_bytes >= receipt.sent_bytes
+    assert receipt.compacted_results == 10
+    saved = [row async for row in saver.alist(None)]
+    assert len({row.config["configurable"]["thread_id"] for row in saved}) == 1
+    durable = saved[0].checkpoint["channel_values"]["messages"]
+    reads = [m for m in durable if isinstance(m, ToolMessage) and m.tool_call_id.startswith("batch-")]
+    assert len(reads) == 10 and all(m.content.startswith(source) for m in reads)
+    assert all("sabre_context_reference" not in str(m.content) for m in durable)
+    for ref in receipt.references:
+        raw = next(m.content.encode() for m in reads if m.tool_call_id == ref.tool_call_id)
+        assert store.get(ref.response_digest) == raw
+
+
+@pytest.mark.parametrize("case", ["over_limit", "within_limit", "archive_disabled", "dedup_disabled", "no_recovery", "irreducible"])
+async def test_recent_read_fallback_preserves_required_context_and_policy(tmp_path, case):
+    work, _, config = setup()
+    config.context_input_max_bytes = 10000 if case != "within_limit" else 100000
+    config.context_archive_enabled = case != "archive_disabled"
+    config.context_dedup_enabled = case != "dedup_disabled"
+    config.context_dedup_keep_model_turns = 2
+    source = "Recoverable source " * 2000
+    calls = [{"id": name, "name": tool, "args": {}} for name, tool in (
+        ("read", "read_file"), ("mutation", "write_file"), ("failure", "read_file"), ("page", "read_context"))]
+    messages = [HumanMessage(content="Owner constraints and approvals"), AIMessage(content="Current plan", tool_calls=calls),
+        ToolMessage(id="original-read", tool_call_id="read", content=source),
+        ToolMessage(tool_call_id="mutation", content="Mutation evidence " * (2000 if case == "irreducible" else 10)),
+        ToolMessage(tool_call_id="failure", status="error", content="Required error evidence"),
+        ToolMessage(tool_call_id="page", content="Exact requested recovery page")]
+    original = [m.model_dump(mode="json") for m in messages]
+    guard, repository, handler = SecretGuard(), Repository(), AsyncMock(return_value=SimpleNamespace(result=[]))
+    store = ArtifactStore(tmp_path, guard)
+    archive = None if case == "no_recovery" else ContextArchive(store, guard)
+    request = ModelRequest(model=ScriptedModel(), messages=messages, system_message=SystemMessage(content="Current platform instructions"))
+    middleware = GuardedCalls(repository, config, work, guard, artifacts=store, context_archive=archive)
+    if case not in {"over_limit", "within_limit"}:
+        with pytest.raises(DomainError) as error:
+            await middleware.awrap_model_call(request, handler)
+        assert error.value.code == "CONTEXT_BUDGET_EXHAUSTED"
+        assert repository.reservations == []
+        handler.assert_not_awaited()
+    else:
+        await middleware.awrap_model_call(request, handler)
+        sent = handler.await_args.args[0]
+        assert sent.system_message == request.system_message
+        for index in (0, 1, 3, 4, 5):
+            assert sent.messages[index] == messages[index]
+        if case == "over_limit":
+            ref = json.loads(sent.messages[2].content)
+            assert sent.messages[2].id == "original-read" and sent.messages[2].tool_call_id == "read"
+            assert (await archive.read("read", ref["response_digest"], 0, 128))["content"] == source[:128]
+        else:
+            assert sent.messages == messages
+            assert not list(store.root.glob("*/*"))
+    assert [m.model_dump(mode="json") for m in messages] == original
+
+
 def test_reused_tool_id_cannot_hide_old_memory_from_validation():
     messages = [AIMessage(content="", tool_calls=[{"id": "reused", "name": "read_memory", "args": {}}]),
         ToolMessage(tool_call_id="reused", content=json.dumps({"id": "memory", "content_digest": "a" * 64})),

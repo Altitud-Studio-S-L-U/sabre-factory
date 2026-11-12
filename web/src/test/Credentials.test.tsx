@@ -169,7 +169,7 @@ describe('Credenciales del control', () => {
       ),
     ).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Confirm deactivation' }));
-    expect(await screen.findByText('Desactivada')).toBeVisible();
+    expect(await screen.findByText('Disabled')).toBeVisible();
     expect(writes).toEqual([
       { path: '/secrets/model.openai.default/deactivate', body: { expected_version: 7 } },
     ]);

@@ -119,8 +119,8 @@ describe('Integrations', () => {
     await user.selectOptions(screen.getByLabelText('Account type'), 'user');
     await user.type(screen.getByLabelText('User or organization'), 'fixture');
     await user.click(screen.getByRole('button', { name: 'Search repositories' }));
-    await user.click(await screen.findByRole('button', { name: 'Importar fixture/example' }));
-    const form = screen.getByRole('form', { name: 'Importar fixture/example' });
+    await user.click(await screen.findByRole('button', { name: 'Import fixture/example' }));
+    const form = screen.getByRole('form', { name: 'Import fixture/example' });
     await user.click(within(form).getByLabelText('Delivery checks'));
     await user.paste('["npm", "test"]');
     await user.click(within(form).getByRole('button', { name: 'Register project' }));
@@ -150,6 +150,6 @@ describe('Integrations', () => {
     await user.type(screen.getByLabelText('User or organization'), 'fixture');
     await user.click(screen.getByRole('button', { name: 'Search repositories' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('GitHub no permitió');
-    expect(screen.queryByRole('button', { name: /^Importar / })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Import / })).not.toBeInTheDocument();
   });
 });

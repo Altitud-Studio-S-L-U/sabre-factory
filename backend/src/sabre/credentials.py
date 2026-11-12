@@ -57,6 +57,7 @@ class Credentials:
         self.values: dict[str, SecretStr] = {}
         self.integrations: IntegrationService | None = None
         self.mcp_connections: MCPConnectionStore | None = None
+        self.a2a_connections = None
         self.model_configuration: ModelConfigurationService | None = None
         self.static_mcp_servers = {name: server.model_copy(deep=True) for name, server in config.mcp_servers.items()}
         self.dynamic_mcp_names: frozenset[str] = frozenset()
@@ -121,6 +122,9 @@ class Credentials:
             if self.mcp_connections:
                 dynamic, registry_revision = await self.mcp_connections.snapshot()
             rows = await self.vault.list_metadata()
+            if self.a2a_connections:
+                self.targets = {key: value for key, value in self.targets.items() if not key.startswith("a2a.")}
+                self.targets.update(await self.a2a_connections.credential_targets())
             preferences = await self.integrations.preference_revision() if self.integrations else ()
             revision = (self.fingerprint(rows), preferences, registry_revision, model_revision)
             if revision == self.revision:

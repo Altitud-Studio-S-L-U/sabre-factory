@@ -4,18 +4,21 @@ import {
   type FlowConfiguration as Configuration,
   type ModelConfiguration,
   type ModelSelection,
+  type AgentCatalogEntry,
 } from './api';
 import { SelectionFields } from './ModelConfiguration';
 import './ExecutionTimeline.css';
 
 const roles = {
   analysis: 'analyst',
+  ux: 'designer',
   design: 'architect',
   planning: 'supervisor',
   implementation: 'developer',
   verification: 'qa',
   review: 'reviewer',
   security: 'security',
+  delivery_preparation: 'devops',
 } as const;
 
 export default function FlowConfiguration({
@@ -30,18 +33,24 @@ export default function FlowConfiguration({
   onChange: (value: Configuration) => void;
 }) {
   const [models, setModels] = useState<ModelConfiguration | null>(null);
+  const [specialists, setSpecialists] = useState<AgentCatalogEntry[]>([]);
   const [error, setError] = useState('');
   const [yaml, setYaml] = useState('version: 1\nrepair_cycles: 2\n');
   const [loading, setLoading] = useState(false);
   useEffect(() => {
     let active = true;
-    api
-      .modelConfiguration()
-      .then((result) => {
-        if (active) setModels(result);
+    Promise.all([api.modelConfiguration(), api.agents()])
+      .then(([result, catalog]) => {
+        if (active) {
+          setModels(result);
+          setSpecialists(catalog.agents);
+        }
       })
       .catch(() => {
-        if (active) setError('Model configuration is unavailable. Refresh Integrations before launching.');
+        if (active)
+          setError(
+            'Model and published specialist configuration is unavailable. Refresh Config and Agents before launching.',
+          );
       });
     return () => {
       active = false;
@@ -55,7 +64,7 @@ export default function FlowConfiguration({
   };
   const phases = Object.entries(roles).filter(([phase]) =>
     mode === 'audit'
-      ? !['design', 'planning', 'implementation'].includes(phase)
+      ? !['design', 'ux', 'planning', 'implementation', 'delivery_preparation'].includes(phase)
       : mode === 'create' || phase !== 'design',
   );
   return (
@@ -72,11 +81,22 @@ export default function FlowConfiguration({
       </ol>
       {models &&
         phases.map(([phase, role]) => {
-          const inherited =
-            value.phases?.[phase]?.model ||
-            models.roles.find((item) => item.role === role)?.effective ||
-            models.default;
+          const specialist = specialists.find((entry) => entry.legacy_roles.includes(role));
+          const authorizationRole = role === 'designer' ? 'architect' : role === 'devops' ? 'qa' : role;
+          const legacy = models.roles.find((item) => item.role === authorizationRole);
+          const flowModel = value.phases?.[phase]?.model;
+          const publishedModel = specialist?.published.definition.model;
+          const inherited = flowModel ?? publishedModel ?? legacy?.effective ?? models.default;
           const selected = value.phase_models?.[phase];
+          const origin = selected
+            ? 'Run phase override'
+            : flowModel
+              ? 'Flow phase override'
+              : publishedModel
+                ? `Published ${specialist.label} · version ${specialist.published.version}`
+                : legacy?.override
+                  ? `Configured ${authorizationRole} role`
+                  : 'Factory default';
           return (
             <details className="phase-configuration" key={phase}>
               <summary>
@@ -86,6 +106,10 @@ export default function FlowConfiguration({
                   {selected?.name || inherited.name || 'Model required'}
                 </span>
               </summary>
+              <p className="hint">
+                Model source: {origin}. Run phase → flow phase → published specialist → configured role →
+                factory default.
+              </p>
               <label className="inline-check">
                 <input
                   type="checkbox"
@@ -95,10 +119,7 @@ export default function FlowConfiguration({
                 Override this phase for this run
               </label>
               {selected && (
-                <SelectionFields
-                  value={selected as ModelSelection}
-                  onChange={(model) => updateModel(phase, model)}
-                />
+                <SelectionFields value={selected} onChange={(model) => updateModel(phase, model)} />
               )}
               <p className="hint">Destinations must already be approved in Integrations.</p>
             </details>

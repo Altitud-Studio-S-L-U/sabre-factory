@@ -20,6 +20,7 @@ from sabre.project_tools import ProjectToolService
 from sabre.publisher import GitHubPublisher
 from sabre.repo_creation import RepoCreationService
 from sabre.repository import Repository, digest
+from sabre.repository_ingestion import RepositoryIngestion
 from sabre.security import ScannerClient, SecretGuard, SecurityService
 from sabre.service import FactoryService
 from sabre.telemetry import configure, span
@@ -31,6 +32,7 @@ class Runtime:
     def __init__(self, config):
         self.config = config
         self.stack = AsyncExitStack()
+        self.ingestion: RepositoryIngestion | None = None
 
     async def __aenter__(self):
         try:
@@ -106,6 +108,8 @@ class Runtime:
             with span("factory.work", work_id=work_id) as observation:
                 try:
                     await self.credentials.refresh()
+                    from sabre.delegation import authorize_delegated_work
+                    await authorize_delegated_work(self.repository, await self.repository.work(work_id))
                     result = await self.factory.drive(work_id)
                     if result.status in {Status.BLOCKED, Status.FAILED}:
                         observation.outcome(DomainError(result.error_code or "EXECUTION_BLOCKED", ""))
@@ -115,6 +119,9 @@ class Runtime:
                     work.status, work.summary, work.error_code = Status.FAILED, "Execution failed; inspect controls and resume after correcting the cause", "EXECUTION_ERROR"
                     if isinstance(error, DomainError):
                         work.status, work.summary, work.error_code = Status.BLOCKED, error.message, error.code
+                        work.budget_denial = error.budget_denial
+                        if error.budget_denial:
+                            work.limiting_metric = error.budget_denial.metric
                     await self.factory.finish(work)
                     await self.repository.event(work, "failed", work.summary)
                     # Do not persist exception strings: libraries can include request content or credentials.
@@ -191,10 +198,19 @@ class Runtime:
             await guarded_call(deliver_notifications, guard, "SLACK_DELIVERY_FAILED", self.repository, cfg, guard, credentials=self.credentials)
 
         self.service = FactoryService(self.repository, self.factory, memory, self, guard, cfg)
+        from sabre.a2a import a2a_services
+        self.a2a_connections, self.outbound_a2a = a2a_services(self.service)
+        self.factory.team.outbound_a2a = self.outbound_a2a
+        from sabre.browser_qa import BrowserQAService
+        self.browser_qa = BrowserQAService(self.repository, executor, artifacts, guard)
+        self.factory.team.browser_qa = self.browser_qa
         from sabre.slack import register_jobs
         await register_jobs(self)
         from sabre.operator_conversation import register_operator_job
         await register_operator_job(self)
+        from sabre.repository_ingestion import register_ingestion_jobs
+        await register_ingestion_jobs(self)
+        self.factory.ingestion = self.ingestion
         return self
 
     async def __aexit__(self, exc_type, exc, tb):

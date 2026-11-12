@@ -1,0 +1,501 @@
+import { useEffect, useId, useRef, useState } from 'react';
+import type { Api, AuditView, ProcessTopology, RunInspection, SequencedEvent, WorkOrder } from './api';
+import { projectExecution, type ObservedSpan } from './executionProjection';
+import RunInspector, { specialistNames } from './RunInspector';
+import JsonView from './components/JsonView';
+import type { RunUsageState } from './useRunUsage';
+import './ExecutionConsole.css';
+
+const clock = (ms: number) =>
+  `${Math.floor(ms / 60000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, '0')}`;
+const duration = (ms: number | null | undefined) =>
+  ms == null ? 'Not recorded' : ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`;
+const memoryTools = new Set(['read_memory', 'propose_memory', 'resolve_memory', 'read_context']);
+
+export default function RunProcessConsole({
+  api,
+  entries,
+  order,
+  topology,
+  audit,
+  liveUsage,
+  inspection,
+  inspectorError,
+  onInspect,
+  onMore,
+}: {
+  api?: Api;
+  entries: SequencedEvent[];
+  order: WorkOrder;
+  topology?: ProcessTopology | null;
+  audit?: AuditView | null;
+  liveUsage?: RunUsageState;
+  inspection?: RunInspection | null;
+  inspectorError?: string;
+  onInspect?: (role?: string, agentId?: string) => void;
+  onMore?: () => void;
+}) {
+  const tooltipId = useId();
+  const workspaceRef = useRef<HTMLDivElement>(null);
+  const [wide, setWide] = useState(false);
+  const [zoom, setZoom] = useState(1);
+  const [preview, setPreview] = useState<ObservedSpan | null>(null);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [pinned, setPinned] = useState<ObservedSpan | null>(null);
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  const [now, setNow] = useState(() => Date.now());
+  const spans = projectExecution(entries);
+  const running = ['running', 'queued'].includes(order.status);
+  const usage = liveUsage?.snapshot?.usage ?? (audit?.work_id === order.id ? audit.usage : undefined);
+  const pendingUsage = (usage?.unsettled_calls ?? 0) > 0;
+  useEffect(() => {
+    if (!wide || !workspaceRef.current) return;
+    const root = workspaceRef.current;
+    const previous = document.activeElement;
+    const overflow = document.body.style.overflow;
+    const siblings: { element: HTMLElement; inert: boolean }[] = [];
+    // Isolate the existing workspace in place so inspection and scroll state survive expansion.
+    let ancestor: HTMLElement = root;
+    while (ancestor.parentElement) {
+      for (const element of ancestor.parentElement.children) {
+        if (element !== ancestor && element instanceof HTMLElement) {
+          siblings.push({ element, inert: element.inert });
+          element.inert = true;
+        }
+      }
+      if (ancestor.parentElement === document.body) break;
+      ancestor = ancestor.parentElement;
+    }
+    document.body.style.overflow = 'hidden';
+    root.querySelector<HTMLButtonElement>('.workspace-expand')?.focus();
+    return () => {
+      for (const sibling of siblings) sibling.element.inert = sibling.inert;
+      document.body.style.overflow = overflow;
+      if (previous instanceof HTMLElement && previous.isConnected) previous.focus();
+    };
+  }, [wide]);
+  useEffect(() => {
+    if (!running) return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [running]);
+  const current =
+    spans.find((span) => span.id === selected) ??
+    (selected?.startsWith('phase:')
+      ? undefined
+      : selected
+        ? (pinned ?? undefined)
+        : ([...spans].reverse().find((span) => span.event.kind === 'stage') ?? spans.at(-1)));
+  const registered = topology?.lanes ?? [];
+  const laneFor = (span: ObservedSpan) =>
+    registered.find(
+      (lane) =>
+        lane.stages.includes(span.event.phase) ||
+        (span.event.kind === 'stage' && lane.stages.includes(span.event.name)),
+    )?.id ?? span.phase;
+  const laneIds = [...new Set([...registered.map((lane) => lane.id), ...spans.map(laneFor)])];
+  const selectedLane = selected?.startsWith('phase:')
+    ? selected.slice(6)
+    : current
+      ? laneFor(current)
+      : laneIds[0];
+  const lane = registered.find((item) => item.id === selectedLane);
+  const known = spans.flatMap((span) => (span.start == null ? [] : [span.start]));
+  const origin = known.length ? Math.min(...known) : null;
+  const latest = Math.max(
+    0,
+    ...entries.map((entry) => Date.parse(entry.event.timestamp)).filter(Number.isFinite),
+  );
+  const end = running ? Math.max(now, latest) : latest;
+  const horizon = Math.max(1000, origin == null ? 0 : end - origin);
+  const pin = (span: ObservedSpan) => {
+    setSelected(span.id);
+    setPinned(span);
+    const parent = spans.find((candidate) => candidate.id === span.event.parent_id);
+    onInspect?.(
+      span.event.kind === 'agent'
+        ? span.event.name
+        : parent?.event.kind === 'agent'
+          ? parent.event.name
+          : undefined,
+      span.event.agent_id ?? parent?.event.agent_id ?? undefined,
+    );
+  };
+  const renderBar = (span: ObservedSpan, index: number, total: number, attempt = index + 1) => {
+    const left =
+      origin == null || span.start == null ? null : Math.max(0, ((span.start - origin) / horizon) * 100);
+    const width = span.start == null ? 0 : Math.max(1.1, (((span.end ?? end) - span.start) / horizon) * 100);
+    return (
+      <button
+        type="button"
+        key={span.id}
+        className={`observed-bar kind-${span.event.kind} state-${span.event.state}`}
+        style={
+          left == null
+            ? undefined
+            : { left: `${left}%`, width: `${Math.min(width, 100 - left)}%`, top: `${9 + index * 38}px` }
+        }
+        aria-pressed={current?.id === span.id}
+        onClick={() => pin(span)}
+        onMouseEnter={() => setPreview(span)}
+        onMouseLeave={() => setPreview(null)}
+        onFocus={() => setPreview(span)}
+        onBlur={() => setPreview(null)}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') setPreview(null);
+        }}
+        aria-describedby={preview?.id === span.id ? tooltipId : undefined}
+        aria-label={`${span.event.name} · ${span.event.state}`}
+      >
+        <strong>
+          {span.event.state === 'failed' ? '× ' : ''}
+          {specialistNames[span.event.name] ?? span.event.name.replaceAll('_', ' ')}
+          {total > 1 ? ` · attempt ${attempt}` : ''}
+        </strong>
+        <small>
+          {span.event.state === 'started' && span.start != null
+            ? `${clock(Math.max(0, end - span.start))} · active`
+            : duration(span.event.duration_ms)}
+        </small>
+      </button>
+    );
+  };
+  return (
+    <div
+      ref={workspaceRef}
+      className={`run-console${wide ? ' is-expanded' : ''}`}
+      role={wide ? 'dialog' : undefined}
+      aria-modal={wide ? true : undefined}
+      aria-label={wide ? 'Expanded run workspace' : undefined}
+      onKeyDown={(event) => {
+        if (!wide || event.defaultPrevented || (event.target as HTMLElement).closest('dialog[open]')) return;
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          setWide(false);
+          setPreview(null);
+        }
+        if (event.key !== 'Tab') return;
+        const controls = Array.from(
+          event.currentTarget.querySelectorAll<HTMLElement>(
+            'button,input,textarea,select,a[href],[tabindex]',
+          ),
+        ).filter(
+          (element) =>
+            !element.matches(':disabled,[type="hidden"]') &&
+            element.tabIndex >= 0 &&
+            element.getClientRects().length > 0,
+        );
+        const first = controls[0];
+        const last = controls.at(-1);
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last?.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first?.focus();
+        }
+      }}
+    >
+      {liveUsage?.error && (
+        <p role={liveUsage.canRetry ? 'alert' : 'status'}>
+          {liveUsage.error}{' '}
+          {usage
+            ? 'Showing the last recorded usage snapshot; it may be stale.'
+            : 'No recorded usage snapshot is available.'}{' '}
+          <button
+            type="button"
+            className="button small"
+            disabled={!liveUsage.canRetry}
+            onClick={liveUsage.retry}
+          >
+            Retry usage
+          </button>
+        </p>
+      )}
+      {liveUsage?.loading && !liveUsage.snapshot && <p role="status">Loading recorded usage…</p>}
+      <div className="console-readout" aria-label="Recorded run state">
+        <div>
+          <span>Current phase</span>
+          <strong>{order.phase.replaceAll('_', ' ')}</strong>
+        </div>
+        <div>
+          <span>Measured tokens</span>
+          <strong>{usage ? usage.measured_tokens.toLocaleString('en-US') : 'Not available'}</strong>
+          <small>
+            {pendingUsage
+              ? `${usage!.unsettled_calls} calls pending · ${usage!.unknown_reserved_tokens.toLocaleString('en-US')} tokens reserved · usage incomplete`
+              : usage
+                ? 'Settled provider usage'
+                : 'Provider usage unavailable'}
+          </small>
+        </div>
+        <div>
+          <span>Model calls</span>
+          <strong>
+            {usage ? usage.calls : 'Not available'}
+            <small>
+              {' '}
+              /{' '}
+              {(order.effective_budget_policy ?? order.budget.policy)?.invocations.primary ??
+                (order.effective_budget_policy || order.budget.policy
+                  ? 'Uncapped'
+                  : (order.budget.max_calls ?? 'Uncapped'))}
+            </small>
+          </strong>
+        </div>
+        <div>
+          <span>Active time recorded</span>
+          <strong>{clock(order.active_seconds_used * 1000)}</strong>
+          <small>Excludes idle and operator waits</small>
+        </div>
+        <div>
+          <span>{liveUsage?.snapshot ? 'Recorded model API cost' : 'Model API cost · audit ledger'}</span>
+          <strong>
+            {liveUsage?.snapshot
+              ? liveUsage.snapshot.measured_api_cost_usd == null
+                ? 'Unknown'
+                : `$${liveUsage.snapshot.measured_api_cost_usd.toFixed(4)}`
+              : usage
+                ? `$${usage.cost_usd.toFixed(4)} ledger`
+                : 'Unknown'}
+          </strong>
+          <small>
+            {liveUsage?.snapshot && (pendingUsage || liveUsage.snapshot.reserved_api_cost_usd > 0)
+              ? `$${liveUsage.snapshot.reserved_api_cost_usd.toFixed(4)} reserved · pending cost unknown. `
+              : !liveUsage?.snapshot && usage
+                ? 'Ledger includes pending reservations. '
+                : ''}
+            Subscription fees and unknown remote costs excluded
+          </small>
+        </div>
+      </div>
+      <div className="console-workspace">
+        <section className="observed-timeline" aria-label="Project timeline">
+          <div className="workspace-toolbar" aria-label="Timeline display controls">
+            <span>Run workspace</span>
+            <div className="workspace-zoom" aria-label="Timeline zoom">
+              <button
+                type="button"
+                className="button small"
+                disabled={zoom <= 1}
+                aria-label="Zoom out timeline"
+                onClick={() => setZoom((value) => Math.max(1, value - 1))}
+              >
+                −
+              </button>
+              <output aria-live="polite">{zoom * 100}%</output>
+              <button
+                type="button"
+                className="button small"
+                disabled={zoom >= 4}
+                aria-label="Zoom in timeline"
+                onClick={() => setZoom((value) => Math.min(4, value + 1))}
+              >
+                +
+              </button>
+              <button type="button" className="button small" disabled={zoom === 1} onClick={() => setZoom(1)}>
+                Fit timeline
+              </button>
+            </div>
+            <button
+              type="button"
+              className="button small workspace-expand"
+              aria-expanded={wide}
+              onClick={() => setWide((value) => !value)}
+            >
+              {wide ? 'Exit full screen' : 'Expand workspace'}
+            </button>
+          </div>
+          <div className="console-panel-heading">
+            <div>
+              <strong>Process timeline</strong>
+              <span>
+                {order.mode.toUpperCase()} · {topology?.graph_version ?? order.graph_version}
+              </span>
+            </div>
+            <div className="timeline-legend">
+              <span>
+                <i className="legend-observed" />
+                Recorded
+              </span>
+              <span>
+                <i className="legend-pending" />
+                Planned
+              </span>
+              <span>
+                <i className="legend-error" />
+                Error
+              </span>
+            </div>
+          </div>
+          <div
+            className="observed-scroll"
+            tabIndex={0}
+            role="region"
+            aria-label="Scrollable process timeline"
+          >
+            <div className="observed-grid" style={{ width: `${zoom * 100}%` }}>
+              <div className="observed-row ruler">
+                <div className="observed-label">PHASE / SPECIALIST</div>
+                <div className="observed-track">
+                  {[0, 0.25, 0.5, 0.75, 1].map((fraction) => (
+                    <span key={fraction} style={{ left: `${fraction * 100}%` }}>
+                      {clock(horizon * fraction)}
+                    </span>
+                  ))}
+                </div>
+              </div>
+              {laneIds.map((id) => {
+                const descriptor = registered.find((item) => item.id === id);
+                const activities = spans.filter((span) => laneFor(span) === id);
+                const stages = activities.filter((span) => span.event.kind === 'stage');
+                const children = activities.filter((span) => span.event.kind !== 'stage');
+                return (
+                  <div
+                    className={`timeline-lane ${selectedLane === id ? 'is-selected' : ''} ${activities.some((span) => span.event.state === 'failed') ? 'has-error' : ''}`}
+                    key={id}
+                  >
+                    <div
+                      className="observed-row"
+                      style={{ minHeight: `${Math.max(66, stages.length * 38 + 18)}px` }}
+                    >
+                      <div className="observed-label">
+                        <button
+                          type="button"
+                          className="phase-expander"
+                          aria-expanded={expanded.has(id)}
+                          onClick={() => {
+                            setSelected(`phase:${id}`);
+                            setExpanded((prior) => {
+                              const next = new Set(prior);
+                              if (next.has(id)) next.delete(id);
+                              else next.add(id);
+                              return next;
+                            });
+                          }}
+                        >
+                          <span>{expanded.has(id) ? '⌄' : '›'}</span>
+                          <strong>{descriptor?.label ?? id}</strong>
+                          <small>{descriptor?.specialist ?? 'Recorded activity'}</small>
+                          <small>
+                            {children.length
+                              ? `${children.length} actions`
+                              : activities.length
+                                ? 'Recorded'
+                                : 'Planned · not started'}
+                          </small>
+                        </button>
+                      </div>
+                      <div className="observed-track">
+                        {stages.length ? (
+                          stages.map((span, index) =>
+                            renderBar(
+                              span,
+                              index,
+                              stages.filter((item) => item.event.name === span.event.name).length,
+                              stages.slice(0, index + 1).filter((item) => item.event.name === span.event.name)
+                                .length,
+                            ),
+                          )
+                        ) : (
+                          <span className="unmeasured-phase">
+                            {activities.length ? 'No phase duration recorded' : 'Waiting for this phase'}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    {expanded.has(id) &&
+                      children.map((span) => (
+                        <div className="observed-row child" key={span.id}>
+                          <div className="observed-label">
+                            <span>
+                              {span.event.kind === 'tool' && memoryTools.has(span.event.name)
+                                ? 'memory'
+                                : span.event.kind}
+                            </span>
+                            <strong>{specialistNames[span.event.name] ?? span.event.name}</strong>
+                          </div>
+                          <div className="observed-track">
+                            {span.start == null ? (
+                              <button className="unmeasured-action" onClick={() => pin(span)}>
+                                {span.event.name} · timing unavailable
+                              </button>
+                            ) : (
+                              renderBar(span, 0, 1)
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                );
+              })}
+              {!laneIds.length && (
+                <p className="console-empty">
+                  Loading the registered process. Execution data remains available independently.
+                </p>
+              )}
+            </div>
+          </div>
+          {!!topology?.alternatives.length && (
+            <details className="process-alternatives">
+              <summary>Alternative routes · repair and human decisions</summary>
+              {topology.alternatives.map((route, index) => (
+                <p key={index}>
+                  <strong>
+                    {route.source} → {route.target}
+                  </strong>
+                  <span>{route.condition}</span>
+                </p>
+              ))}
+            </details>
+          )}
+          <div className="console-footnote">
+            {running
+              ? 'Live elapsed ruler · usage updates after each provider response.'
+              : 'Saved execution · timing uses recorded boundaries.'}{' '}
+            Planned lanes describe the registered flow; empty lanes are not execution evidence.
+          </div>
+        </section>
+        <RunInspector
+          historicalSelection={Boolean(selected && pinned && !spans.some((span) => span.id === selected))}
+          api={api}
+          current={current}
+          lane={lane}
+          order={order}
+          inspection={inspection}
+          error={inspectorError}
+          onInspect={onInspect}
+          onMore={onMore}
+        />
+      </div>
+      {preview && (
+        <div className="timeline-preview" id={tooltipId} role="tooltip">
+          <strong>
+            {preview.event.name} · {preview.event.state}
+          </strong>
+          <span>
+            {duration(preview.event.duration_ms)} · {preview.event.kind} · {preview.event.phase}
+          </span>
+          <small>Click to pin details · Escape to dismiss</small>
+        </div>
+      )}
+      <details className="console-contract">
+        <summary>Immutable configuration and global state</summary>
+        <JsonView
+          value={{
+            id: order.id,
+            status: order.status,
+            phase: order.phase,
+            plan_revision: order.plan_revision,
+            budget: order.budget,
+            flow_config: order.flow_config,
+            resolved_flow: order.resolved_flow,
+            tasks: order.tasks,
+            error_code: order.error_code,
+          }}
+          label="Global run state"
+        />
+      </details>
+    </div>
+  );
+}

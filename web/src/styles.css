@@ -1539,7 +1539,7 @@ fieldset {
   justify-content: space-between;
   padding: 50px 60px;
   min-height: 650px;
-  background: #eeeef2;
+  background: var(--surface);
   border-right: 1px solid var(--line);
 }
 .login-intro > div:nth-child(2) {
@@ -1962,3 +1962,4 @@ fieldset {
     align-self: flex-start;
   }
 }
+.mutation-fields { border: 0; padding: 0; margin: 0; min-width: 0; }

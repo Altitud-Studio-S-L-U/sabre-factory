@@ -74,6 +74,7 @@ class SecretGuard:
     # Keep control characters in the candidate: URL parsers may silently remove them.
     url_token_pattern = re.compile(r"""[^ '"<>`]+""")
     patterns = (
+        re.compile(r"\bsabre_d_[A-Za-z0-9_-]{43,}"),
         re.compile(r"\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}"),
         re.compile(r"\bgh[pousr]_[A-Za-z0-9]{20,}"),
         re.compile(r"\bgithub_pat_[A-Za-z0-9_]{20,}"),

@@ -1,5 +1,19 @@
 # Flows and external communication
 
+## Factory configuration and specialists
+
+`GET /api/v1/configuration` returns the same versioned factory document used by the guided editor and YAML. Preview validates fields and shows a diff without mutation; save compares the current revision and commits model selection and factory settings together. The launch snapshot and resolved phase selection use the same model revision. Configuration documents, diffs and exports contain no credential values. A configured delivery credential is not reported as verified repository access.
+
+`GET /api/v1/agents` lists PM, Designer, Developer, QA, Manager (displayed as Supervisor), DevOps and CISO. Save a draft with its expected revision, validate it, then publish it through the corresponding `/agents/{id}/draft`, `/validate` and `/publish` operations. Definitions contain instructions, registered capability steps, skill digests, optional model selection, a context bound and an optional tool restriction. Procedures contain at most four registered steps per capability. They cannot execute YAML code or expand code-defined, project or owner grants. Unsupported model-based visual review blocks validation instead of being reported as completed.
+
+Developer owns architecture and implementation. Designer advises explicit interface planning; DevOps independently inspects delivery preparation. Manager planning and independent review use different invocations. Each launch pins immutable published definitions. New owner messages separately pin the Supervisor definition at admission, preserving their original action grants through retries.
+
+The read-only Supervisor tool `get_work_budget(work_id)` reads persisted run limits, authorization revision, blockers and the live usage ledger. Factory conversations can resolve project names with `list_projects` and filter recent runs with `list_work(project_id)`. Allow `get_work_budget` when configuring an explicit Supervisor tool restriction; it does not grant budget changes or resume authority. There is no shared project allowance: each run has its own ceilings and API spending authorization. Measured consumption, pending reservations and unknown cost remain distinct.
+
+`GET /api/v1/operator/messages/{message_id}/tools` exposes bounded, secret-redacted tool calls and results from that message's persisted LangGraph checkpoint segment. The owner-authenticated endpoint returns recorded pending/completed/error status, not inferred activity, and excludes system instructions and hidden reasoning. Missing or pruned checkpoint data is explicitly unavailable; a completed reply alone does not prove a tool was invoked.
+
+`get_factory_readiness` and owner-authenticated `GET /api/v1/operator/readiness` inspect observed provider/model readiness, GitHub connection metadata and up to fifty registered MCP connections with tool counts. Saved credentials do not establish verified repository permissions; metadata inspection does not retrieve secret values or call external business tools. Successful recorded readiness results can expose fixed local navigation actions for GitHub setup, provider/model configuration and adding an MCP connection. These buttons open existing owner forms; they do not create tools, install servers, connect accounts or expand permissions. The trace projection validates the recorded result and regenerates its action allowlist rather than trusting model-generated URLs or instructions.
+
 ## Launch configuration
 
 The panel editor and YAML import use `FlowConfiguration`, defined in `backend/src/sabre/flow_contracts.py`. Retrieve its JSON Schema through `/api/v1/flows/schema` or the `sabre_flow_schema` MCP tool. JSON and YAML reject unknown fields, wrong types, duplicate keys and unsupported versions. YAML anchors and executable tags are rejected.
@@ -18,11 +32,21 @@ phases:
     skills: [review]
 ```
 
-Add a `model` to a phase, or a selection under `phase_models`, using the same provider/name/destination contract as Integrations. Precedence is run `phase_models`, flow phase `model`, role configuration, default configuration. Destinations must already be approved. Explicit model names and available credentials are required; the factory does not fall back to another provider. CLI sessions use official binaries and separate authentication directories. Their tokens are never converted into API credentials.
+Add a `model` to a phase, or a selection under `phase_models`, using the same provider/name/destination contract as Integrations. Precedence is run `phase_models`, flow phase `model`, published specialist model, legacy role configuration, default configuration. A specialist with no model override preserves existing role inheritance. Destinations must already be approved. Explicit model names and available credentials are required; the factory does not fall back to another provider. CLI sessions use official binaries and separate authentication directories. Their tokens are never converted into API credentials.
 
 A run retains the resolved selections, model revision, graph/flow versions, skill digests and configuration digest. Global model changes affect later runs. Credential revocation applies immediately at the next authorized call. Restoring a run requires its recorded skill versions. Skills provide bounded instructions and cannot expand permissions.
 
 The request also includes its project, objective, acceptance criteria, constraints, budget and idempotency key. Keep the key when retrying an uncertain submission. Default limits are 40 model calls, 100,000 tokens and one hour of active work, with zero API spending authorization until explicitly configured. CLI-only progress controls are an explicit alternative and preserve recorded consumption. Prices must be configured for API phases.
+
+## Budget authorization and recovery
+
+`Budget.policy` at launch, or the flow's `budget_policy`, accepts version `1` with independent `tokens`, `invocations`, `active_seconds` and `repairs` metrics. Each metric has `primary`, `reserve` and `absolute`: a bounded metric uses `{primary: 40, reserve: 0, absolute: 40}`; a finite preauthorized reserve uses `{primary: 40, reserve: 10, absolute: 50}`; uncapped cumulative work uses `{primary: null, reserve: 0, absolute: null}`. Zero repairs permits no repair. API spend stays in `max_cost_usd`; zero never authorizes paid API work. Historical budget requests remain readable and new durable admissions adapt their original limits into an immutable policy.
+
+The runtime activates a finite reserve once, atomically, and records its authorization. `GET /api/v1/work/{id}/budget` distinguishes measured usage, unsettled reservations, remaining ceilings and CLI measurements that cannot establish an exact preventive token cap. `/budget/amend` requires the expected budget revision, one metric, its new policy and an owner reason; it can also request resumption. Initial launch snapshots and consumption receipts are retained.
+
+A dispatch can be denied before the displayed consumption reaches its ceiling: measured usage plus unsettled reservations plus the next call's conservative reservation must fit. New denials persist their metric, measured and reserved amounts, requested reservation, required total and authorized limit in `WorkOrder.budget_denial` and the budget view's `denial`. `next_reservation` distinguishes insufficient room for that next operation from `consumed_limit`. API run spending, factory monthly spending and active time remain separate constraints. Older generic errors return `historical_unknown` with absent numbers; the system does not invent a historical reservation by replaying the model or inspecting newer configuration. No diagnostic raises a limit or resumes a run.
+
+Unknown provider outcomes require reconciliation before a versioned run resumes. `/budget/reconcile` records the owner's explicit decision to retain the complete listed reservations as unknown consumption; it does not replace them with zero or invent actual usage. Existing publication and external-agent receipts still reconcile uncertain effects. Exhaustion preserves checkpoints and failed verification continues to block delivery after an amendment. The versioned no-progress threshold defaults to three identical gate, snapshot and task outcomes, independently of agent prose. Supervisor conversations use their separate bounded allowance.
 
 ## Create a new repository at launch
 
@@ -35,6 +59,8 @@ The launch stores its resolved flow before enqueueing repository creation. Reusi
 `GET /api/v1/work/{id}/execution-events?after=0&limit=200` returns versioned events with monotonically increasing sequence numbers, run/revision identifiers, correlation IDs and measured durations. Continue with `next_cursor` while `has_more` is true. Event payloads omit prompts, tool arguments, code and complete responses. Older runs may lack timing data.
 
 LangGraph remains the execution authority. Event tables are read projections; notification receipts do not decide phase transitions. PostgreSQL migrations are ordered, transactional and checksum-verified. Back up the database, artifacts and protected master key together before an upgrade; use the corresponding application version to restore.
+
+The authenticated `/work/{id}/inspection` projection pages recorded visible messages, tool calls and results. It omits provider reasoning fields and system messages, redacts detected secrets and marks truncated history. Invocation identifiers resolve only within the selected run. Repository registration and intake enqueue rebuildable, commit-bound source indexes through the existing worker; indexes remain evidence and navigation data, never approvals or instructions.
 
 ## MCP and Slack
 

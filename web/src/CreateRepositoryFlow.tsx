@@ -94,10 +94,10 @@ export default function CreateRepositoryFlow({
               </Select>
             </Field>
             <Field label="Repository owner">
-              <input name="owner" required pattern="[A-Za-z0-9-]+" />
+              <input name="owner" required pattern={'[A-Za-z0-9\\-]+'} />
             </Field>
             <Field label="New repository name">
-              <input name="name" required pattern="[A-Za-z0-9_.-]+" />
+              <input name="name" required pattern={'[A-Za-z0-9_.\\-]+'} />
             </Field>
             <Field label="Repository visibility">
               <Select name="visibility" defaultValue="private">

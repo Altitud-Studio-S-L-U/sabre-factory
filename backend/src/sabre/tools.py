@@ -33,6 +33,7 @@ class ToolDefinition:
     policy: ToolPolicy
     handler: Callable[..., Awaitable[Any]]
     argument_policy: Callable[[dict, str], None] | None = None
+    delegated_authorization: bool = False
 
 
 class ToolCatalog:
@@ -84,16 +85,16 @@ class ToolCatalog:
     def for_role(self, role: str) -> list[StructuredTool]:
         tools = []
         for definition in self.tools.values():
-            if role not in definition.policy.roles or definition.policy.effect == "external_write":
+            if role not in definition.policy.roles or (definition.policy.effect == "external_write" and not definition.delegated_authorization):
                 continue
 
-            def make_handler(tool_name: str):
+            def make_handler(tool_name: str, authorized: bool):
                 async def call(**arguments):
-                    return await self.invoke(tool_name, arguments, role)
+                    return await self.invoke(tool_name, arguments, role, allow_external_write=authorized)
                 return call
 
             tools.append(StructuredTool.from_function(
-                coroutine=make_handler(definition.name), name=definition.name,
+                coroutine=make_handler(definition.name, definition.delegated_authorization), name=definition.name,
                 description=definition.description, args_schema=definition.input_schema,
             ))
         return tools

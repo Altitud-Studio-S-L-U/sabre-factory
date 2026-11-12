@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import httpx
 from pydantic import SecretStr
@@ -42,3 +43,18 @@ def test_openapi_describes_durable_commands_and_required_output_fields():
     assert "/api/v1/work/{work_id}/scope" in schema["paths"]
     work = schema["components"]["schemas"]["WorkOrder"]
     assert {"id", "status", "tasks", "questions"} <= set(work["required"])
+    usage = schema["paths"]["/api/v1/work/{work_id}/usage"]["get"]["responses"]["200"]["content"]["application/json"]["schema"]
+    assert usage == {"$ref": "#/components/schemas/RunUsageSnapshot"}
+
+
+async def test_live_usage_requires_owner_and_checks_work_before_reading_ledger():
+    application = app()
+    repository = SimpleNamespace(work=AsyncMock(side_effect=DomainError("WORK_NOT_FOUND", "Unknown work", 404)), audit_usage_breakdown=AsyncMock())
+    application.state.service.repository = repository
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(application), base_url="http://localhost:8000") as client:
+        assert (await client.get("/api/v1/work/missing/usage")).status_code == 401
+        repository.work.assert_not_awaited()
+        response = await client.get("/api/v1/work/missing/usage", headers={"Authorization": "Bearer owner-test-token-at-least-24"})
+    assert response.status_code == 404
+    repository.work.assert_awaited_once_with("missing")
+    repository.audit_usage_breakdown.assert_not_awaited()

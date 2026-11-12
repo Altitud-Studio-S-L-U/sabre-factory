@@ -15,7 +15,7 @@ current_execution: ContextVar[str | None] = ContextVar("sabre_execution_correlat
 
 
 @asynccontextmanager
-async def observe(repository, work, kind, name, *, parent_id=None, provider=None, model=None):
+async def observe(repository, work, kind, name, *, parent_id=None, provider=None, model=None, agent_id=None):
     correlation = new_id()
     parent = current_execution.get() or parent_id
     started = time.perf_counter()
@@ -24,7 +24,7 @@ async def observe(repository, work, kind, name, *, parent_id=None, provider=None
         if hasattr(repository, "record_execution_event"):
             await repository.record_execution_event(ExecutionEvent(id=new_id(), work_id=work.id,
                 plan_revision=work.plan_revision, phase=work.phase, correlation_id=correlation,
-                parent_id=parent, kind=kind, state=state, name=name, timestamp=now(),
+                parent_id=parent, agent_id=agent_id, kind=kind, state=state, name=name, timestamp=now(),
                 duration_ms=None if state == "started" else int((time.perf_counter() - started) * 1000),
                 error_code=error, provider=provider, model=model, **trace_identifiers()))
 

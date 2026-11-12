@@ -12,6 +12,7 @@ def finding(category="vulnerability", severity="high", fingerprint="existing"):
 
 
 @pytest.mark.parametrize("secret", [
+    "sabre_d_" + "d" * 43,
     "sk-proj-" + "a" * 24,
     "ghp_" + "b" * 30,
     "github_pat_" + "c" * 30,

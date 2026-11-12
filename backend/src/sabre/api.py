@@ -2,14 +2,26 @@
 
 import hmac
 from contextlib import asynccontextmanager
+from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
+from pydantic.json_schema import models_json_schema
 
 from sabre import __version__
-from sabre.audit import AuditView, ProjectKnowledgeReport
+from sabre.agent_contracts import (
+    AgentCatalog,
+    AgentCatalogEntry,
+    AgentDraftSave,
+    AgentMessage,
+    AgentRevision,
+    AgentValidation,
+    StepResult,
+)
+from sabre.audit import AuditUsage, AuditView, ProjectKnowledgeReport, RunUsageSnapshot
+from sabre.budget_contracts import BudgetAmendment, BudgetReconciliation, BudgetView
 from sabre.commands import CommandEnvelope, CommandResult, dispatch
 from sabre.create_flow import CreateFlowLaunch, launch_create
 from sabre.events import EventPage
@@ -49,6 +61,7 @@ from sabre.operator_contracts import (
     OperatorMessageRequest,
     OperatorMessageResume,
     OperatorMessageView,
+    OperatorToolTracePage,
 )
 from sabre.panel_sessions import (
     COOKIE,
@@ -69,6 +82,15 @@ from sabre.system_info import SystemInfo
 from sabre.web_routes import ConsoleFiles
 
 
+class FactoryAPI(FastAPI):
+    def openapi(self) -> dict[str, Any]:
+        schema = super().openapi()
+        _, exchange_schema = models_json_schema([(AgentMessage, "validation"), (StepResult, "validation")],
+            ref_template="#/components/schemas/{model}")
+        schema.setdefault("components", {}).setdefault("schemas", {}).update(exchange_schema.get("$defs", {}))
+        return schema
+
+
 def create_app(service=None, config=None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(application):
@@ -86,7 +108,7 @@ def create_app(service=None, config=None) -> FastAPI:
             async with mcp_app.router.lifespan_context(mcp_app):
                 yield
 
-    application = FastAPI(title="SABRE", version=__version__, lifespan=lifespan)
+    application = FactoryAPI(title="SABRE", version=__version__, lifespan=lifespan)
     application.state.service, application.state.config = service, config
 
     def panels():
@@ -136,7 +158,7 @@ def create_app(service=None, config=None) -> FastAPI:
         return response
 
     application.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
-        allow_methods=["GET", "POST"], allow_headers=["Authorization", "Content-Type"])
+        allow_methods=["GET", "POST", "PUT", "DELETE"], allow_headers=["Authorization", "Content-Type"])
 
     @application.exception_handler(DomainError)
     async def domain_error(request, error):
@@ -214,6 +236,26 @@ def create_app(service=None, config=None) -> FastAPI:
     @application.get("/api/v1/status")
     async def status():
         return await svc().status()
+
+    @application.get("/api/v1/agents", response_model=AgentCatalog)
+    async def agent_catalog():
+        return await svc().agent_catalog().list()
+
+    @application.get("/api/v1/agents/{agent_id}", response_model=AgentCatalogEntry)
+    async def agent_definition(agent_id: str):
+        return await svc().agent_catalog().get(agent_id)
+
+    @application.put("/api/v1/agents/{agent_id}/draft", response_model=AgentCatalogEntry)
+    async def save_agent_draft(agent_id: str, body: AgentDraftSave):
+        return await svc().agent_catalog().change(agent_id, body)
+
+    @application.post("/api/v1/agents/{agent_id}/validate", response_model=AgentValidation)
+    async def validate_agent_draft(agent_id: str, body: AgentRevision):
+        return await svc().agent_catalog().change(agent_id, body, validate=True)
+
+    @application.post("/api/v1/agents/{agent_id}/publish", response_model=AgentCatalogEntry)
+    async def publish_agent_draft(agent_id: str, body: AgentRevision):
+        return await svc().agent_catalog().change(agent_id, body, publish=True)
 
     @application.get("/api/v1/model-configuration", response_model=ModelConfiguration)
     async def model_configuration():
@@ -294,6 +336,17 @@ def create_app(service=None, config=None) -> FastAPI:
     async def operator_message(body: OperatorMessageRequest):
         return await svc().queue.operator_conversation.admit(body)
 
+    @application.get("/api/v1/operator/messages/{message_id}/tools", response_model=OperatorToolTracePage)
+    async def operator_message_tools(message_id: str):
+        from sabre.operator_inspection import inspect_operator_tools
+        return await inspect_operator_tools(svc(), message_id)
+
+    from sabre.operator_readiness import FactoryReadinessView, factory_readiness
+
+    @application.get("/api/v1/operator/readiness", response_model=FactoryReadinessView)
+    async def operator_readiness():
+        return await factory_readiness(svc())
+
     @application.post("/api/v1/operator/messages/{message_id}/resume", response_model=OperatorMessageView, status_code=202)
     async def resume_operator_message(message_id: str, body: OperatorMessageResume):
         return await svc().queue.operator_conversation.resume(message_id, body)
@@ -356,6 +409,27 @@ def create_app(service=None, config=None) -> FastAPI:
     @application.get("/api/v1/work/{work_id}", response_model=WorkOrder)
     async def work(work_id: str):
         return await svc().repository.work(work_id)
+
+    @application.get("/api/v1/work/{work_id}/usage", response_model=RunUsageSnapshot)
+    async def work_usage(work_id: str):
+        repository = svc().repository
+        work = await repository.work(work_id)
+        current = await repository.audit_usage_breakdown(work.id)
+        return RunUsageSnapshot(work_id=work.id, usage=AuditUsage(**current["usage"]),
+            measured_api_cost_usd=current["measured_api_cost_usd"], reserved_api_cost_usd=current["reserved_api_cost_usd"])
+
+    @application.get("/api/v1/work/{work_id}/budget", response_model=BudgetView)
+    async def work_budget(work_id: str):
+        from sabre.budget_views import budget_view
+        return await budget_view(svc().repository, work_id)
+
+    @application.post("/api/v1/work/{work_id}/budget/amend", response_model=WorkOrder)
+    async def amend_work_budget(work_id: str, body: BudgetAmendment):
+        return await svc().amend_budget(work_id, body)
+
+    @application.post("/api/v1/work/{work_id}/budget/reconcile", response_model=WorkOrder)
+    async def reconcile_work_budget(work_id: str, body: BudgetReconciliation):
+        return await svc().reconcile_budget_usage(work_id, body)
 
     @application.post("/api/v1/work/{work_id}/answer", response_model=WorkOrder)
     async def answer(work_id: str, body: Answer):
@@ -460,6 +534,18 @@ def create_app(service=None, config=None) -> FastAPI:
     mcp_app = mcp.streamable_http_app(streamable_http_path="/")
     application.mount("/mcp", mcp_app)
     application.state.mcp = mcp
+    from sabre.a2a import install_a2a
+    from sabre.browser_qa import install_browser_routes
+    from sabre.console_configuration import install_console_routes
+    from sabre.inspection import install_inspection_routes
+    from sabre.release_candidates import install_release_routes
+    from sabre.repository_ingestion import install_ingestion_routes
+    install_a2a(application, svc)
+    install_browser_routes(application, svc)
+    install_console_routes(application, svc)
+    install_inspection_routes(application, svc)
+    install_ingestion_routes(application, svc)
+    install_release_routes(application, svc)
     return application
 
 

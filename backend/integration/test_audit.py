@@ -1,17 +1,67 @@
+from types import SimpleNamespace
 from typing import TypedDict
 
+import httpx
 from langchain_core.messages import AIMessage, ToolMessage
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.graph import END, START, StateGraph
+from pydantic import SecretStr
 
 from integration.test_postgres import fixture_work
 from integration.test_postgres import repository as repository
-from sabre.audit import AuditService
+from sabre.api import create_app
+from sabre.audit import AuditService, RunUsageSnapshot
 from sabre.security import SecretGuard
 
 
 class State(TypedDict):
     messages: list
+
+
+async def test_live_usage_reads_reservations_and_settlement_without_work_save_or_checkpoint_read(repository):
+    repo, _, work = await fixture_work(repository)
+    application = create_app(SimpleNamespace(repository=repo), SimpleNamespace(
+        auth_token=SecretStr("owner-test-token-at-least-24"), allowed_origins=["http://localhost:8000"]))
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(application), base_url="http://localhost:8000",
+                                 headers={"Authorization": "Bearer owner-test-token-at-least-24"}) as client:
+        async def current():
+            response = await client.get(f"/api/v1/work/{work.id}/usage")
+            assert response.status_code == 200
+            result = RunUsageSnapshot.model_validate(response.json())
+            assert result.version == 1 and result.work_id == work.id
+            return result
+
+        empty = await current()
+        assert empty.usage.calls == 0
+        assert empty.measured_api_cost_usd is None and empty.reserved_api_cost_usd == 0
+        first = await repo.reserve_usage(work, 100, 0.1, 10)
+        snapshot = await current()
+        reserved = snapshot.usage
+        assert (reserved.calls, reserved.settled_calls, reserved.unsettled_calls) == (1, 0, 1)
+        assert (reserved.tokens, reserved.measured_tokens, reserved.unknown_reserved_tokens) == (100, 0, 100)
+        assert reserved.cost_usd == 0.1
+        assert snapshot.measured_api_cost_usd is None and snapshot.reserved_api_cost_usd == 0.1
+        await repo.settle_usage(first, 30, 0.03)
+        second = await repo.reserve_usage(work, 120, 0.12, 10)
+        snapshot = await current()
+        mixed = snapshot.usage
+        assert (mixed.calls, mixed.settled_calls, mixed.unsettled_calls) == (2, 1, 1)
+        assert (mixed.tokens, mixed.measured_tokens, mixed.unknown_reserved_tokens) == (150, 30, 120)
+        assert snapshot.measured_api_cost_usd == 0.03 and snapshot.reserved_api_cost_usd == 0.12
+        await repo.settle_usage(second, 40, 0.04)
+        snapshot = await current()
+        settled = snapshot.usage
+        assert (settled.calls, settled.settled_calls, settled.unsettled_calls) == (2, 2, 0)
+        assert (settled.tokens, settled.measured_tokens, settled.unknown_reserved_tokens) == (70, 70, 0)
+        assert snapshot.measured_api_cost_usd == 0.07 and snapshot.reserved_api_cost_usd == 0
+        _, _, cli_work = await fixture_work(repository)
+        cli_usage = await repo.reserve_usage(cli_work, 20, 0, 10)
+        await repo.settle_usage(cli_usage, 15, 0)
+        cli_response = await client.get(f"/api/v1/work/{cli_work.id}/usage")
+        assert cli_response.status_code == 200
+        assert cli_response.json()["measured_api_cost_usd"] == 0
+        saved = await repo.work(work.id)
+        assert (saved.phase, saved.calls_used, saved.tokens_used) == (work.phase, 0, 0)
 
 
 async def test_audit_reads_latest_official_checkpoint_and_preserves_usage_and_project_scope(repository):

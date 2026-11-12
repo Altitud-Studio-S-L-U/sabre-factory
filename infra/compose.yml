@@ -1,6 +1,7 @@
 name: sabre-factory
 
 x-app-environment: &app-environment
+  OTEL_INSTRUMENTATION_A2A_SDK_ENABLED: "false"
   SABRE_BOOTSTRAP_FILE: /run/secrets/sabre/control.json
   SABRE_VAULT_MASTER_KEY_FILE: /run/secrets/sabre/master.key
   SABRE_EXECUTOR_URL: http://executor:8090
@@ -121,6 +122,7 @@ services:
       SABRE_EXECUTOR_STATE: /workspaces
       SABRE_PYTHON_IMAGE: ${SABRE_PYTHON_IMAGE:-}
       SABRE_NODE_IMAGE: ${SABRE_NODE_IMAGE:-}
+      SABRE_BROWSER_IMAGE: ${SABRE_BROWSER_IMAGE:-}
       SABRE_HELPER_IMAGE: ${SABRE_HELPER_IMAGE:-}
       SABRE_GITLEAKS_IMAGE: zricethezav/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
       SABRE_TRIVY_IMAGE: aquasec/trivy:0.76.1@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c
