@@ -67,6 +67,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/agents/activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Agents Activity */
+        get: operations["agents_activity_api_v1_agents_activity_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/agents/{agent_id}": {
         parameters: {
             query?: never;
@@ -924,6 +941,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/memory/{memory_id}/carry-forward": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Carry Memory Forward */
+        post: operations["carry_memory_forward_api_v1_memory__memory_id__carry_forward_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/memory/{memory_id}/invalidate": {
         parameters: {
             query?: never;
@@ -935,6 +969,91 @@ export interface paths {
         put?: never;
         /** Invalidate Memory */
         post: operations["invalidate_memory_api_v1_memory__memory_id__invalidate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/memory/graph": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Memory Graph */
+        get: operations["memory_graph_api_v1_projects__project_id__memory_graph_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/memory/recalls": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Memory Recalls */
+        get: operations["memory_recalls_api_v1_projects__project_id__memory_recalls_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/memory/items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Memory Items */
+        get: operations["memory_items_api_v1_projects__project_id__memory_items_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/memory/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Memory Review */
+        get: operations["memory_review_api_v1_projects__project_id__memory_review_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/memory/{memory_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Memory Detail */
+        get: operations["memory_detail_api_v1_memory__memory_id__get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1369,6 +1488,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/configuration/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Configuration History */
+        get: operations["configuration_history_api_v1_configuration_history_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/work/{work_id}/inspection": {
         parameters: {
             query?: never;
@@ -1566,6 +1702,51 @@ export interface components {
             updated_at: string;
             /** Input Digest */
             input_digest: string | null;
+        };
+        /** ActiveRun */
+        ActiveRun: {
+            /** Work Id */
+            work_id: string;
+            /** Project Id */
+            project_id: string;
+            /** Status */
+            status: string;
+            /** Stage */
+            stage: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** AgentActivity */
+        AgentActivity: {
+            /** Days */
+            days: number;
+            /**
+             * Since
+             * Format: date-time
+             */
+            since: string;
+            /** Roles */
+            roles: components["schemas"]["RoleActivity"][];
+            /**
+             * Repair Cycles
+             * @description Repair cycles used by runs updated in the window
+             */
+            repair_cycles: number;
+            /**
+             * Waiting For Input
+             * @description Runs currently waiting for an owner answer
+             */
+            waiting_for_input: number;
+            /**
+             * Active Runs
+             * @description Queued or running runs with their current stage, newest first, at most 50
+             */
+            active_runs: components["schemas"]["ActiveRun"][];
+            /** Active Runs Truncated */
+            active_runs_truncated: boolean;
         };
         /** AgentCardDiscovery */
         AgentCardDiscovery: {
@@ -2492,6 +2673,16 @@ export interface components {
              */
             instructions: string;
         };
+        /** ChangedPath */
+        ChangedPath: {
+            /** Path */
+            path: string;
+            /**
+             * Change
+             * @enum {string}
+             */
+            change: "changed" | "deleted";
+        };
         /** CheckpointCounts */
         CheckpointCounts: {
             /** Count */
@@ -2563,6 +2754,16 @@ export interface components {
             /** Document */
             document: string;
         };
+        /** ConfigurationHistory */
+        ConfigurationHistory: {
+            /** Items */
+            items: components["schemas"]["ConfigurationRevision"][];
+            /**
+             * Truncated
+             * @description True when older revisions exist beyond the limit
+             */
+            truncated: boolean;
+        };
         /** ConfigurationPreview */
         ConfigurationPreview: {
             /**
@@ -2580,6 +2781,32 @@ export interface components {
             diagnostics: components["schemas"]["ConfigurationDiagnostic"][];
             /** Yaml */
             yaml: string | null;
+        };
+        /** ConfigurationRevision */
+        ConfigurationRevision: {
+            /** Revision */
+            revision: number;
+            /**
+             * Actor
+             * @description Saving requires the owner's authentication; the channel is not recorded
+             * @default owner
+             * @constant
+             */
+            actor: "owner";
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Changed Paths
+             * @description Dotted paths changed from the previous revision, at most 20
+             */
+            changed_paths: string[];
+            /** Changed Paths Truncated */
+            changed_paths_truncated: boolean;
+            /** Summary */
+            summary: string;
         };
         /** ConfigurationSave */
         ConfigurationSave: {
@@ -3259,6 +3486,41 @@ export interface components {
              */
             created_at: string;
         };
+        /** GraphEdge */
+        GraphEdge: {
+            /** Source */
+            source: string;
+            /** Target */
+            target: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "cites" | "supersedes" | "related" | "overlaps" | "from_run" | "at_commit" | "proposed_by";
+            /** Attrs */
+            attrs: {
+                [key: string]: unknown;
+            };
+        };
+        /** GraphNode */
+        GraphNode: {
+            /**
+             * Id
+             * @description Typed identifier: memory:<id>, run:<work id>, commit:<sha>, file:<path> or agent:<channel>[:<role>]
+             */
+            id: string;
+            /**
+             * Type
+             * @enum {string}
+             */
+            type: "memory" | "run" | "commit" | "file" | "agent";
+            /** Label */
+            label: string;
+            /** Attrs */
+            attrs: {
+                [key: string]: unknown;
+            };
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -3414,6 +3676,16 @@ export interface components {
              */
             truncated: boolean;
         };
+        /** IntegerSetting */
+        IntegerSetting: {
+            /** Value */
+            value: number;
+            /**
+             * Env Var
+             * @description Environment variable that sets it; null when fixed in code
+             */
+            env_var: string | null;
+        };
         /** IntegrationInfo */
         IntegrationInfo: {
             /** Id */
@@ -3538,6 +3810,35 @@ export interface components {
              */
             timeout_s: number;
         };
+        /**
+         * MemoryApproval
+         * @description Optional owner decisions recorded with an approval; an empty body approves as proposed.
+         */
+        MemoryApproval: {
+            /**
+             * Scope
+             * @description Replace the proposed scope
+             */
+            scope?: ("commit" | "project") | null;
+            /**
+             * Supersedes
+             * @description Memory of the same project to invalidate as replaced by this one
+             */
+            supersedes?: string | null;
+            /**
+             * Related
+             * @description Memories of the same project to link as related
+             */
+            related?: string[];
+        };
+        /** MemoryCarryForward */
+        MemoryCarryForward: {
+            /**
+             * Commit
+             * @description Indexed commit at which the owner judges the memory still valid
+             */
+            commit: string;
+        };
         /** MemoryCounts */
         MemoryCounts: {
             /** Total */
@@ -3566,6 +3867,59 @@ export interface components {
             source_work_id: string;
             /** Evidence Digest */
             evidence_digest?: string | null;
+            /**
+             * Scope
+             * @description commit: recalled only at its source commit. project: also recalled at later indexed commits while every cited file keeps its content digest
+             * @enum {string}
+             */
+            scope?: "commit" | "project";
+            /**
+             * Citations
+             * @description Repository-relative file paths, optionally suffixed with #L<line>, checked against the repository index at the source commit
+             */
+            citations?: string[];
+            /**
+             * Supersedes
+             * @description A memory of the same project that this one replaces; approval invalidates it
+             */
+            supersedes?: string | null;
+        };
+        /** MemoryDetail */
+        MemoryDetail: {
+            item: components["schemas"]["MemoryListItem"];
+            provenance: components["schemas"]["MemoryProvenance"];
+            /**
+             * Links
+             * @description Links recorded by this memory
+             */
+            links: components["schemas"]["MemoryLink"][];
+            /**
+             * Backlinks
+             * @description Links from other memories to this one
+             */
+            backlinks: components["schemas"]["MemoryLink"][];
+            /**
+             * Validity History
+             * @description Newest first, at most 50
+             */
+            validity_history: components["schemas"]["MemoryValidityRecord"][];
+            recalls: components["schemas"]["MemoryRecallStats"];
+        };
+        /**
+         * MemoryGraph
+         * @description A bounded neighbourhood of project memories; edges only join nodes that are present.
+         */
+        MemoryGraph: {
+            /** Focus */
+            focus: string | null;
+            /** Depth */
+            depth: number;
+            /** Nodes */
+            nodes: components["schemas"]["GraphNode"][];
+            /** Edges */
+            edges: components["schemas"]["GraphEdge"][];
+            /** Truncated */
+            truncated: boolean;
         };
         /** MemoryItem */
         MemoryItem: {
@@ -3584,6 +3938,22 @@ export interface components {
             source_work_id: string;
             /** Evidence Digest */
             evidence_digest: string | null;
+            /**
+             * Scope
+             * @description commit: recalled only at its source commit. project: also recalled at later indexed commits while every cited file keeps its content digest
+             * @enum {string}
+             */
+            scope: "commit" | "project";
+            /**
+             * Citations
+             * @description Repository-relative file paths, optionally suffixed with #L<line>, checked against the repository index at the source commit
+             */
+            citations: string[];
+            /**
+             * Supersedes
+             * @description A memory of the same project that this one replaces; approval invalidates it
+             */
+            supersedes: string | null;
             /** Id */
             id: string;
             /**
@@ -3600,6 +3970,287 @@ export interface components {
             approved_at: string | null;
             /** Invalidated At */
             invalidated_at: string | null;
+            /** @description Absent on memories recorded before attribution; show as unknown */
+            proposed_by: components["schemas"]["ProposedBy"] | null;
+        };
+        /** MemoryItemPage */
+        MemoryItemPage: {
+            /**
+             * Commit
+             * @description Newest indexed commit used for validity; null when the project has no index
+             */
+            commit: string | null;
+            /** Items */
+            items: components["schemas"]["MemoryListItem"][];
+            /** Next Cursor */
+            next_cursor: string | null;
+        };
+        /** MemoryLink */
+        MemoryLink: {
+            /** Source Id */
+            source_id: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "cites" | "supersedes" | "related" | "overlaps";
+            /**
+             * Target Type
+             * @enum {string}
+             */
+            target_type: "file" | "memory";
+            /** Target Id */
+            target_id: string;
+            /** Attrs */
+            attrs: {
+                [key: string]: unknown;
+            };
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /**
+         * MemoryLinkCounts
+         * @description Links of each kind in either direction.
+         */
+        MemoryLinkCounts: {
+            /**
+             * Cites
+             * @default 0
+             */
+            cites: number;
+            /**
+             * Supersedes
+             * @default 0
+             */
+            supersedes: number;
+            /**
+             * Related
+             * @default 0
+             */
+            related: number;
+            /**
+             * Overlaps
+             * @default 0
+             */
+            overlaps: number;
+        };
+        /** MemoryListItem */
+        MemoryListItem: {
+            /** Project Id */
+            project_id: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "fact" | "lesson";
+            /** Content */
+            content: string;
+            /** Source Commit */
+            source_commit: string;
+            /** Source Work Id */
+            source_work_id: string;
+            /** Evidence Digest */
+            evidence_digest: string | null;
+            /**
+             * Scope
+             * @description commit: recalled only at its source commit. project: also recalled at later indexed commits while every cited file keeps its content digest
+             * @enum {string}
+             */
+            scope: "commit" | "project";
+            /**
+             * Citations
+             * @description Repository-relative file paths, optionally suffixed with #L<line>, checked against the repository index at the source commit
+             */
+            citations: string[];
+            /**
+             * Supersedes
+             * @description A memory of the same project that this one replaces; approval invalidates it
+             */
+            supersedes: string | null;
+            /** Id */
+            id: string;
+            /**
+             * Active
+             * @default false
+             */
+            active: boolean;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Approved At */
+            approved_at: string | null;
+            /** Invalidated At */
+            invalidated_at: string | null;
+            /** @description Absent on memories recorded before attribution; show as unknown */
+            proposed_by: components["schemas"]["ProposedBy"] | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "active" | "pending" | "invalidated";
+            validity: components["schemas"]["MemoryValidityAt"];
+            /** Recall Count */
+            recall_count: number;
+            /** Last Recalled At */
+            last_recalled_at: string | null;
+            link_counts: components["schemas"]["MemoryLinkCounts"];
+        };
+        /** MemoryProvenance */
+        MemoryProvenance: {
+            /** Work Id */
+            work_id: string;
+            /** Work Objective */
+            work_objective: string | null;
+            /** Work Status */
+            work_status: string | null;
+            /** Commit */
+            commit: string;
+            /** Evidence Digest */
+            evidence_digest: string | null;
+            proposed_by: components["schemas"]["ProposedBy"] | null;
+            /** Approved At */
+            approved_at: string | null;
+            /** Invalidated At */
+            invalidated_at: string | null;
+        };
+        /**
+         * MemoryRecall
+         * @description What one role call retrieved from memory and why, or which saved memories the validator refused.
+         */
+        MemoryRecall: {
+            /** Id */
+            id: string;
+            /** Project Id */
+            project_id: string;
+            /** Work Id */
+            work_id: string | null;
+            /** Role */
+            role: string | null;
+            /** Stage */
+            stage: string | null;
+            /** Commit */
+            commit: string;
+            /**
+             * Outcome
+             * @enum {string}
+             */
+            outcome: "recalled" | "refused";
+            /** Error Code */
+            error_code: string | null;
+            /**
+             * Query Terms
+             * @description Bounded lexical terms (at most 32) derived from the instruction and objective
+             */
+            query_terms: string[];
+            /**
+             * Candidates
+             * @description Memories retrieved before selection (at most 8)
+             */
+            candidates: number;
+            /** Selected */
+            selected: components["schemas"]["RecallSelection"][];
+            /**
+             * Omitted
+             * @description Retrieved memories left out by the four-item context limit
+             */
+            omitted: number;
+            /** Refused Memory Ids */
+            refused_memory_ids: string[];
+            /**
+             * Bytes
+             * @description UTF-8 size of the memory context placed in the prompt
+             */
+            bytes: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /** MemoryRecallPage */
+        MemoryRecallPage: {
+            /** Items */
+            items: components["schemas"]["MemoryRecall"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor to read older recalls; null on the last page
+             */
+            next_cursor: string | null;
+        };
+        /** MemoryRecallStats */
+        MemoryRecallStats: {
+            /** Recall Count */
+            recall_count: number;
+            /** Last Recalled At */
+            last_recalled_at: string | null;
+            /** Refused Count */
+            refused_count: number;
+        };
+        /** MemoryReview */
+        MemoryReview: {
+            /** Commit */
+            commit: string | null;
+            /** Pending */
+            pending: components["schemas"]["PendingReview"][];
+            /** Stale */
+            stale: components["schemas"]["StaleReview"][];
+            /**
+             * Truncated
+             * @description True when more than 100 pending or 100 stale memories exist
+             */
+            truncated: boolean;
+        };
+        /**
+         * MemoryValidityAt
+         * @description Whether a memory would be recalled at ``commit`` (the project's newest indexed commit in listings).
+         */
+        MemoryValidityAt: {
+            /** Commit */
+            commit: string | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "valid" | "stale" | "unavailable";
+            /**
+             * Reason
+             * @enum {string}
+             */
+            reason: "source_commit" | "no_citations" | "citations_unchanged" | "citations_changed" | "owner" | "commit_scope" | "not_active" | "index_missing" | "not_evaluated";
+            /** Changed Paths */
+            changed_paths: components["schemas"]["ChangedPath"][];
+            /** Checked At */
+            checked_at: string | null;
+        };
+        /**
+         * MemoryValidityRecord
+         * @description One durable evaluation of a project memory at a commit.
+         */
+        MemoryValidityRecord: {
+            /** Commit */
+            commit: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "valid" | "stale";
+            /**
+             * Basis
+             * @enum {string}
+             */
+            basis: "source_commit" | "no_citations" | "citations_unchanged" | "citations_changed" | "owner";
+            /** Changed Paths */
+            changed_paths: components["schemas"]["ChangedPath"][];
+            /**
+             * Checked At
+             * Format: date-time
+             */
+            checked_at: string;
         };
         /** MetricBudget */
         "MetricBudget-Input": {
@@ -3731,6 +4382,13 @@ export interface components {
              */
             max_output_tokens: number;
         };
+        /** NumberSetting */
+        NumberSetting: {
+            /** Value */
+            value: number;
+            /** Env Var */
+            env_var: string | null;
+        };
         /** OperatorMessagePage */
         OperatorMessagePage: {
             /** Items */
@@ -3851,12 +4509,49 @@ export interface components {
             /** Actions */
             actions: components["schemas"]["FactoryNavigationAction"][];
         };
+        /** OverlapEntry */
+        OverlapEntry: {
+            /** Memory Id */
+            memory_id: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "active" | "pending" | "invalidated";
+            /**
+             * Content
+             * @description First 240 characters of the other memory
+             */
+            content: string;
+            /** Score */
+            score: number;
+            /** Lexical */
+            lexical: number;
+            /** Cosine */
+            cosine: number | null;
+            /**
+             * Only This
+             * @description Normalized terms only in the memory under review
+             */
+            only_this: string[];
+            /**
+             * Only Other
+             * @description Normalized terms only in the overlapping memory
+             */
+            only_other: string[];
+        };
         /** PackageVersion */
         PackageVersion: {
             /** Distribution */
             distribution: string;
             /** Version */
             version: string | null;
+        };
+        /** PendingReview */
+        PendingReview: {
+            item: components["schemas"]["MemoryListItem"];
+            /** Overlaps */
+            overlaps: components["schemas"]["OverlapEntry"][];
         };
         /** ProcessLane */
         ProcessLane: {
@@ -3994,6 +4689,21 @@ export interface components {
             /** Servers */
             servers: string[];
         };
+        /**
+         * ProposedBy
+         * @description Entry point that proposed a memory. The server sets it; request bodies cannot supply it.
+         */
+        ProposedBy: {
+            /**
+             * Channel
+             * @enum {string}
+             */
+            channel: "owner_console" | "owner_mcp" | "supervisor_chat" | "factory";
+            /** Role */
+            role: string | null;
+            /** Work Id */
+            work_id: string | null;
+        };
         /** ReadinessConnection */
         ReadinessConnection: {
             /**
@@ -4037,6 +4747,36 @@ export interface components {
             message: string;
             /** Action */
             action: string;
+        };
+        /** RecallSelection */
+        RecallSelection: {
+            /** Memory Id */
+            memory_id: string;
+            /**
+             * Lexical Rank
+             * @description Position in the lexical (ts_rank) list, 1-based; null when not matched lexically
+             */
+            lexical_rank: number | null;
+            /**
+             * Vector Rank
+             * @description Position in the pgvector list, 1-based; null without embeddings or match
+             */
+            vector_rank: number | null;
+            /**
+             * Fused Score
+             * @description Reciprocal rank fusion score: sum of 1/(60+rank) over both lists
+             */
+            fused_score: number | null;
+            /**
+             * Bytes
+             * @description UTF-8 size of the excerpt placed in context
+             */
+            bytes: number;
+            /**
+             * Truncated
+             * @description True when the excerpt is shorter than the memory
+             */
+            truncated: boolean;
         };
         /** ReconcileBudget */
         ReconcileBudget: {
@@ -4401,6 +5141,37 @@ export interface components {
             work_id: string;
             answer: components["schemas"]["Answer"];
         };
+        /** RoleActivity */
+        RoleActivity: {
+            /** Role */
+            role: string;
+            /**
+             * Invocations
+             * @description Agent invocations started in the window
+             */
+            invocations: number;
+            /** Completed */
+            completed: number;
+            /** Failed */
+            failed: number;
+            /** Interrupted */
+            interrupted: number;
+            /**
+             * Duration Ms
+             * @description Total measured duration of finished invocations
+             */
+            duration_ms: number;
+            /**
+             * Model Calls
+             * @description Model calls attributed to this role in the usage ledger
+             */
+            model_calls: number;
+            /**
+             * Tokens
+             * @description Provider-measured tokens; null when no call of the role was measured
+             */
+            tokens: number | null;
+        };
         /** RoleModelConfiguration */
         RoleModelConfiguration: {
             /**
@@ -4494,6 +5265,30 @@ export interface components {
             system: string;
             /** Architecture */
             architecture: string;
+        };
+        /**
+         * RuntimeSettings
+         * @description Non-secret runtime configuration and where each value comes from.
+         */
+        RuntimeSettings: {
+            execution_slots: components["schemas"]["IntegerSetting"];
+            panel_session_days: components["schemas"]["IntegerSetting"];
+            allowed_origins: components["schemas"]["TextListSetting"];
+            monthly_budget_usd: components["schemas"]["NumberSetting"];
+            chat_budget_usd: components["schemas"]["NumberSetting"];
+            /** @description Configured webhook names only; endpoints are never returned */
+            webhooks: components["schemas"]["TextListSetting"];
+            otlp: components["schemas"]["TelemetrySetting"];
+            sandbox: components["schemas"]["SandboxLimits"];
+        };
+        /** SandboxLimits */
+        SandboxLimits: {
+            memory: components["schemas"]["TextSetting"];
+            cpus: components["schemas"]["NumberSetting"];
+            pids: components["schemas"]["IntegerSetting"];
+            default_timeout_s: components["schemas"]["IntegerSetting"];
+            max_timeout_s: components["schemas"]["IntegerSetting"];
+            network_default: components["schemas"]["TextSetting"];
         };
         /** ScopeChange */
         ScopeChange: {
@@ -4666,6 +5461,12 @@ export interface components {
             /** Path */
             path: string;
         };
+        /** StaleReview */
+        StaleReview: {
+            item: components["schemas"]["MemoryListItem"];
+            /** Changed Paths */
+            changed_paths: components["schemas"]["ChangedPath"][];
+        };
         /**
          * Status
          * @enum {string}
@@ -4715,6 +5516,8 @@ export interface components {
             limits: components["schemas"]["SystemLimits"];
             /** Models */
             models: components["schemas"]["RoleModelInfo"][];
+            /** @description Non-secret runtime configuration; null when unavailable */
+            runtime_settings?: components["schemas"]["RuntimeSettings"] | null;
         };
         /** SystemLimits */
         SystemLimits: {
@@ -4764,6 +5567,32 @@ export interface components {
             acceptance: string[];
             /** Verification Commands */
             verification_commands: string[][];
+        };
+        /** TelemetrySetting */
+        TelemetrySetting: {
+            /** Configured */
+            configured: boolean;
+            /**
+             * Host
+             * @description Host and port of the OTLP destination; never its path, query or credentials
+             */
+            host: string | null;
+            /** Env Var */
+            env_var: string;
+        };
+        /** TextListSetting */
+        TextListSetting: {
+            /** Value */
+            value: string[];
+            /** Env Var */
+            env_var: string | null;
+        };
+        /** TextSetting */
+        TextSetting: {
+            /** Value */
+            value: string;
+            /** Env Var */
+            env_var: string | null;
         };
         /** TokenBudgetIncrease */
         TokenBudgetIncrease: {
@@ -5217,6 +6046,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AgentCatalog"];
+                };
+            };
+        };
+    };
+    agents_activity_api_v1_agents_activity_get: {
+        parameters: {
+            query?: {
+                days?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentActivity"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -6947,7 +7807,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["MemoryApproval"] | null;
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
@@ -6956,6 +7820,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MemoryItem"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    carry_memory_forward_api_v1_memory__memory_id__carry_forward_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                memory_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MemoryCarryForward"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryValidityRecord"];
                 };
             };
             /** @description Validation Error */
@@ -6987,6 +7886,176 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MemoryItem"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    memory_graph_api_v1_projects__project_id__memory_graph_get: {
+        parameters: {
+            query?: {
+                focus?: string | null;
+                depth?: number;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryGraph"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    memory_recalls_api_v1_projects__project_id__memory_recalls_get: {
+        parameters: {
+            query?: {
+                work_id?: string | null;
+                memory_id?: string | null;
+                cursor?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryRecallPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    memory_items_api_v1_projects__project_id__memory_items_get: {
+        parameters: {
+            query?: {
+                state?: ("active" | "pending" | "invalidated" | "stale") | null;
+                kind?: ("fact" | "lesson") | null;
+                q?: string | null;
+                cursor?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryItemPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    memory_review_api_v1_projects__project_id__memory_review_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryReview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    memory_detail_api_v1_memory__memory_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                memory_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryDetail"];
                 };
             };
             /** @description Validation Error */
@@ -7811,6 +8880,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ConfigurationPreview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    configuration_history_api_v1_configuration_history_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigurationHistory"];
                 };
             };
             /** @description Validation Error */
