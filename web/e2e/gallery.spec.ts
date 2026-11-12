@@ -19,6 +19,7 @@ const sections = [
   { name: 'agents', path: '/agents', ready: 'Agents' },
   { name: 'tools', path: '/tools', ready: 'Tools' },
   { name: 'memory', path: '/memory', ready: 'Memory' },
+  { name: 'memory-records', path: '/memory', ready: 'Memory', tab: 'Records' },
   { name: 'memory-review', path: '/memory', ready: 'Memory', tab: 'Review queue' },
   { name: 'memory-recalls', path: '/memory', ready: 'Memory', tab: 'Recall log' },
   { name: 'config', path: '/config', ready: 'Config' },
@@ -106,6 +107,53 @@ test.describe('gallery', () => {
     await page.route('**/api/v1/projects/*/memory/recalls*', (route) =>
       route.fulfill({ json: memoryRecalls() }),
     );
+    await page.route('**/api/v1/projects/*/memory/items*', (route) =>
+      route.fulfill({
+        json: {
+          commit: '5be10d7'.padEnd(40, '0'),
+          next_cursor: 'synthetic-next',
+          items: [
+            memoryItem(),
+            memoryItem({
+              id: 'l90',
+              kind: 'lesson',
+              state: 'pending',
+              active: false,
+              approved_at: null,
+              content:
+                'Repair lesson: Apply the loyalty discount before tax\nVerification passed after 1 repair cycle; delivered at commit a41c9e200000.\n- Cycle 1: failed `pytest -q tests/pricing`.',
+              proposed_by: { channel: 'factory', role: 'repair', work_id: 'synthetic-run' },
+              recall_count: 0,
+              last_recalled_at: null,
+              citations: [],
+            }),
+            memoryItem({
+              id: 'p41',
+              content: 'Discount rounds half up',
+              state: 'active',
+              validity: {
+                commit: '5be10d7'.padEnd(40, '0'),
+                state: 'stale',
+                reason: 'citations_changed',
+                changed_paths: [{ path: 'src/pricing/discount.py', change: 'changed' }],
+                checked_at: '2026-11-12T09:00:00Z',
+              },
+              recall_count: 3,
+            }),
+            memoryItem({
+              id: 'o12',
+              kind: 'lesson',
+              content: 'Run the pricing suite with the seeded fixtures only',
+              state: 'invalidated',
+              active: false,
+              invalidated_at: '2026-11-11T09:00:00Z',
+              recall_count: 2,
+              scope: 'commit',
+            }),
+          ],
+        },
+      }),
+    );
     await page.route('**/api/v1/memory/m27', (route) => route.fulfill({ json: memoryDetail() }));
     await page.route('**/api/v1/memory?*', (route) =>
       route.fulfill({
@@ -150,6 +198,8 @@ test.describe('gallery', () => {
         await page.getByRole('tab', { name: section.tab, exact: true }).click();
       if (section.name === 'memory')
         await page.getByRole('button', { name: "Memory: Discount uses banker's rounding" }).click();
+      if (section.name === 'memory-records')
+        await page.getByRole('button', { name: 'Inspect memory m27' }).click();
       await page.waitForLoadState('networkidle');
       await page.mouse.move(0, 0);
       await page.screenshot({

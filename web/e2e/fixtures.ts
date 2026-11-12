@@ -126,6 +126,7 @@ export async function mockFactoryApi(page: Page) {
       json = { focus: null, depth: 2, nodes: [], edges: [], truncated: false };
     if (path.endsWith('/memory/review')) json = { commit: null, pending: [], stale: [], truncated: false };
     if (path.endsWith('/memory/recalls')) json = { items: [], next_cursor: null };
+    if (path.endsWith('/memory/items')) json = { commit: null, items: [], next_cursor: null };
     if (path.endsWith('/execution-events')) json = { items: [], next_cursor: 0, has_more: false };
     if (path.endsWith('/usage')) json = runUsageSnapshot(path.split('/').at(-2)!);
     if (path.endsWith('/agents')) json = path.includes('/a2a/') ? [] : agentCatalog();

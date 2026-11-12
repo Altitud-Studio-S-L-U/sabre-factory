@@ -27,6 +27,7 @@ import KnowledgeMap from './features/memory/KnowledgeMap';
 import MemoryInspector from './features/memory/MemoryInspector';
 import ReviewQueue from './features/memory/ReviewQueue';
 import RecallLog from './features/memory/RecallLog';
+import MemoryRecords from './features/memory/MemoryRecords';
 import Dialog, { DialogActions } from './components/Dialog';
 import Field from './components/FormField';
 import Select from './components/Select';
@@ -48,7 +49,7 @@ const validity = (item: MemoryItem) =>
   item.invalidated_at ? 'Invalidated' : item.active ? 'Approved' : 'Needs review';
 const views = [
   'Knowledge map',
-  'Facts',
+  'Records',
   'Review queue',
   'Recall log',
   'Sources',
@@ -322,6 +323,65 @@ export default function MemoryConsole({ api, projects, connected = true }: Memor
       tone: 'var(--foreground)',
     },
   ];
+  /** The plain listing, for History and for servers without the paged memory listing. */
+  const classicTable = (view: View) =>
+    rows.length ? (
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Knowledge</TableHead>
+            <TableHead>Type</TableHead>
+            <TableHead>Provenance</TableHead>
+            <TableHead>Validity</TableHead>
+            <TableHead>Details</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {rows.map((item) => (
+            <TableRow key={item.id}>
+              <TableCell className="min-w-56">
+                {item.content}
+                <Detail>{new Date(item.created_at).toLocaleString('en-US')}</Detail>
+              </TableCell>
+              <TableCell className="whitespace-nowrap">
+                {item.kind === 'fact' ? 'Recorded fact' : 'Lesson'}
+              </TableCell>
+              <TableCell>
+                <code className="font-mono text-xs">{item.source_commit.slice(0, 12)}</code>
+                <Detail>Run {item.source_work_id}</Detail>
+              </TableCell>
+              <TableCell>
+                <Badge variant={item.active ? 'success' : 'warning'}>{validity(item)}</Badge>
+              </TableCell>
+              <TableCell>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setSelected(item)}
+                  aria-label={`Inspect memory ${item.id}`}
+                >
+                  Inspect
+                </Button>
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    ) : (
+      <EmptyPanel
+        title={
+          view === 'History'
+            ? 'No invalidated knowledge'
+            : view === 'Review queue'
+              ? 'No pending proposals'
+              : 'No approved knowledge'
+        }
+      >
+        {view === 'Records'
+          ? 'Evidence and provenance remain attached to each memory. Proposals require review before they guide future runs.'
+          : 'Only records in this project are shown.'}
+      </EmptyPanel>
+    );
   return (
     <div className="@container grid min-w-0 gap-6">
       <PageHeader
@@ -571,64 +631,17 @@ export default function MemoryConsole({ api, projects, connected = true }: Memor
                       onInspect={inspect}
                     />
                   )}
-                  {(['Facts', 'History'].includes(view) || (view === 'Review queue' && !review)) &&
-                    (rows.length ? (
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Knowledge</TableHead>
-                            <TableHead>Type</TableHead>
-                            <TableHead>Provenance</TableHead>
-                            <TableHead>Validity</TableHead>
-                            <TableHead>Details</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {rows.map((item) => (
-                            <TableRow key={item.id}>
-                              <TableCell className="min-w-56">
-                                {item.content}
-                                <Detail>{new Date(item.created_at).toLocaleString('en-US')}</Detail>
-                              </TableCell>
-                              <TableCell className="whitespace-nowrap">
-                                {item.kind === 'fact' ? 'Recorded fact' : 'Lesson'}
-                              </TableCell>
-                              <TableCell>
-                                <code className="font-mono text-xs">{item.source_commit.slice(0, 12)}</code>
-                                <Detail>Run {item.source_work_id}</Detail>
-                              </TableCell>
-                              <TableCell>
-                                <Badge variant={item.active ? 'success' : 'warning'}>{validity(item)}</Badge>
-                              </TableCell>
-                              <TableCell>
-                                <Button
-                                  variant="secondary"
-                                  size="sm"
-                                  onClick={() => setSelected(item)}
-                                  aria-label={`Inspect memory ${item.id}`}
-                                >
-                                  Inspect
-                                </Button>
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    ) : (
-                      <EmptyPanel
-                        title={
-                          view === 'History'
-                            ? 'No invalidated knowledge'
-                            : view === 'Review queue'
-                              ? 'No pending proposals'
-                              : 'No approved knowledge'
-                        }
-                      >
-                        {view === 'Facts'
-                          ? 'Evidence and provenance remain attached to each memory. Proposals require review before they guide future runs.'
-                          : 'Only records in this project are shown.'}
-                      </EmptyPanel>
-                    ))}
+                  {view === 'Records' && (
+                    <MemoryRecords
+                      api={api}
+                      projectId={effectiveProjectId}
+                      connected={connected}
+                      refreshKey={refreshKey}
+                      onChanged={changed}
+                      fallback={classicTable(view)}
+                    />
+                  )}
+                  {(view === 'History' || (view === 'Review queue' && !review)) && classicTable(view)}
                   {view === 'Sources' && (
                     <Card aria-labelledby="memory-sources-title">
                       <div className="grid gap-1.5">

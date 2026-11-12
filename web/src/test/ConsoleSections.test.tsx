@@ -270,7 +270,7 @@ it('shows memory provenance by project and keeps proposals separate from approve
     ),
   );
   render(<MemoryConsole api={createApi('synthetic-csrf')} projects={[project]} connected={false} />);
-  await user.click(await screen.findByRole('tab', { name: 'Facts' }));
+  await user.click(await screen.findByRole('tab', { name: 'Records' }));
   expect(await screen.findByText('Synthetic reviewed lesson')).toBeVisible();
   expect(screen.queryByText('Synthetic proposal')).not.toBeInTheDocument();
   expect(screen.queryByText('Other project must not appear')).not.toBeInTheDocument();
