@@ -39,6 +39,11 @@ describe('supervisor presence', () => {
     expect(presenceFor(facts({ messages: [message('blocked'), message('queued')] }))).toBe('queued');
     expect(presenceFor(facts({ messages: [message('queued'), message('running')] }))).toBe('working');
     expect(presenceFor(facts({ disconnected: true, messages: [message('running')] }))).toBe('offline');
+    // A pending tool call counts only while a message is running.
+    expect(presenceFor(facts({ messages: [message('running')], activeTool: 'get_work_budget' }))).toBe(
+      'using-tool',
+    );
+    expect(presenceFor(facts({ messages: [message('completed')], activeTool: 'get_work_budget' }))).toBe('idle');
   });
 
   it('holds a state for the minimum dwell time but shows faults immediately', () => {

@@ -1,6 +1,11 @@
 import { test, expect } from '@playwright/test';
 import { captureSource, mockFactoryApi, syntheticRun } from './fixtures';
 
+// Every journey runs against the synthetic API; nothing reaches a real factory.
+test.beforeEach(async ({ page }) => {
+  await mockFactoryApi(page);
+});
+
 test('supervisor offers observed connection actions and opens setup from the same page', async ({ page }) => {
   const messageId = 'synthetic-readiness-message';
   const actions = [
@@ -141,8 +146,8 @@ test('supervisor expands, retains per-run context and reveals recorded tools', a
   await expect(chat).toBeVisible();
   await chat.locator('summary').filter({ hasText: 'Recorded tool invocations' }).click();
   await expect(chat.getByText('get_work_budget', { exact: false }).first()).toBeVisible();
-  await expect(chat.locator('.supervisor-tools')).toHaveAttribute('open', '');
-  await chat.locator('.supervisor-tool > summary').filter({ hasText: 'get_work_budget' }).click();
+  await expect(chat.getByTestId('supervisor-tools')).toHaveAttribute('open', '');
+  await chat.getByTestId('supervisor-tool').locator('summary').filter({ hasText: 'get_work_budget' }).click();
   await expect(chat.getByText('{"measured_tokens":1200}', { exact: true })).toBeVisible();
   await captureSource(page, 'supervisor-expanded');
   await chat.locator('summary').filter({ hasText: 'Attention inbox' }).click();
@@ -156,10 +161,6 @@ test('supervisor expands, retains per-run context and reveals recorded tools', a
     'Synthetic draft stays in this run',
   );
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-});
-
-test.beforeEach(async ({ page }) => {
-  await mockFactoryApi(page);
 });
 
 test('supervisor persists an owner conversation across navigation and defaults to read-only', async ({
