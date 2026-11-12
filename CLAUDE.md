@@ -25,7 +25,7 @@ node infra/dev.mjs types
 node --test infra/*.test.mjs
 node bin/sabre.mjs bench                    # harness bench, reference policy, no provider
 cd web && pnpm typecheck && pnpm lint && pnpm format:check && pnpm test && pnpm build
-cd web && pnpm test:browser                 # Playwright, desktop and mobile
+cd web && pnpm test:browser                 # Playwright, desktop and mobile, with axe WCAG A/AA checks
 ```
 
 `pnpm` comes from Corepack (`corepack pnpm ...`). Two Playwright suites must not share a port or a results
