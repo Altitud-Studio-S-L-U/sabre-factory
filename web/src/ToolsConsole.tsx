@@ -13,7 +13,7 @@ import Credentials from './Credentials';
 import MCPConnections from './MCPConnections';
 import Deliveries from './Deliveries';
 import RepoCreations from './RepoCreations';
-import { GitHubRepositories } from './Integrations';
+import GitHubRepositories from './features/tools/GitHubRepositories';
 import Button from './components/Button';
 import CheckField from './components/CheckField';
 import DescriptionList from './components/DescriptionList';

@@ -193,6 +193,9 @@ it('keeps model providers out of Tools and changes only the inspected adapter re
     vi.fn(async (input: string, request: RequestInit = {}) => {
       if (input.endsWith('/state')) {
         writes.push(JSON.parse(String(request.body)));
+        // The first attempt meets a newer revision saved by another session.
+        if (writes.length === 1)
+          return Response.json({ message: 'The connection changed; refresh its state.' }, { status: 409 });
         return Response.json({ ...item, enabled: true, revision: 4 });
       }
       if (input.endsWith('/integrations'))
@@ -223,7 +226,16 @@ it('keeps model providers out of Tools and changes only the inspected adapter re
   await screen.findByRole('heading', { name: 'Synthetic GitHub read' });
   expect(screen.queryByText('Model provider hidden')).not.toBeInTheDocument();
   await user.click(screen.getByRole('button', { name: 'Enable connection' }));
-  await waitFor(() => expect(writes).toEqual([{ enabled: true, expected_revision: 3 }]));
+  expect(await screen.findByRole('alert')).toHaveTextContent('The connection changed');
+  // A refused change keeps the confirmed state: the connection still reads as disabled.
+  await user.click(screen.getByRole('button', { name: 'Enable connection' }));
+  await waitFor(() =>
+    expect(writes).toEqual([
+      { enabled: true, expected_revision: 3 },
+      { enabled: true, expected_revision: 3 },
+    ]),
+  );
+  expect(await screen.findByRole('button', { name: 'Disable connection' })).toBeEnabled();
   await user.click(screen.getByRole('button', { name: 'Built-in tools' }));
   expect(screen.getByRole('heading', { name: 'read_source' })).toBeVisible();
   view.rerender(<ToolsConsole api={createApi('synthetic-csrf')} projects={[project]} connected={false} />);
