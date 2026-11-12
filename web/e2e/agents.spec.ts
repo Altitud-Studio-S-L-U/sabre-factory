@@ -105,3 +105,20 @@ test('inbound agent access requires explicit scope and revocation and never rest
   expect(errors).toEqual([]);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
+
+test('the production line keeps the focused station in view and scrolls sideways', async ({ page }) => {
+  await page.goto('/agents');
+  await expect(page.getByRole('list', { name: 'Patch stations' })).toBeVisible();
+  // Without a run on the line the inspector focuses Implement, the fifth of thirteen stations:
+  // it must be in view without any interaction, on a phone as well as at 1440 px.
+  const scroller = page.getByTestId('production-line-scroller');
+  const box = await scroller.boundingBox();
+  const focused = page.getByRole('button', { name: 'Implement: Developer' });
+  await expect(focused).toHaveAttribute('aria-pressed', 'true');
+  const station = await focused.boundingBox();
+  expect(box && station).toBeTruthy();
+  expect(station!.x).toBeGreaterThanOrEqual(box!.x - 1);
+  expect(station!.x + station!.width).toBeLessThanOrEqual(box!.x + box!.width + 1);
+  expect(await scroller.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
