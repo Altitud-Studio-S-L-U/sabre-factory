@@ -64,8 +64,10 @@ for (const line of readFileSync(resolve(root, '.env'), 'utf8').split(/\r?\n/)) {
 }
 const sum = createHash('sha256');
 const source = resolve(root, 'backend/src/sabre');
-for (const name of readdirSync(source, { recursive: true }).filter((name) => name.endsWith('.py')).sort()) {
-  sum.update(name.replaceAll('\\', '/') + '\0'); sum.update(readFileSync(resolve(source, name)));
+// Python sources and the skill files they load, in one order on every platform.
+for (const name of readdirSync(source, { recursive: true }).map((name) => name.replaceAll('\\', '/'))
+  .filter((name) => name.endsWith('.py') || name.endsWith('.md')).sort()) {
+  sum.update(name + '\0'); sum.update(readFileSync(resolve(source, name)));
 }
 const hostDigest = sum.digest('hex');
 const canary = 'synthetic-access-log-canary-20261105';
@@ -115,8 +117,8 @@ async def main():
    if getattr(result,'is_error',False) or getattr(result,'isError',False): raise RuntimeError('MCP read check failed')
  digest=hashlib.sha256()
  base=pathlib.Path('/app/src/sabre')
- for path in sorted(base.rglob('*.py')):
-  digest.update(path.relative_to(base).as_posix().encode()+b'\0'); digest.update(path.read_bytes())
+ for name in sorted(path.relative_to(base).as_posix() for path in base.rglob('*') if path.suffix in {'.py','.md'}):
+  digest.update(name.encode()+b'\0'); digest.update((base/name).read_bytes())
  print(json.dumps({'api_health':200,'authenticated_status':200,'unauthorized_status':401,'mcp_tools':len(tools.tools),'specialists':len(agents['agents']),'console_bundle_verified':True,'console_sections':len(sections),'console_build':build,'source_digest':digest.hexdigest()}))
 try: asyncio.run(main())
 except Exception as error: print(json.dumps({'check_error':type(error).__name__}))
