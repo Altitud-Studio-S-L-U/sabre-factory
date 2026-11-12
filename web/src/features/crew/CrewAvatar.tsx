@@ -29,6 +29,7 @@ const roleAliases: Record<string, CrewRole> = {
   security: 'ciso',
   ciso: 'ciso',
   supervisor: 'supervisor',
+  manager: 'supervisor',
   reviewer: 'reviewer',
   system: 'system',
 };

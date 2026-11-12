@@ -3,7 +3,8 @@ import { configuration } from '../src/test/modelConfigurationFixture';
 import { factoryConfiguration } from '../src/test/factoryConfigurationFixture';
 import { agentCatalog } from '../src/test/agentCatalogFixture';
 import { runUsageSnapshot } from '../src/test/runUsageFixture';
-import type { WorkOrder } from '../src/api';
+import type { ProcessTopology, WorkOrder } from '../src/api';
+import topologies from './topology.json' with { type: 'json' };
 
 export async function captureSource(page: Page, section: string) {
   await page.evaluate(() => window.scrollTo(0, 0));
@@ -183,6 +184,11 @@ export async function mockFactoryApi(page: Page) {
           { id: 'deliver', label: 'Deliver', specialist: 'DevOps', stages: ['delivery'], next: [] },
         ],
         alternatives: [],
+        // Stations come from the backend's own process_topology (regenerate topology.json when it changes).
+        stations:
+          (topologies as Record<string, ProcessTopology>)[path.split('/').at(-2) ?? 'patch']?.stations ?? [],
+        loops:
+          (topologies as Record<string, ProcessTopology>)[path.split('/').at(-2) ?? 'patch']?.loops ?? [],
       };
     if (path.endsWith('/inspection'))
       json = {

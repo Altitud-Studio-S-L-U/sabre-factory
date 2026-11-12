@@ -1,0 +1,1057 @@
+{
+  "patch": {
+    "version": 1,
+    "graph_version": "sabre-v1",
+    "mode": "patch",
+    "lanes": [
+      {
+        "id": "preflight",
+        "label": "Preflight",
+        "specialist": "System",
+        "stages": ["intake"],
+        "next": ["reproduce"]
+      },
+      {
+        "id": "reproduce",
+        "label": "Reproduce",
+        "specialist": "Registered checks",
+        "stages": ["reproduce", "reproduction"],
+        "next": ["spec"]
+      },
+      {
+        "id": "spec",
+        "label": "Spec",
+        "specialist": "PM",
+        "stages": ["analyze", "analysis", "clarify"],
+        "next": ["plan"]
+      },
+      {
+        "id": "plan",
+        "label": "Plan",
+        "specialist": "Supervisor",
+        "stages": ["plan", "planning", "plan_clarify"],
+        "next": ["build"]
+      },
+      {
+        "id": "build",
+        "label": "Build",
+        "specialist": "Developer",
+        "stages": ["implement", "implementation", "task_clarify", "repair"],
+        "next": ["verify"]
+      },
+      {
+        "id": "verify",
+        "label": "Verify",
+        "specialist": "QA",
+        "stages": ["checks", "verification", "qa_clarify"],
+        "next": ["review"]
+      },
+      {
+        "id": "review",
+        "label": "Review",
+        "specialist": "Supervisor \u00b7 independent review",
+        "stages": ["scope_guard", "scope_approval", "review", "review_clarify"],
+        "next": ["security"]
+      },
+      {
+        "id": "security",
+        "label": "Security",
+        "specialist": "CISO",
+        "stages": ["security_check", "security"],
+        "next": ["deliver"]
+      },
+      {
+        "id": "deliver",
+        "label": "Deliver",
+        "specialist": "DevOps \u00b7 controlled publication",
+        "stages": [
+          "devops",
+          "delivery_preparation",
+          "route",
+          "commit",
+          "prepare_delivery",
+          "deliver",
+          "delivery"
+        ],
+        "next": ["memory"]
+      },
+      {
+        "id": "memory",
+        "label": "Memory",
+        "specialist": "Verified evidence",
+        "stages": ["remember", "memory"],
+        "next": []
+      }
+    ],
+    "alternatives": [
+      {
+        "source": "spec",
+        "target": "spec",
+        "condition": "Required human input"
+      },
+      {
+        "source": "review",
+        "target": "build",
+        "condition": "Repair authorized within run limits"
+      },
+      {
+        "source": "security",
+        "target": "build",
+        "condition": "Blocking finding requires repair"
+      },
+      {
+        "source": "build",
+        "target": "build",
+        "condition": "Task dependency or safe retry"
+      }
+    ],
+    "stations": [
+      {
+        "id": "intake",
+        "label": "Intake",
+        "stage": "understand",
+        "kind": "rules",
+        "role": null,
+        "agent": null,
+        "summary": "Pin the snapshot, flow and source index.",
+        "phases": ["intake"],
+        "condition": null,
+        "asks_owner": false,
+        "helpers": []
+      },
+      {
+        "id": "reproduce",
+        "label": "Reproduce",
+        "stage": "understand",
+        "kind": "gates",
+        "role": null,
+        "agent": null,
+        "summary": "Run the registered checks to capture the failure.",
+        "phases": ["reproduction"],
+        "condition": "Patch runs with a resolved flow",
+        "asks_owner": false,
+        "helpers": []
+      },
+      {
+        "id": "analyze",
+        "label": "Analyze",
+        "stage": "understand",
+        "kind": "model",
+        "role": "analyst",
+        "agent": "PM",
+        "summary": "Define requirements and unresolved questions.",
+        "phases": ["analysis", "clarification"],
+        "condition": null,
+        "asks_owner": true,
+        "helpers": []
+      },
+      {
+        "id": "plan",
+        "label": "Plan",
+        "stage": "plan",
+        "kind": "model",
+        "role": "supervisor",
+        "agent": "Supervisor",
+        "summary": "Split the work into a dependency graph of developer tasks.",
+        "phases": ["planning", "plan_clarification"],
+        "condition": null,
+        "asks_owner": true,
+        "helpers": [
+          {
+            "role": "designer",
+            "agent": "Designer",
+            "condition": "UX phase resolved and a UI objective"
+          }
+        ]
+      },
+      {
+        "id": "implement",
+        "label": "Implement",
+        "stage": "build",
+        "kind": "model",
+        "role": "developer",
+        "agent": "Developer",
+        "summary": "Implement one planned task per pass.",
+        "phases": ["implementation", "task_clarification", "repair"],
+        "condition": null,
+        "asks_owner": true,
+        "helpers": []
+      },
+      {
+        "id": "checks",
+        "label": "Checks",
+        "stage": "verify",
+        "kind": "gates_model",
+        "role": "qa",
+        "agent": "QA",
+        "summary": "Run registered checks; QA reviews their evidence only if all pass.",
+        "phases": ["verification", "qa_clarification"],
+        "condition": null,
+        "asks_owner": true,
+        "helpers": []
+      },
+      {
+        "id": "scope_guard",
+        "label": "Scope guard",
+        "stage": "verify",
+        "kind": "rules",
+        "role": null,
+        "agent": null,
+        "summary": "Stop for your permission when changes leave the approved scope.",
+        "phases": ["scope_check", "scope_approval"],
+        "condition": null,
+        "asks_owner": true,
+        "helpers": []
+      },
+      {
+        "id": "review",
+        "label": "Review",
+        "stage": "review",
+        "kind": "model",
+        "role": "reviewer",
+        "agent": "Supervisor",
+        "summary": "Independent review in a separate invocation.",
+        "phases": ["review", "review_clarification"],
+        "condition": null,
+        "asks_owner": true,
+        "helpers": []
+      },
+      {
+        "id": "security",
+        "label": "Security",
+        "stage": "security",
+        "kind": "gates_model",
+        "role": "security",
+        "agent": "CISO",
+        "summary": "Scanners collect findings; the CISO triages them.",
+        "phases": ["security"],
+        "condition": null,
+        "asks_owner": false,
+        "helpers": []
+      },
+      {
+        "id": "route",
+        "label": "Route",
+        "stage": "deliver",
+        "kind": "rules",
+        "role": null,
+        "agent": null,
+        "summary": "Ready to deliver, or send the last task back for repair.",
+        "phases": ["decision"],
+        "condition": null,
+        "asks_owner": false,
+        "helpers": []
+      },
+      {
+        "id": "commit",
+        "label": "Commit",
+        "stage": "deliver",
+        "kind": "rules",
+        "role": null,
+        "agent": null,
+        "summary": "Re-verify the snapshot and prepare the commit.",
+        "phases": ["prepare_delivery"],
+        "condition": null,
+        "asks_owner": false,
+        "helpers": [
+          {
+            "role": "devops",
+            "agent": "DevOps",
+            "condition": "Delivery preparation phase resolved"
+          }
+        ]
+      },
+      {
+        "id": "deliver",
+        "label": "Deliver",
+        "stage": "deliver",
+        "kind": "rules",
+        "role": null,
+        "agent": null,
+        "summary": "Open a draft pull request from verified evidence.",
+        "phases": ["delivery"],
+        "condition": null,
+        "asks_owner": false,
+        "helpers": []
+      },
+      {
+        "id": "remember",
+        "label": "Remember",
+        "stage": "deliver",
+        "kind": "rules",
+        "role": null,
+        "agent": null,
+        "summary": "Propose a fact tied to the delivered evidence.",
+        "phases": [],
+        "condition": null,
+        "asks_owner": false,
+        "helpers": []
+      }
+    ],
+    "loops": [
+      {
+        "source": "route",
+        "target": "implement",
+        "condition": "A gate, QA, review or security check did not pass",
+        "limit": "Repair cycles of the flow (0-2); stops on NO_PROGRESS, REPAIR_LIMIT or the repairs budget"
+      },
+      {
+        "source": "implement",
+        "target": "implement",
+        "condition": "Planned tasks remain",
+        "limit": "One task per pass"
+      }
+    ]
+  },
+  "maintain": {
+    "version": 1,
+    "graph_version": "sabre-v1",
+    "mode": "maintain",
+    "lanes": [
+      {
+        "id": "preflight",
+        "label": "Preflight",
+        "specialist": "System",
+        "stages": ["intake"],
+        "next": ["spec"]
+      },
+      {
+        "id": "spec",
+        "label": "Spec",
+        "specialist": "PM",
+        "stages": ["analyze", "analysis", "clarify"],
+        "next": ["plan"]
+      },
+      {
+        "id": "plan",
+        "label": "Plan",
+        "specialist": "Supervisor",
+        "stages": ["plan", "planning", "plan_clarify"],
+        "next": ["build"]
+      },
+      {
+        "id": "build",
+        "label": "Build",
+        "specialist": "Developer",
+        "stages": ["implement", "implementation", "task_clarify", "repair"],
+        "next": ["verify"]
+      },
+      {
+        "id": "verify",
+        "label": "Verify",
+        "specialist": "QA",
+        "stages": ["checks", "verification", "qa_clarify"],
+        "next": ["review"]
+      },
+      {
+        "id": "review",
+        "label": "Review",
+        "specialist": "Supervisor \u00b7 independent review",
+        "stages": ["scope_guard", "scope_approval", "review", "review_clarify"],
+        "next": ["security"]
+      },
+      {
+        "id": "security",
+        "label": "Security",
+        "specialist": "CISO",
+        "stages": ["security_check", "security"],
+        "next": ["deliver"]
+      },
+      {
+        "id": "deliver",
+        "label": "Deliver",
+        "specialist": "DevOps \u00b7 controlled publication",
+        "stages": [
+          "devops",
+          "delivery_preparation",
+          "route",
+          "commit",
+          "prepare_delivery",
+          "deliver",
+          "delivery"
+        ],
+        "next": ["memory"]
+      },
+      {
+        "id": "memory",
+        "label": "Memory",
+        "specialist": "Verified evidence",
+        "stages": ["remember", "memory"],
+        "next": []
+      }
+    ],
+    "alternatives": [
+      {
+        "source": "spec",
+        "target": "spec",
+        "condition": "Required human input"
+      },
+      {
+        "source": "review",
+        "target": "build",
+        "condition": "Repair authorized within run limits"
+      },
+      {
+        "source": "security",
+        "target": "build",
+        "condition": "Blocking finding requires repair"
+      },
+      {
+        "source": "build",
+        "target": "build",
+        "condition": "Task dependency or safe retry"
+      }
+    ],
+    "stations": [
+      {
+        "id": "intake",
+        "label": "Intake",
+        "stage": "understand",
+        "kind": "rules",
+        "role": null,
+        "agent": null,
+        "summary": "Pin the snapshot, flow and source index.",
+        "phases": ["intake"],
+        "condition": null,
+        "asks_owner": false,
+        "helpers": []
+      },
+      {
+        "id": "analyze",
+        "label": "Analyze",
+        "stage": "understand",
+        "kind": "model",
+        "role": "analyst",
+        "agent": "PM",
+        "summary": "Define requirements and unresolved questions.",
+        "phases": ["analysis", "clarification"],
+        "condition": null,
+        "asks_owner": true,
+        "helpers": []
+      },
+      {
+        "id": "plan",
+        "label": "Plan",
+        "stage": "plan",
+        "kind": "model",
+        "role": "supervisor",
+        "agent": "Supervisor",
+        "summary": "Split the work into a dependency graph of developer tasks.",
+        "phases": ["planning", "plan_clarification"],
+        "condition": null,
+        "asks_owner": true,
+        "helpers": [
+          {
+            "role": "designer",
+            "agent": "Designer",
+            "condition": "UX phase resolved and a UI objective"
+          }
+        ]
+      },
+      {
+        "id": "implement",
+        "label": "Implement",
+        "stage": "build",
+        "kind": "model",
+        "role": "developer",
+        "agent": "Developer",
+        "summary": "Implement one planned task per pass.",
+        "phases": ["implementation", "task_clarification", "repair"],
+        "condition": null,
+        "asks_owner": true,
+        "helpers": []
+      },
+      {
+        "id": "checks",
+        "label": "Checks",
+        "stage": "verify",
+        "kind": "gates_model",
+        "role": "qa",
+        "agent": "QA",
+        "summary": "Run registered checks; QA reviews their evidence only if all pass.",
+        "phases": ["verification", "qa_clarification"],
+        "condition": null,
+        "asks_owner": true,
+        "helpers": []
+      },
+      {
+        "id": "scope_guard",
+        "label": "Scope guard",
+        "stage": "verify",
+        "kind": "rules",
+        "role": null,
+        "agent": null,
+        "summary": "Stop for your permission when changes leave the approved scope.",
+        "phases": ["scope_check", "scope_approval"],
+        "condition": null,
+        "asks_owner": true,
+        "helpers": []
+      },
+      {
+        "id": "review",
+        "label": "Review",
+        "stage": "review",
+        "kind": "model",
+        "role": "reviewer",
+        "agent": "Supervisor",
+        "summary": "Independent review in a separate invocation.",
+        "phases": ["review", "review_clarification"],
+        "condition": null,
+        "asks_owner": true,
+        "helpers": []
+      },
+      {
+        "id": "security",
+        "label": "Security",
+        "stage": "security",
+        "kind": "gates_model",
+        "role": "security",
+        "agent": "CISO",
+        "summary": "Scanners collect findings; the CISO triages them.",
+        "phases": ["security"],
+        "condition": null,
+        "asks_owner": false,
+        "helpers": []
+      },
+      {
+        "id": "route",
+        "label": "Route",
+        "stage": "deliver",
+        "kind": "rules",
+        "role": null,
+        "agent": null,
+        "summary": "Ready to deliver, or send the last task back for repair.",
+        "phases": ["decision"],
+        "condition": null,
+        "asks_owner": false,
+        "helpers": []
+      },
+      {
+        "id": "commit",
+        "label": "Commit",
+        "stage": "deliver",
+        "kind": "rules",
+        "role": null,
+        "agent": null,
+        "summary": "Re-verify the snapshot and prepare the commit.",
+        "phases": ["prepare_delivery"],
+        "condition": null,
+        "asks_owner": false,
+        "helpers": [
+          {
+            "role": "devops",
+            "agent": "DevOps",
+            "condition": "Delivery preparation phase resolved"
+          }
+        ]
+      },
+      {
+        "id": "deliver",
+        "label": "Deliver",
+        "stage": "deliver",
+        "kind": "rules",
+        "role": null,
+        "agent": null,
+        "summary": "Open a draft pull request from verified evidence.",
+        "phases": ["delivery"],
+        "condition": null,
+        "asks_owner": false,
+        "helpers": []
+      },
+      {
+        "id": "remember",
+        "label": "Remember",
+        "stage": "deliver",
+        "kind": "rules",
+        "role": null,
+        "agent": null,
+        "summary": "Propose a fact tied to the delivered evidence.",
+        "phases": [],
+        "condition": null,
+        "asks_owner": false,
+        "helpers": []
+      }
+    ],
+    "loops": [
+      {
+        "source": "route",
+        "target": "implement",
+        "condition": "A gate, QA, review or security check did not pass",
+        "limit": "Repair cycles of the flow (0-2); stops on NO_PROGRESS, REPAIR_LIMIT or the repairs budget"
+      },
+      {
+        "source": "implement",
+        "target": "implement",
+        "condition": "Planned tasks remain",
+        "limit": "One task per pass"
+      }
+    ]
+  },
+  "create": {
+    "version": 1,
+    "graph_version": "sabre-v1",
+    "mode": "create",
+    "lanes": [
+      {
+        "id": "preflight",
+        "label": "Preflight",
+        "specialist": "System",
+        "stages": ["intake"],
+        "next": ["spec"]
+      },
+      {
+        "id": "spec",
+        "label": "Spec",
+        "specialist": "PM",
+        "stages": ["analyze", "analysis", "clarify"],
+        "next": ["design"]
+      },
+      {
+        "id": "design",
+        "label": "Design",
+        "specialist": "Designer \u00b7 Developer",
+        "stages": ["design", "design_clarify", "architecture", "designer"],
+        "next": ["plan"]
+      },
+      {
+        "id": "plan",
+        "label": "Plan",
+        "specialist": "Supervisor",
+        "stages": ["plan", "planning", "plan_clarify"],
+        "next": ["build"]
+      },
+      {
+        "id": "build",
+        "label": "Build",
+        "specialist": "Developer",
+        "stages": ["implement", "implementation", "task_clarify", "repair"],
+        "next": ["verify"]
+      },
+      {
+        "id": "verify",
+        "label": "Verify",
+        "specialist": "QA",
+        "stages": ["checks", "verification", "qa_clarify"],
+        "next": ["review"]
+      },
+      {
+        "id": "review",
+        "label": "Review",
+        "specialist": "Supervisor \u00b7 independent review",
+        "stages": ["scope_guard", "scope_approval", "review", "review_clarify"],
+        "next": ["security"]
+      },
+      {
+        "id": "security",
+        "label": "Security",
+        "specialist": "CISO",
+        "stages": ["security_check", "security"],
+        "next": ["deliver"]
+      },
+      {
+        "id": "deliver",
+        "label": "Deliver",
+        "specialist": "DevOps \u00b7 controlled publication",
+        "stages": [
+          "devops",
+          "delivery_preparation",
+          "route",
+          "commit",
+          "prepare_delivery",
+          "deliver",
+          "delivery"
+        ],
+        "next": ["memory"]
+      },
+      {
+        "id": "memory",
+        "label": "Memory",
+        "specialist": "Verified evidence",
+        "stages": ["remember", "memory"],
+        "next": []
+      }
+    ],
+    "alternatives": [
+      {
+        "source": "spec",
+        "target": "spec",
+        "condition": "Required human input"
+      },
+      {
+        "source": "review",
+        "target": "build",
+        "condition": "Repair authorized within run limits"
+      },
+      {
+        "source": "security",
+        "target": "build",
+        "condition": "Blocking finding requires repair"
+      },
+      {
+        "source": "build",
+        "target": "build",
+        "condition": "Task dependency or safe retry"
+      }
+    ],
+    "stations": [
+      {
+        "id": "intake",
+        "label": "Intake",
+        "stage": "understand",
+        "kind": "rules",
+        "role": null,
+        "agent": null,
+        "summary": "Pin the snapshot, flow and source index.",
+        "phases": ["intake"],
+        "condition": null,
+        "asks_owner": false,
+        "helpers": []
+      },
+      {
+        "id": "analyze",
+        "label": "Analyze",
+        "stage": "understand",
+        "kind": "model",
+        "role": "analyst",
+        "agent": "PM",
+        "summary": "Define requirements and unresolved questions.",
+        "phases": ["analysis", "clarification"],
+        "condition": null,
+        "asks_owner": true,
+        "helpers": []
+      },
+      {
+        "id": "design",
+        "label": "Design",
+        "stage": "plan",
+        "kind": "model",
+        "role": "architect",
+        "agent": "Developer",
+        "summary": "Compare options and propose the stack and structure.",
+        "phases": ["design", "design_clarification"],
+        "condition": null,
+        "asks_owner": true,
+        "helpers": []
+      },
+      {
+        "id": "architecture",
+        "label": "Architecture",
+        "stage": "plan",
+        "kind": "rules",
+        "role": null,
+        "agent": null,
+        "summary": "Approve the proposal, or ask you when the flow requires it.",
+        "phases": ["architecture_approval"],
+        "condition": null,
+        "asks_owner": true,
+        "helpers": []
+      },
+      {
+        "id": "plan",
+        "label": "Plan",
+        "stage": "plan",
+        "kind": "model",
+        "role": "supervisor",
+        "agent": "Supervisor",
+        "summary": "Split the work into a dependency graph of developer tasks.",
+        "phases": ["planning", "plan_clarification"],
+        "condition": null,
+        "asks_owner": true,
+        "helpers": [
+          {
+            "role": "designer",
+            "agent": "Designer",
+            "condition": "UX phase resolved and a UI objective"
+          }
+        ]
+      },
+      {
+        "id": "implement",
+        "label": "Implement",
+        "stage": "build",
+        "kind": "model",
+        "role": "developer",
+        "agent": "Developer",
+        "summary": "Implement one planned task per pass.",
+        "phases": ["implementation", "task_clarification", "repair"],
+        "condition": null,
+        "asks_owner": true,
+        "helpers": []
+      },
+      {
+        "id": "checks",
+        "label": "Checks",
+        "stage": "verify",
+        "kind": "gates_model",
+        "role": "qa",
+        "agent": "QA",
+        "summary": "Run registered checks; QA reviews their evidence only if all pass.",
+        "phases": ["verification", "qa_clarification"],
+        "condition": null,
+        "asks_owner": true,
+        "helpers": []
+      },
+      {
+        "id": "scope_guard",
+        "label": "Scope guard",
+        "stage": "verify",
+        "kind": "rules",
+        "role": null,
+        "agent": null,
+        "summary": "Stop for your permission when changes leave the approved scope.",
+        "phases": ["scope_check", "scope_approval"],
+        "condition": null,
+        "asks_owner": true,
+        "helpers": []
+      },
+      {
+        "id": "review",
+        "label": "Review",
+        "stage": "review",
+        "kind": "model",
+        "role": "reviewer",
+        "agent": "Supervisor",
+        "summary": "Independent review in a separate invocation.",
+        "phases": ["review", "review_clarification"],
+        "condition": null,
+        "asks_owner": true,
+        "helpers": []
+      },
+      {
+        "id": "security",
+        "label": "Security",
+        "stage": "security",
+        "kind": "gates_model",
+        "role": "security",
+        "agent": "CISO",
+        "summary": "Scanners collect findings; the CISO triages them.",
+        "phases": ["security"],
+        "condition": null,
+        "asks_owner": false,
+        "helpers": []
+      },
+      {
+        "id": "route",
+        "label": "Route",
+        "stage": "deliver",
+        "kind": "rules",
+        "role": null,
+        "agent": null,
+        "summary": "Ready to deliver, or send the last task back for repair.",
+        "phases": ["decision"],
+        "condition": null,
+        "asks_owner": false,
+        "helpers": []
+      },
+      {
+        "id": "commit",
+        "label": "Commit",
+        "stage": "deliver",
+        "kind": "rules",
+        "role": null,
+        "agent": null,
+        "summary": "Re-verify the snapshot and prepare the commit.",
+        "phases": ["prepare_delivery"],
+        "condition": null,
+        "asks_owner": false,
+        "helpers": [
+          {
+            "role": "devops",
+            "agent": "DevOps",
+            "condition": "Delivery preparation phase resolved"
+          }
+        ]
+      },
+      {
+        "id": "deliver",
+        "label": "Deliver",
+        "stage": "deliver",
+        "kind": "rules",
+        "role": null,
+        "agent": null,
+        "summary": "Open a draft pull request from verified evidence.",
+        "phases": ["delivery"],
+        "condition": null,
+        "asks_owner": false,
+        "helpers": []
+      },
+      {
+        "id": "remember",
+        "label": "Remember",
+        "stage": "deliver",
+        "kind": "rules",
+        "role": null,
+        "agent": null,
+        "summary": "Propose a fact tied to the delivered evidence.",
+        "phases": [],
+        "condition": null,
+        "asks_owner": false,
+        "helpers": []
+      }
+    ],
+    "loops": [
+      {
+        "source": "route",
+        "target": "implement",
+        "condition": "A gate, QA, review or security check did not pass",
+        "limit": "Repair cycles of the flow (0-2); stops on NO_PROGRESS, REPAIR_LIMIT or the repairs budget"
+      },
+      {
+        "source": "implement",
+        "target": "implement",
+        "condition": "Planned tasks remain",
+        "limit": "One task per pass"
+      }
+    ]
+  },
+  "audit": {
+    "version": 1,
+    "graph_version": "sabre-v1",
+    "mode": "audit",
+    "lanes": [
+      {
+        "id": "preflight",
+        "label": "Preflight",
+        "specialist": "System",
+        "stages": ["intake"],
+        "next": ["spec"]
+      },
+      {
+        "id": "spec",
+        "label": "Spec",
+        "specialist": "PM",
+        "stages": ["analyze", "analysis", "clarify"],
+        "next": ["verify"]
+      },
+      {
+        "id": "verify",
+        "label": "Verify",
+        "specialist": "QA",
+        "stages": ["checks", "verification", "qa_clarify"],
+        "next": ["review"]
+      },
+      {
+        "id": "review",
+        "label": "Review",
+        "specialist": "Supervisor \u00b7 independent review",
+        "stages": ["scope_guard", "scope_approval", "review", "review_clarify"],
+        "next": ["security"]
+      },
+      {
+        "id": "security",
+        "label": "Security",
+        "specialist": "CISO",
+        "stages": ["security_check", "security"],
+        "next": ["report"]
+      },
+      {
+        "id": "report",
+        "label": "Report",
+        "specialist": "System",
+        "stages": ["audit_report"],
+        "next": []
+      }
+    ],
+    "alternatives": [
+      {
+        "source": "spec",
+        "target": "spec",
+        "condition": "Required human input"
+      }
+    ],
+    "stations": [
+      {
+        "id": "intake",
+        "label": "Intake",
+        "stage": "understand",
+        "kind": "rules",
+        "role": null,
+        "agent": null,
+        "summary": "Pin the snapshot, flow and source index.",
+        "phases": ["intake"],
+        "condition": null,
+        "asks_owner": false,
+        "helpers": []
+      },
+      {
+        "id": "analyze",
+        "label": "Analyze",
+        "stage": "understand",
+        "kind": "model",
+        "role": "analyst",
+        "agent": "PM",
+        "summary": "Define requirements and unresolved questions.",
+        "phases": ["analysis", "clarification"],
+        "condition": null,
+        "asks_owner": true,
+        "helpers": []
+      },
+      {
+        "id": "checks",
+        "label": "Checks",
+        "stage": "verify",
+        "kind": "gates_model",
+        "role": "qa",
+        "agent": "QA",
+        "summary": "Run registered checks; QA reviews their evidence only if all pass.",
+        "phases": ["verification", "qa_clarification"],
+        "condition": null,
+        "asks_owner": true,
+        "helpers": []
+      },
+      {
+        "id": "scope_guard",
+        "label": "Scope guard",
+        "stage": "verify",
+        "kind": "rules",
+        "role": null,
+        "agent": null,
+        "summary": "Stop for your permission when changes leave the approved scope.",
+        "phases": ["scope_check", "scope_approval"],
+        "condition": null,
+        "asks_owner": true,
+        "helpers": []
+      },
+      {
+        "id": "review",
+        "label": "Review",
+        "stage": "review",
+        "kind": "model",
+        "role": "reviewer",
+        "agent": "Supervisor",
+        "summary": "Independent review in a separate invocation.",
+        "phases": ["review", "review_clarification"],
+        "condition": null,
+        "asks_owner": true,
+        "helpers": []
+      },
+      {
+        "id": "security",
+        "label": "Security",
+        "stage": "security",
+        "kind": "gates_model",
+        "role": "security",
+        "agent": "CISO",
+        "summary": "Scanners collect findings; the CISO triages them.",
+        "phases": ["security"],
+        "condition": null,
+        "asks_owner": false,
+        "helpers": []
+      },
+      {
+        "id": "audit_report",
+        "label": "Report",
+        "stage": "deliver",
+        "kind": "rules",
+        "role": null,
+        "agent": null,
+        "summary": "Report checks and findings; nothing is published.",
+        "phases": ["audit_report"],
+        "condition": null,
+        "asks_owner": false,
+        "helpers": []
+      }
+    ],
+    "loops": []
+  }
+}

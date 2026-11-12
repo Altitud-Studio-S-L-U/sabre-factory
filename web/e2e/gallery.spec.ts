@@ -7,7 +7,7 @@ const label = process.env.SABRE_GALLERY;
 
 const sections = [
   { name: 'runs', path: '/runs', ready: 'Runs' },
-  { name: 'run-detail', path: '/runs/synthetic-run', ready: 'Correct the synthetic example' },
+  { name: 'run-detail', path: '/runs/synthetic-run', ready: 'Full objective' },
   { name: 'agents', path: '/agents', ready: 'Agents' },
   { name: 'tools', path: '/tools', ready: 'Tools' },
   { name: 'memory', path: '/memory', ready: 'Memory' },

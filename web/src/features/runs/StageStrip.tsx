@@ -38,7 +38,7 @@ export default function StageStrip({
             data-state={stage.state}
             className={cn(
               'h-1.5 min-w-2 flex-1 rounded-full',
-              stage.state === 'done' && (order.status === 'completed' ? 'bg-success/80' : 'bg-primary/75'),
+              stage.state === 'done' && (order.status === 'completed' ? 'bg-success/70' : 'bg-foreground/40'),
               stage.state === 'current' && currentTones[tone],
               stage.state === 'pending' && 'bg-track',
               stage.state === 'skipped' && 'border border-dashed border-border bg-transparent',

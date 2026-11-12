@@ -39,7 +39,7 @@ import { ErrorNotice, message, statusLabels, usesOnlyCliModels } from './feature
 
 // Sections load on first visit; Runs stays in the main bundle.
 const sections = {
-  agentsConsole: () => import('./AgentsConsole'),
+  agentsPage: () => import('./features/agents/AgentsPage'),
   toolsConsole: () => import('./ToolsConsole'),
   memoryConsole: () => import('./MemoryConsole'),
   configConsole: () => import('./ConfigConsole'),
@@ -56,7 +56,7 @@ function usePrefetchSections() {
     return () => window.clearTimeout(timer);
   }, []);
 }
-const AgentsConsole = lazy(sections.agentsConsole);
+const AgentsPage = lazy(sections.agentsPage);
 const ToolsConsole = lazy(sections.toolsConsole);
 const MemoryConsole = lazy(sections.memoryConsole);
 const ConfigConsole = lazy(sections.configConsole);
@@ -497,14 +497,13 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
               {view === 'security' && <SecurityView api={api} projects={projects} orders={orders} />}
               {view === 'memory' && <MemoryConsole api={api} projects={projects} connected={!error} />}
               {view === 'agents' && (
-                <div className="grid gap-6">
-                  <PageHeader
-                    eyebrow="Specialists"
-                    title="Agents"
-                    description="Published specialists, versioned procedures and reviewed external agents."
-                  />
-                  <AgentsConsole api={api} projects={projects} connected={!error} />
-                </div>
+                <AgentsPage
+                  api={api}
+                  projects={projects}
+                  orders={orders}
+                  connected={!error}
+                  now={updated?.getTime() ?? 0}
+                />
               )}
               {view === 'config' && (
                 <ConfigConsole
