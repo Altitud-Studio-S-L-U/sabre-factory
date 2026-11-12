@@ -178,104 +178,111 @@ export default function RunDetail({
     order.budget.max_cost_usd === 0;
 
   return (
-    <div className="grid min-w-0 gap-5">
-      <header data-testid="run-header" className="grid min-w-0 gap-1.5">
-        <nav
-          aria-label="Run context"
-          className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground"
-        >
-          <span>{project?.name || 'Project'}</span>
-          <span aria-hidden="true">/</span>
-          <span>{modeLabels[order.mode]}</span>
-          <span aria-hidden="true">/</span>
-          <span>Review {order.plan_revision}</span>
-        </nav>
-        <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
-          <h2 tabIndex={-1} data-focus-heading className="text-2xl font-semibold tracking-tight outline-none">
-            {order.phase === 'security_watch' ? 'Monitoring' : modeLabels[order.mode]}{' '}
-            {project?.name || 'project'}
-          </h2>
-          <RunBadge value={order.status} />
+    <div className="grid min-w-0 gap-3">
+      <header data-testid="run-header" className="grid min-w-0 gap-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+          <nav aria-label="Run context" className="flex flex-wrap items-center gap-1.5">
+            <span>{project?.name || 'Project'}</span>
+            <span aria-hidden="true">/</span>
+            <span>{modeLabels[order.mode]}</span>
+            <span aria-hidden="true">/</span>
+            <span>Review {order.plan_revision}</span>
+          </nav>
+          <Badge variant="outline" className="text-primary">
+            {phaseLabels[order.phase] || order.phase}
+          </Badge>
+          <span>Updated {time(order.updated_at)}</span>
         </div>
-        {!blocker && <p className="max-w-[72ch] text-sm text-muted-foreground">{order.summary}</p>}
-      </header>
-      {history && (
-        <Notice tone="neutral" role="note" aria-label="Retained run history" title={`History · ${history}`}>
-          <p>
-            Last recorded stop reason before this run was{' '}
-            {order.status === 'cancelled' ? 'cancelled' : 'closed'}. No decision is pending and it cannot be
-            resumed. The recorded evidence remains available for inspection.
-          </p>
-        </Notice>
-      )}
-      {blocker && (
-        <Notice tone="warning" title={blocker}>
-          <p>{order.summary}</p>
-          {budgetDecision && (
-            <div className="mt-2 grid justify-items-start gap-3">
-              <p>
-                The run is waiting for your budget decision. Set a new ceiling or remove a ceiling, then
-                choose whether to resume. Other permissions and checks remain in force.
-              </p>
-              <Button type="button" variant="primary" onClick={() => setDetailTab('Limits & scope')}>
-                Review budget options
+        <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
+          <div className="flex min-w-0 flex-wrap items-center gap-3">
+            <h2
+              tabIndex={-1}
+              data-focus-heading
+              className="text-2xl font-semibold tracking-tight outline-none"
+            >
+              {order.phase === 'security_watch' ? 'Monitoring' : modeLabels[order.mode]}{' '}
+              {project?.name || 'project'}
+            </h2>
+            <RunBadge value={order.status} />
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {!terminal && ['running', 'queued', 'waiting_input', 'failed'].includes(order.status) && (
+              <Button
+                type="button"
+                size="sm"
+                disabled={!connected || action.busy || order.control === 'pause'}
+                onClick={() => control('pause')}
+              >
+                Pause
               </Button>
-            </div>
-          )}
-        </Notice>
-      )}
-      <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2 border-y border-border py-2 text-sm text-muted-foreground">
-        <Badge variant="outline" className="text-primary">
-          {phaseLabels[order.phase] || order.phase}
-        </Badge>
-        <span>Updated {time(order.updated_at)}</span>
-        <Disclosure
-          variant="plain"
-          summary="Full objective"
-          aria-label="Run objective"
-          className="min-w-0 basis-full text-foreground sm:basis-auto"
-        >
-          <p className="max-w-[72ch] text-sm whitespace-pre-wrap text-muted-foreground">{order.objective}</p>
-        </Disclosure>
-        <div className="ml-auto flex flex-wrap items-center gap-2">
-          {!terminal && ['running', 'queued', 'waiting_input', 'failed'].includes(order.status) && (
-            <Button
-              type="button"
-              size="sm"
-              disabled={!connected || action.busy || order.control === 'pause'}
-              onClick={() => control('pause')}
-            >
-              Pause
-            </Button>
-          )}
-          {!terminal && ['paused', 'blocked', 'failed'].includes(order.status) && (
-            <Button
-              type="button"
-              size="sm"
-              disabled={action.busy || !connected}
-              onClick={() => (budgetDecision ? setDetailTab('Limits & scope') : control('resume'))}
-            >
-              {budgetDecision ? 'Resolve budget' : 'Resume'}
-            </Button>
-          )}
-          {!terminal && (
-            <Button
-              type="button"
-              size="sm"
-              variant="danger"
-              disabled={action.busy || !connected}
-              onClick={() => setConfirmCancel(!confirmCancel)}
-            >
-              Cancel run
-            </Button>
-          )}
-          {pr && (
-            <a className={buttonVariants({ size: 'sm' })} href={pr} target="_blank" rel="noreferrer">
-              Review PR ↗
-            </a>
-          )}
+            )}
+            {!terminal && ['paused', 'blocked', 'failed'].includes(order.status) && (
+              <Button
+                type="button"
+                size="sm"
+                disabled={action.busy || !connected}
+                onClick={() => (budgetDecision ? setDetailTab('Limits & scope') : control('resume'))}
+              >
+                {budgetDecision ? 'Resolve budget' : 'Resume'}
+              </Button>
+            )}
+            {!terminal && (
+              <Button
+                type="button"
+                size="sm"
+                variant="danger"
+                disabled={action.busy || !connected}
+                onClick={() => setConfirmCancel(!confirmCancel)}
+              >
+                Cancel run
+              </Button>
+            )}
+            {pr && (
+              <a className={buttonVariants({ size: 'sm' })} href={pr} target="_blank" rel="noreferrer">
+                Review PR ↗
+              </a>
+            )}
+          </div>
         </div>
-      </div>
+        {history && (
+          <Notice tone="neutral" role="note" aria-label="Retained run history" title={`History · ${history}`}>
+            <p>
+              Last recorded stop reason before this run was{' '}
+              {order.status === 'cancelled' ? 'cancelled' : 'closed'}. No decision is pending and it cannot be
+              resumed. The recorded evidence remains available for inspection.
+            </p>
+          </Notice>
+        )}
+        {blocker && (
+          <Notice tone="warning" title={blocker}>
+            <p>{order.summary}</p>
+            {budgetDecision && (
+              <div className="mt-2 grid justify-items-start gap-3">
+                <p>
+                  The run is waiting for your budget decision. Set a new ceiling or remove a ceiling, then
+                  choose whether to resume. Other permissions and checks remain in force.
+                </p>
+                <Button type="button" variant="primary" onClick={() => setDetailTab('Limits & scope')}>
+                  Review budget options
+                </Button>
+              </div>
+            )}
+          </Notice>
+        )}
+        <div className="flex min-w-0 flex-wrap items-baseline gap-x-4 gap-y-1">
+          {!blocker && <p className="max-w-[72ch] text-sm text-muted-foreground">{order.summary}</p>}
+          <Disclosure
+            variant="plain"
+            summary="Full objective"
+            aria-label="Run objective"
+            className="min-w-0 basis-full text-sm sm:basis-auto"
+          >
+            <p className="max-w-[72ch] text-sm whitespace-pre-wrap text-muted-foreground">
+              {order.objective}
+            </p>
+          </Disclosure>
+        </div>
+      </header>
       {order.control && !terminal && ['running', 'queued'].includes(order.status) && (
         <Notice
           tone="neutral"
@@ -332,7 +339,7 @@ export default function RunDetail({
         label="Run workspace"
       >
         {(activeTab) => (
-          <div className="pt-5">
+          <div>
             {activeTab === 'Process' && (
               <div className="grid min-w-0 gap-5">
                 <RemoteTasksPanel

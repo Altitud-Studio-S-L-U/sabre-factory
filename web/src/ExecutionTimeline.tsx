@@ -11,7 +11,6 @@ import ExecutionConsole from './ExecutionConsole';
 import type { RunUsageState } from './useRunUsage';
 import Disclosure from './components/Disclosure';
 import Notice from './components/Notice';
-import { SectionHeading } from './components/PageHeader';
 
 const phaseNames: Record<string, string> = {
   analyze: 'analysis',
@@ -130,12 +129,11 @@ export default function ExecutionTimeline({
     phases.set(phase, [...(phases.get(phase) || []), event]);
   }
   return (
-    <section aria-labelledby="execution-timeline-title" className="grid min-w-0 gap-4">
-      <SectionHeading
-        id="execution-timeline-title"
-        title="Execution timeline"
-        actions={<span className="text-xs text-muted-foreground">Measured events</span>}
-      />
+    <section aria-labelledby="execution-timeline-title" className="grid min-w-0 gap-3">
+      {/* The Process tab already titles this view; the heading names the region for assistive technology. */}
+      <h2 id="execution-timeline-title" className="sr-only">
+        Execution timeline
+      </h2>
       {error && (
         <Notice tone="warning" role="alert">
           {error}

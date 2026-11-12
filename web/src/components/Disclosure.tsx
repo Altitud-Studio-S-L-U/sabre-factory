@@ -32,9 +32,9 @@ export default function Disclosure({
     >
       <summary
         className={cn(
-          'flex min-h-10 cursor-pointer list-none items-center gap-2 rounded-lg text-sm font-medium select-none [&::-webkit-details-marker]:hidden',
+          'flex cursor-pointer list-none items-center gap-2 rounded-lg text-sm font-medium select-none [&::-webkit-details-marker]:hidden',
           'hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring',
-          variant === 'card' ? 'px-4 py-2.5' : 'py-1.5',
+          variant === 'card' ? 'min-h-10 px-4 py-2.5' : 'min-h-8 py-1',
           summaryClassName,
         )}
       >

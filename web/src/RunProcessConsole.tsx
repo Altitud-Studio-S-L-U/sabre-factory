@@ -61,10 +61,19 @@ function barTone(span: ObservedSpan) {
 
 function Readout({ label, value, note }: { label: string; value: ReactNode; note?: ReactNode }) {
   return (
-    <div className="grid min-w-0 content-start gap-1 rounded-lg border border-border bg-card px-4 py-3">
-      <span className="text-xs text-muted-foreground">{label}</span>
-      <strong className="text-lg font-semibold tabular-nums capitalize">{value}</strong>
-      {note && <small className="text-xs leading-snug text-muted-foreground">{note}</small>}
+    <div className="grid min-w-36 content-start px-3.5 py-1.5">
+      <span className="truncate text-xs text-muted-foreground" title={label}>
+        {label}
+      </span>
+      <strong className="truncate text-sm leading-6 font-semibold tabular-nums capitalize">{value}</strong>
+      {note && (
+        <small
+          title={typeof note === 'string' ? note : undefined}
+          className="line-clamp-1 text-xs leading-snug text-muted-foreground"
+        >
+          {note}
+        </small>
+      )}
     </div>
   );
 }
@@ -390,7 +399,7 @@ export default function RunProcessConsole({
     <div
       ref={workspaceRef}
       className={cn(
-        'grid min-w-0 gap-4',
+        'grid min-w-0 gap-3',
         wide &&
           'fixed inset-0 z-50 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden bg-background p-3 sm:p-5',
       )}
@@ -448,7 +457,7 @@ export default function RunProcessConsole({
         )}
         <div
           aria-label="Recorded run state"
-          className="grid grid-cols-[repeat(auto-fit,minmax(9.5rem,1fr))] gap-2"
+          className="grid auto-cols-fr grid-flow-col divide-x divide-border overflow-x-auto rounded-xl border border-border bg-card"
         >
           <Readout label="Current phase" value={order.phase.replaceAll('_', ' ')} />
           <Readout
