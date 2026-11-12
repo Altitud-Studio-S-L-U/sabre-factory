@@ -74,3 +74,18 @@ async def test_builtin_catalog_describes_conditional_browser_capability_without_
     browser = next(item for item in result.json()["items"] if item["name"] == "browser_verify")
     assert browser["roles"] == ["qa", "designer"] and browser["effect"] == "read"
     assert "Requires an owner-registered synthetic preview" in browser["description"]
+
+
+async def test_configuration_history_limit_is_bounded_and_owner_only():
+    from types import SimpleNamespace
+
+    import httpx
+    from pydantic import SecretStr
+
+    from sabre.api import create_app
+    application = create_app(SimpleNamespace(), SimpleNamespace(auth_token=SecretStr("owner-test-token-at-least-24"), allowed_origins=["http://localhost:8000"]))
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(application), base_url="http://localhost:8000") as client:
+        assert (await client.get("/api/v1/configuration/history")).status_code == 401
+        for limit in (0, 101):
+            response = await client.get(f"/api/v1/configuration/history?limit={limit}", headers={"Authorization": "Bearer owner-test-token-at-least-24"})
+            assert response.status_code == 422
