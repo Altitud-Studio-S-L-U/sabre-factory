@@ -1,7 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { Api, SystemInfo } from './api';
 import Icon from './Icon';
-import './About.css';
+import Button from './components/Button';
+import Notice from './components/Notice';
+import LoadingState from './components/LoadingState';
+import { SectionHeading } from './components/PageHeader';
 
 const states = {
   available: 'Responding',
@@ -18,6 +21,25 @@ const roles: Record<string, string> = {
   reviewer: 'Technical reviewer',
   security: 'Security analyst',
 };
+
+const stateTones: Record<keyof typeof states, string> = {
+  available: 'text-success',
+  unavailable: 'text-danger',
+  busy: 'text-warning',
+  unknown: 'text-muted-foreground',
+};
+const section = 'grid min-w-0 gap-3';
+/** Two columns of bordered rows on wide containers, one on narrow ones. */
+const grid = 'grid min-w-0 gap-x-7 @3xl:grid-cols-2';
+
+function Fact({ term, children }: { term: ReactNode; children: ReactNode }) {
+  return (
+    <div className="flex min-w-0 justify-between gap-4 border-b border-border py-3 text-sm">
+      <dt className="text-muted-foreground [overflow-wrap:anywhere]">{term}</dt>
+      <dd className="text-right tabular-nums [overflow-wrap:anywhere]">{children}</dd>
+    </div>
+  );
+}
 
 const runningBuild: string = import.meta.env.VITE_SABRE_BUILD ?? 'development';
 
@@ -78,159 +100,145 @@ export default function About({ api }: { api: Pick<Api, 'system'> }) {
   }
 
   return (
-    <section className="system-about" aria-label="System information" aria-busy={loading}>
-      <div className="system-about-toolbar">
-        <p>Installed versions and verification coverage for this instance.</p>
-        <button className="button secondary" onClick={() => void refresh()} disabled={loading}>
+    <section className="@container grid min-w-0 gap-6" aria-label="System information" aria-busy={loading}>
+      <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
+        <p className="max-w-[74ch] text-sm text-muted-foreground">
+          Installed versions and verification coverage for this instance.
+        </p>
+        <Button variant="secondary" onClick={() => void refresh()} disabled={loading}>
           <Icon name="refresh" /> {loading ? 'Checking…' : 'Refresh system'}
-        </button>
+        </Button>
       </div>
       {failed && (
-        <p className="notice error" role="alert">
+        <Notice tone="danger" role="alert">
           {info
             ? 'System refresh failed. Previous results remain visible.'
             : 'The system could not be queried. Check the connection and retry.'}
-        </p>
+        </Notice>
       )}
-      {!info && loading && (
-        <p role="status" className="system-about-loading">
-          Loading instance status…
-        </p>
-      )}
+      {!info && loading && <LoadingState label="Loading instance status…" />}
       {info && (
         <>
-          <div className="system-about-identity">
-            <div>
-              <h2>{info.application.name}</h2>
-              <p>
+          <div className="flex min-w-0 flex-wrap items-end justify-between gap-3 border-b border-border pb-6">
+            <div className="grid min-w-0 gap-1.5">
+              <h2 className="text-2xl font-semibold tracking-tight [overflow-wrap:anywhere]">
+                {info.application.name}
+              </h2>
+              <p className="text-sm text-muted-foreground [overflow-wrap:anywhere]">
                 Version {info.application.version ?? 'unknown'} · Graph {info.application.graph_version}
               </p>
             </div>
-            <p className="system-about-time">
+            <p className="text-xs text-muted-foreground @xl:text-right">
               Last checked
               <br />
-              <time dateTime={info.checked_at}>{new Date(info.checked_at).toLocaleString('en-US')}</time>
+              <time dateTime={info.checked_at} className="text-foreground">
+                {new Date(info.checked_at).toLocaleString('en-US')}
+              </time>
             </p>
           </div>
 
-          <section className="system-about-section" aria-labelledby="system-components-title">
-            <h2 id="system-components-title">Services and connections</h2>
-            <p>Saved configuration does not prove availability. Each row describes what was checked.</p>
-            <ul className="system-components">
+          <section className={section} aria-labelledby="system-components-title">
+            <SectionHeading
+              id="system-components-title"
+              title="Services and connections"
+              description="Saved configuration does not prove availability. Each row describes what was checked."
+            />
+            <ul className={grid}>
               {info.components.map((component) => (
-                <li key={component.id}>
-                  <div className="system-component-title">
-                    <h3>{component.label}</h3>
-                    <span className={`system-state system-state-${component.state}`}>
+                <li
+                  key={component.id}
+                  className="grid min-w-0 content-start gap-1 border-b border-border py-4"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                    <h3 className="text-sm font-semibold">{component.label}</h3>
+                    <span className={`text-xs whitespace-nowrap ${stateTones[component.state]}`}>
                       {states[component.state]}
                     </span>
                   </div>
                   {component.configured !== null && (
-                    <span className="system-component-config">
+                    <span className="text-xs text-muted-foreground">
                       {component.configured ? 'Configured' : 'Not configured'}
                     </span>
                   )}
-                  <p>{component.detail}</p>
+                  <p className="text-sm text-muted-foreground">{component.detail}</p>
                 </li>
               ))}
             </ul>
           </section>
 
-          <section className="system-about-section" aria-labelledby="system-limits-title">
-            <h2 id="system-limits-title">Execution capacity</h2>
-            <dl className="system-facts">
-              <div>
-                <dt>Concurrent runs</dt>
-                <dd>{info.limits.concurrent_work}</dd>
-              </div>
-              <div>
-                <dt>Writers per repository</dt>
-                <dd>{info.limits.writers_per_repository}</dd>
-              </div>
-              <div>
-                <dt>Repair cycles per task</dt>
-                <dd>{info.limits.repair_cycles}</dd>
-              </div>
+          <section className={section} aria-labelledby="system-limits-title">
+            <SectionHeading id="system-limits-title" title="Execution capacity" />
+            <dl className={grid}>
+              <Fact term="Concurrent runs">{info.limits.concurrent_work}</Fact>
+              <Fact term="Writers per repository">{info.limits.writers_per_repository}</Fact>
+              <Fact term="Repair cycles per task">{info.limits.repair_cycles}</Fact>
               {info.limits.codex_invocations !== null && (
-                <div>
-                  <dt>Concurrent Codex invocations</dt>
-                  <dd>{info.limits.codex_invocations}</dd>
-                </div>
+                <Fact term="Concurrent Codex invocations">{info.limits.codex_invocations}</Fact>
               )}
               {info.limits.claude_invocations != null && (
-                <div>
-                  <dt>Concurrent Claude invocations</dt>
-                  <dd>{info.limits.claude_invocations}</dd>
-                </div>
+                <Fact term="Concurrent Claude invocations">{info.limits.claude_invocations}</Fact>
               )}
             </dl>
             {info.limits.codex_invocations !== null && (
-              <p>Runs can progress across projects; the Codex runner processes one invocation at a time.</p>
+              <p className="max-w-[74ch] text-sm text-muted-foreground">
+                Runs can progress across projects; the Codex runner processes one invocation at a time.
+              </p>
             )}
           </section>
 
-          <section className="system-about-section" aria-labelledby="system-models-title">
-            <h2 id="system-models-title">Team and models</h2>
-            <p>Current role configuration. Individual runs retain their launch configuration.</p>
-            <dl className="system-facts system-models">
+          <section className={section} aria-labelledby="system-models-title">
+            <SectionHeading
+              id="system-models-title"
+              title="Team and models"
+              description="Current role configuration. Individual runs retain their launch configuration."
+            />
+            <dl className={grid}>
               {info.models.map((model) => (
-                <div key={model.role}>
-                  <dt>{roles[model.role] ?? model.role}</dt>
-                  <dd>
-                    <span>
-                      {model.provider} ·{' '}
-                      {model.name ||
-                        (model.provider === 'codex_cli' ? 'Automatic (CLI)' : 'Provider default model')}
-                    </span>
-                    <small>
-                      {model.configured === null
-                        ? 'Session not checked: runner busy'
-                        : model.configured
-                          ? 'Configured'
-                          : 'Not configured'}
-                    </small>
-                  </dd>
-                </div>
+                <Fact key={model.role} term={roles[model.role] ?? model.role}>
+                  <span>
+                    {model.provider} ·{' '}
+                    {model.name ||
+                      (model.provider === 'codex_cli' ? 'Automatic (CLI)' : 'Provider default model')}
+                  </span>
+                  <small className="mt-1 block text-xs text-muted-foreground">
+                    {model.configured === null
+                      ? 'Session not checked: runner busy'
+                      : model.configured
+                        ? 'Configured'
+                        : 'Not configured'}
+                  </small>
+                </Fact>
               ))}
             </dl>
           </section>
 
-          <section className="system-about-section" aria-labelledby="system-versions-title">
-            <h2 id="system-versions-title">Environment and versions</h2>
-            <p>
-              API process information. The pgvector library version does not identify the extension installed
-              in PostgreSQL.
-            </p>
-            <dl className="system-facts">
-              <div>
-                <dt>Console build</dt>
-                <dd>
-                  <code>{runningBuild}</code>
-                  {servedBuild && servedBuild !== runningBuild && (
-                    <span role="status">
-                      {' '}
-                      · The server now serves build <code>{servedBuild}</code>. Reload to use it.
-                    </span>
-                  )}
-                </dd>
-              </div>
-              <div>
-                <dt>Python</dt>
-                <dd>
-                  {info.runtime.python} · {info.runtime.implementation}
-                </dd>
-              </div>
-              <div>
-                <dt>Backend platform</dt>
-                <dd>
-                  {info.runtime.system} · {info.runtime.architecture}
-                </dd>
-              </div>
+          <section className={section} aria-labelledby="system-versions-title">
+            <SectionHeading
+              id="system-versions-title"
+              title="Environment and versions"
+              description="API process information. The pgvector library version does not identify the extension installed in PostgreSQL."
+            />
+            <dl className={grid}>
+              <Fact term="Console build">
+                <code className="font-mono text-xs">{runningBuild}</code>
+                {servedBuild && servedBuild !== runningBuild && (
+                  <span role="status">
+                    {' '}
+                    · The server now serves build <code className="font-mono text-xs">{servedBuild}</code>.
+                    Reload to use it.
+                  </span>
+                )}
+              </Fact>
+              <Fact term="Python">
+                {info.runtime.python} · {info.runtime.implementation}
+              </Fact>
+              <Fact term="Backend platform">
+                {info.runtime.system} · {info.runtime.architecture}
+              </Fact>
               {info.packages.map((item) => (
-                <div key={item.distribution}>
-                  <dt>{item.distribution}</dt>
-                  <dd>{item.version ?? 'Unknown'}</dd>
-                </div>
+                <Fact key={item.distribution} term={item.distribution}>
+                  {item.version ?? 'Unknown'}
+                </Fact>
               ))}
             </dl>
           </section>
