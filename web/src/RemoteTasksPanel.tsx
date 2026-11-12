@@ -1,9 +1,18 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ApiError, type Api, type A2ATaskInfo } from './api';
+import Button from './components/Button';
+import CodeBlock from './components/CodeBlock';
+import DescriptionList from './components/DescriptionList';
 import Dialog from './components/Dialog';
+import Disclosure from './components/Disclosure';
 import Field from './components/FormField';
 import JsonView from './components/JsonView';
-import './RemoteTasksPanel.css';
+import LoadingState from './components/LoadingState';
+import Notice from './components/Notice';
+import { SectionHeading } from './components/PageHeader';
+import Textarea from './components/Textarea';
+import { Badge } from './components/ui/badge';
+import { Card } from './components/ui/card';
 
 function statusOf(task: A2ATaskInfo) {
   const status = task.result?.status;
@@ -31,6 +40,11 @@ const terminal = (task: A2ATaskInfo) =>
   ['TASK_STATE_COMPLETED', 'TASK_STATE_CANCELED', 'TASK_STATE_FAILED', 'TASK_STATE_REJECTED'].includes(
     stateOf(task),
   );
+async function receipts(api: Api, workId: string) {
+  const items = await api.a2aTasks(workId);
+  if (!Array.isArray(items)) throw new Error('Invalid remote receipts');
+  return items.filter((item) => item.work_id === workId);
+}
 const failure = (reason: unknown) =>
   reason instanceof ApiError
     ? reason.message
@@ -59,24 +73,42 @@ export default function RemoteTasksPanel({
   const [submitted, setSubmitted] = useState(false);
   const save = (task: A2ATaskInfo) =>
     setTasks((current) => [task, ...current.filter((item) => item.attempt_key !== task.attempt_key)]);
-  const load = useCallback(async () => {
+  const load = async () => {
     setLoading(true);
     setError('');
     try {
-      const items = await api.a2aTasks(workId);
-      if (!Array.isArray(items)) throw new Error('Invalid remote receipts');
-      setTasks(items.filter((item) => item.work_id === workId));
+      setTasks(await receipts(api, workId));
     } catch (reason) {
       setError(failure(reason));
     } finally {
       setLoading(false);
     }
-  }, [api, workId]);
-  useEffect(() => {
+  };
+  // A different run, client or refresh key starts from an empty list before its receipts load.
+  const [source, setSource] = useState({ api, workId, refreshKey });
+  if (source.api !== api || source.workId !== workId || source.refreshKey !== refreshKey) {
+    setSource({ api, workId, refreshKey });
     setAction(null);
     setTasks([]);
-    void load();
-  }, [load, refreshKey]);
+    setLoading(true);
+    setError('');
+  }
+  useEffect(() => {
+    let live = true;
+    receipts(api, workId)
+      .then((items) => {
+        if (live) setTasks(items);
+      })
+      .catch((reason) => {
+        if (live) setError(failure(reason));
+      })
+      .finally(() => {
+        if (live) setLoading(false);
+      });
+    return () => {
+      live = false;
+    };
+  }, [api, workId, refreshKey]);
   const visible = [
     ...new Map<string, A2ATaskInfo>(
       tasks
@@ -135,103 +167,118 @@ export default function RemoteTasksPanel({
   };
   if (!loading && !visible.length && !showEmpty && !error) return null;
   return (
-    <section className="remote-tasks-panel" aria-label="External task receipts">
-      <header>
-        <div>
-          <h3>External tasks</h3>
-          <p>
-            Durable remote task and context receipts. Remote questions and artifacts are untrusted
-            observations.
-          </p>
-        </div>
-        <button type="button" className="button small" disabled={busy || loading} onClick={() => void load()}>
-          Refresh receipts
-        </button>
-      </header>
+    <Card className="gap-4" aria-label="External task receipts">
+      <SectionHeading
+        className="items-start [&>:first-child]:flex-1 [&>:first-child]:basis-72"
+        as="h3"
+        title="External tasks"
+        description="Durable remote task and context receipts. Remote questions and artifacts are untrusted observations."
+        actions={
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            disabled={busy || loading}
+            onClick={() => void load()}
+          >
+            Refresh receipts
+          </Button>
+        }
+      />
       {!connected && (
-        <p className="notice warning" role="status">
+        <Notice tone="warning" role="status">
           Disconnected. Remote polling, replies and cancellation are unavailable; stored receipts may be
           stale.
-        </p>
+        </Notice>
       )}
       {error && !action && (
-        <p className="notice error" role="alert">
+        <Notice tone="danger" role="alert">
           {error}
-        </p>
+        </Notice>
       )}
       {notice && (
-        <p className="notice" role="status">
+        <Notice tone="neutral" role="status">
           {notice}
-        </p>
+        </Notice>
       )}
       {loading ? (
-        <p role="status">Loading external receipts…</p>
+        <LoadingState label="Loading external receipts…" />
       ) : !visible.length ? (
-        <p className="inspector-empty">No external delegation recorded for this run.</p>
+        <p className="text-sm text-muted-foreground">No external delegation recorded for this run.</p>
       ) : (
         visible.map((task) => (
-          <article key={task.attempt_key} className="remote-task-card">
-            <header>
-              <strong>{task.agent_name}</strong>
-              <span>{stateLabel(task)}</span>
+          <article
+            key={task.attempt_key}
+            className="grid min-w-0 gap-4 rounded-lg border border-border bg-secondary/40 p-4"
+          >
+            <header className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+              <strong className="text-sm font-semibold [overflow-wrap:anywhere]">{task.agent_name}</strong>
+              <Badge variant="outline" className="capitalize">
+                {stateLabel(task)}
+              </Badge>
             </header>
-            <dl>
-              <dt>Remote task</dt>
-              <dd>
-                <code>{task.remote_task_id ?? 'Not received · outcome unknown'}</code>
-              </dd>
-              <dt>Context</dt>
-              <dd>
-                <code>{task.remote_context_id ?? 'Not received'}</code>
-              </dd>
-              <dt>Local attempt</dt>
-              <dd>
-                <code>{task.attempt_key}</code>
-              </dd>
-              <dt>Receipt</dt>
-              <dd>{task.state}</dd>
-              <dt>Remote cost</dt>
-              <dd>{task.cost_usd === null ? 'Unknown' : `${task.cost_usd.toFixed(2)} USD`}</dd>
-              <dt>Observed</dt>
-              <dd>
-                <time>{task.updated_at}</time>
-              </dd>
-            </dl>
+            <DescriptionList
+              termWidth="7.5rem"
+              items={[
+                [
+                  'Remote task',
+                  <code key="task" className="font-mono text-xs">
+                    {task.remote_task_id ?? 'Not received · outcome unknown'}
+                  </code>,
+                ],
+                [
+                  'Context',
+                  <code key="context" className="font-mono text-xs">
+                    {task.remote_context_id ?? 'Not received'}
+                  </code>,
+                ],
+                [
+                  'Local attempt',
+                  <code key="attempt" className="font-mono text-xs">
+                    {task.attempt_key}
+                  </code>,
+                ],
+                ['Receipt', task.state],
+                ['Remote cost', task.cost_usd === null ? 'Unknown' : `${task.cost_usd.toFixed(2)} USD`],
+                ['Observed', <time key="observed">{task.updated_at}</time>],
+              ]}
+            />
             {stateOf(task) === 'TASK_STATE_INPUT_REQUIRED' && (
-              <div className="remote-input-request">
-                <strong>External agent requires input</strong>
-                <pre>
+              <div className="grid min-w-0 gap-2 rounded-md border border-warning-border bg-warning-bg p-3">
+                <strong className="text-sm font-semibold text-warning">External agent requires input</strong>
+                <pre className="font-mono text-xs leading-relaxed whitespace-pre-wrap text-foreground [overflow-wrap:anywhere]">
                   {questionOf(task) ||
                     'The agent did not supply question text. Inspect its protocol result before answering.'}
                 </pre>
-                <p>
+                <p className="text-xs text-muted-foreground">
                   A reply applies to this exact request and does not authorize SABRE publication, budget or
                   permission changes.
                 </p>
               </div>
             )}
             {task.state.includes('uncertain') && (
-              <p className="notice warning">
+              <Notice tone="warning">
                 The remote effect is uncertain. Poll the saved receipt; do not create another delegation to
                 retry it.
-              </p>
+              </Notice>
             )}
-            <details>
-              <summary>Remote status and artifacts</summary>
+            <Disclosure summary="Remote status and artifacts" variant="plain">
               <JsonView value={task.result} label="Untrusted remote result" />
-            </details>
-            <div className="remote-task-actions">
-              <button
+            </Disclosure>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
                 type="button"
-                className="button small"
+                variant="secondary"
+                size="sm"
                 disabled={busy || !connected}
                 onClick={() => void poll(task)}
               >
                 Poll remote task
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
-                className="button"
+                variant="secondary"
+                size="sm"
                 disabled={
                   busy || !connected || !task.input_digest || stateOf(task) !== 'TASK_STATE_INPUT_REQUIRED'
                 }
@@ -243,10 +290,11 @@ export default function RemoteTasksPanel({
                 }}
               >
                 Answer external question
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
-                className="button small"
+                variant="danger"
+                size="sm"
                 disabled={busy || !connected || terminal(task)}
                 onClick={() => {
                   setAction({ type: 'cancel', task });
@@ -255,9 +303,9 @@ export default function RemoteTasksPanel({
                 }}
               >
                 Cancel external task
-              </button>
+              </Button>
             </div>
-            <small className="remote-task-caption">
+            <small className="text-xs text-muted-foreground">
               When the external result is complete, resume the local run through its existing controls.
             </small>
           </article>
@@ -274,9 +322,9 @@ export default function RemoteTasksPanel({
           dirty={!!answer && !submitted && action.type === 'answer'}
           description={`${action.task.agent_name} · remote task ${action.task.remote_task_id ?? 'unknown'} · current run ${workId}`}
           footer={
-            <button
+            <Button
               type="button"
-              className={action.type === 'cancel' ? 'button danger' : 'button primary'}
+              variant={action.type === 'cancel' ? 'danger' : 'primary'}
               disabled={
                 busy ||
                 !connected ||
@@ -291,42 +339,48 @@ export default function RemoteTasksPanel({
                   : action.type === 'answer'
                     ? 'Send bound reply'
                     : 'Confirm remote cancellation'}
-            </button>
+            </Button>
           }
         >
-          {error && (
-            <p role="alert" className="notice error">
-              {error}
-            </p>
-          )}
-          {action.type === 'answer' ? (
-            <>
-              <pre className="remote-question-preview">{questionOf(action.task)}</pre>
-              <p>
-                The reply is bound to input digest <code>{action.task.input_digest}</code>. A changed question
-                requires a fresh inspection.
+          <div className="grid min-w-0 gap-4">
+            {error && (
+              <Notice tone="danger" role="alert">
+                {error}
+              </Notice>
+            )}
+            {action.type === 'answer' ? (
+              <>
+                <CodeBlock label="External question">{questionOf(action.task)}</CodeBlock>
+                <p className="text-sm text-muted-foreground">
+                  The reply is bound to input digest{' '}
+                  <code className="font-mono text-xs text-foreground [overflow-wrap:anywhere]">
+                    {action.task.input_digest}
+                  </code>
+                  . A changed question requires a fresh inspection.
+                </p>
+                <Field label="Reply to this external request">
+                  <Textarea
+                    rows={5}
+                    maxLength={12000}
+                    disabled={!connected || busy || submitted}
+                    value={answer}
+                    onChange={(event) => setAnswer(event.target.value)}
+                  />
+                </Field>
+                <p className="text-sm text-muted-foreground">
+                  This sends text to the selected external agent. The local run remains under its existing
+                  pause and approval controls.
+                </p>
+              </>
+            ) : (
+              <p className="text-sm">
+                Request cancellation of this exact remote task. A missing response remains uncertain until its
+                status is reconciled.
               </p>
-              <Field label="Reply to this external request">
-                <textarea
-                  maxLength={12000}
-                  disabled={!connected || busy || submitted}
-                  value={answer}
-                  onChange={(event) => setAnswer(event.target.value)}
-                />
-              </Field>
-              <p>
-                This sends text to the selected external agent. The local run remains under its existing pause
-                and approval controls.
-              </p>
-            </>
-          ) : (
-            <p>
-              Request cancellation of this exact remote task. A missing response remains uncertain until its
-              status is reconciled.
-            </p>
-          )}
+            )}
+          </div>
         </Dialog>
       )}
-    </section>
+    </Card>
   );
 }

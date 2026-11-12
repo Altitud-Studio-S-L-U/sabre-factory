@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router';
 import {
   ApiError,
@@ -9,10 +9,29 @@ import {
   type MCPConnectionInfo,
 } from './api';
 import Credentials from './Credentials';
+import Button from './components/Button';
+import CheckField from './components/CheckField';
+import CodeBlock from './components/CodeBlock';
+import DescriptionList from './components/DescriptionList';
 import Dialog from './components/Dialog';
+import Disclosure from './components/Disclosure';
+import EmptyState from './components/EmptyState';
 import Field from './components/FormField';
-import './ConsoleSections.css';
+import Input from './components/Input';
+import LoadingState from './components/LoadingState';
+import Notice from './components/Notice';
+import { Eyebrow, SectionHeading } from './components/PageHeader';
+import Tabs from './components/Tabs';
+import { Badge } from './components/ui/badge';
+import { Card, CardDescription, CardFooter, CardHeader, CardTitle } from './components/ui/card';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './components/ui/table';
 
+type Protocol = 'a2a' | 'mcp';
+// Tab values become element ids, so they carry no spaces.
+const protocols: { value: Protocol; label: string }[] = [
+  { value: 'a2a', label: 'A2A agents' },
+  { value: 'mcp', label: 'MCP bindings' },
+];
 const roles = [
   'supervisor',
   'analyst',
@@ -54,6 +73,16 @@ function cardAddress(endpoint: string) {
   }
 }
 
+/** A bordered group of related controls with a small legend. */
+function FieldGroup({ legend, children }: { legend: string; children: ReactNode }) {
+  return (
+    <fieldset className="grid min-w-0 gap-3 rounded-lg border border-border px-4 pt-2 pb-4">
+      <legend className="px-1.5 text-xs font-medium text-muted-foreground">{legend}</legend>
+      {children}
+    </fieldset>
+  );
+}
+
 export default function RemoteAgentsPanel({
   api,
   projects,
@@ -68,7 +97,7 @@ export default function RemoteAgentsPanel({
   const [agents, setAgents] = useState<A2AAgentInfo[]>([]);
   const [mcp, setMCP] = useState<MCPConnectionInfo[]>([]);
   const [selectedName, setSelectedName] = useState('');
-  const [view, setView] = useState('A2A agents');
+  const [view, setView] = useState<Protocol>('a2a');
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -85,7 +114,7 @@ export default function RemoteAgentsPanel({
   const [roleIds, setRoleIds] = useState<string[]>([]);
   const [skillIds, setSkillIds] = useState<string[]>([]);
   const [credentialId, setCredentialId] = useState<string | null>(null);
-  const load = useCallback(async () => {
+  const load = async () => {
     setLoading(true);
     setError('');
     try {
@@ -97,10 +126,25 @@ export default function RemoteAgentsPanel({
     } finally {
       setLoading(false);
     }
-  }, [api]);
+  };
   useEffect(() => {
-    void load();
-  }, [load]);
+    let live = true;
+    Promise.all([api.a2aAgents(), api.mcpConnections()])
+      .then(([next, servers]) => {
+        if (!live) return;
+        setAgents(next);
+        setMCP(servers);
+      })
+      .catch((reason) => {
+        if (live) setError(failure(reason));
+      })
+      .finally(() => {
+        if (live) setLoading(false);
+      });
+    return () => {
+      live = false;
+    };
+  }, [api]);
   const selected = agents.find((item) => item.name === selectedName) ?? agents[0];
   const choose = (item: A2AAgentInfo | null) => {
     setCurrent(item);
@@ -200,196 +244,231 @@ export default function RemoteAgentsPanel({
     }
   };
   return (
-    <div className="operator-page">
-      <header className="operator-heading">
-        <div>
-          <h2>External specialists</h2>
-          <p>
-            A2A agents and MCP tool bindings keep their own manifests and scoped grants. Discovery never
-            authorizes a task.
-          </p>
-        </div>
-        <div className="operator-actions">
-          <button className="button" disabled={loading || busy} onClick={() => void load()}>
-            Refresh external agents
-          </button>
-          <button className="button primary" disabled={!connected} onClick={() => choose(null)}>
-            Register A2A agent
-          </button>
-        </div>
-      </header>
+    <div className="grid min-w-0 gap-5">
+      <SectionHeading
+        className="items-start [&>:first-child]:flex-1 [&>:first-child]:basis-72"
+        title="External specialists"
+        description="A2A agents and MCP tool bindings keep their own manifests and scoped grants. Discovery never authorizes a task."
+        actions={
+          <>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              disabled={loading || busy}
+              onClick={() => void load()}
+            >
+              Refresh external agents
+            </Button>
+            <Button
+              type="button"
+              variant="primary"
+              size="sm"
+              disabled={!connected}
+              onClick={() => choose(null)}
+            >
+              Register A2A agent
+            </Button>
+          </>
+        }
+      />
       {!connected && (
-        <p className="notice warning" role="status">
+        <Notice tone="warning" role="status">
           Disconnected. Remote connection changes are unavailable.
-        </p>
+        </Notice>
       )}
       {error && !editing && (
-        <p className="notice error" role="alert">
+        <Notice tone="danger" role="alert">
           {error}
-        </p>
+        </Notice>
       )}
       {notice && (
-        <p className="notice neutral" role="status">
+        <Notice tone="neutral" role="status">
           {notice}
-        </p>
+        </Notice>
       )}
-      <div className="operator-tabs" aria-label="External specialist protocols">
-        {['A2A agents', 'MCP bindings'].map((tab) => (
-          <button key={tab} aria-pressed={tab === view} onClick={() => setView(tab)}>
-            {tab}
-          </button>
-        ))}
-      </div>
-      {loading && <p role="status">Loading external registrations…</p>}
-      {view === 'A2A agents' && (
-        <div className="operator-split">
-          <div className="operator-catalog">
-            {agents.map((item) => (
-              <button
-                className="operator-catalog-row"
-                key={item.name}
-                aria-pressed={selected?.name === item.name}
-                onClick={() => setSelectedName(item.name)}
-              >
-                <div>
-                  <span className="operator-eyebrow">A2A 1.0 · JSON-RPC</span>
-                  <strong style={{ display: 'block', marginTop: 6 }}>
-                    {cardText(item.card, 'name') || item.name}
-                  </strong>
-                  <small>
-                    {item.name} · {item.projects.length} project grants · {item.roles.length} roles ·{' '}
-                    {item.skills.length} skills
-                  </small>
+      <Tabs
+        items={protocols}
+        value={view}
+        onChange={setView}
+        label="External specialist protocols"
+        className="[&>[role=tabpanel]]:p-0"
+      >
+        {(active) => (
+          <div className="grid min-w-0 gap-4 pt-4">
+            {loading && <LoadingState label="Loading external registrations…" />}
+            {active === 'a2a' && (
+              <div className="@container min-w-0">
+                <div className="grid min-w-0 items-start gap-4 @3xl:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)]">
+                  <div className="grid min-w-0 gap-2">
+                    {agents.map((item) => (
+                      <Button
+                        type="button"
+                        key={item.name}
+                        aria-pressed={selected?.name === item.name}
+                        className="flex w-full min-w-0 items-start justify-between gap-3 rounded-lg border border-border bg-card p-4 text-left transition-colors hover:bg-hover aria-pressed:border-primary aria-pressed:bg-accent"
+                        onClick={() => setSelectedName(item.name)}
+                      >
+                        <span className="grid min-w-0 gap-1">
+                          <Eyebrow>A2A 1.0 · JSON-RPC</Eyebrow>
+                          <strong className="text-sm font-semibold [overflow-wrap:anywhere]">
+                            {cardText(item.card, 'name') || item.name}
+                          </strong>
+                          <small className="text-xs text-muted-foreground">
+                            {item.name} · {item.projects.length} project grants · {item.roles.length} roles ·{' '}
+                            {item.skills.length} skills
+                          </small>
+                        </span>
+                        <Badge variant={item.enabled ? 'success' : 'warning'}>
+                          {item.enabled ? 'Enabled' : 'Disabled'}
+                        </Badge>
+                      </Button>
+                    ))}
+                    {!loading && !agents.length && (
+                      <EmptyState title="No external A2A agents registered">
+                        Discover an official Agent Card, review its contract and select the projects, roles
+                        and skills it may serve.
+                      </EmptyState>
+                    )}
+                  </div>
+                  <aside
+                    className="grid min-w-0 gap-4 rounded-lg border border-border bg-card p-5"
+                    aria-label="External agent inspector"
+                  >
+                    {selected ? (
+                      <>
+                        <div className="grid min-w-0 gap-1.5">
+                          <Eyebrow>Registered Agent Card · revision {selected.revision}</Eyebrow>
+                          <h3 className="text-lg font-semibold [overflow-wrap:anywhere]">
+                            {cardText(selected.card, 'name') || selected.name}
+                          </h3>
+                          <p className="text-sm text-muted-foreground">
+                            {cardText(selected.card, 'description')}
+                          </p>
+                        </div>
+                        <DescriptionList
+                          items={[
+                            ['Endpoint', <code className="font-mono text-xs">{selected.endpoint}</code>],
+                            [
+                              'Availability',
+                              selected.enabled
+                                ? 'Enabled; remote reachability not checked'
+                                : 'Disabled for new delegations',
+                            ],
+                            [
+                              'Projects',
+                              selected.projects
+                                .map((id) => projects.find((project) => project.id === id)?.name ?? id)
+                                .join(' · '),
+                            ],
+                            ['Specialists', selected.roles.join(' · ') || 'No role grant'],
+                            ['Skills', selected.skills.join(' · ') || 'No skill grant'],
+                            ['Remote cost', 'Unknown · reported separately from local usage'],
+                            ['Card digest', <code className="font-mono text-xs">{selected.digest}</code>],
+                          ]}
+                        />
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            disabled={!connected}
+                            onClick={() => choose(selected)}
+                          >
+                            Review registration
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            disabled={!connected}
+                            onClick={() => setCredentialId(selected.credential_id)}
+                          >
+                            Manage scoped credential
+                          </Button>
+                        </div>
+                        <Disclosure summary="Reviewed Agent Card">
+                          <CodeBlock>{JSON.stringify(selected.card, null, 2)}</CodeBlock>
+                        </Disclosure>
+                        <p className="text-xs text-muted-foreground">
+                          Delegation requires the intersection of the registered project, local role and
+                          advertised skill. A card or a saved credential does not expand a run’s budget or
+                          permission.
+                        </p>
+                      </>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">
+                        Select an external registration to inspect its contract.
+                      </p>
+                    )}
+                  </aside>
                 </div>
-                <span className={`operator-tag ${item.enabled ? 'good' : 'warning'}`}>
-                  {item.enabled ? 'Enabled' : 'Disabled'}
-                </span>
-              </button>
-            ))}
-            {!loading && !agents.length && (
-              <div className="operator-empty">
-                <h3>No external A2A agents registered</h3>
-                <p>
-                  Discover an official Agent Card, review its contract and select the projects, roles and
-                  skills it may serve.
-                </p>
               </div>
             )}
-          </div>
-          <aside className="operator-panel" aria-label="External agent inspector">
-            {selected ? (
-              <>
-                <span className="operator-eyebrow">Registered Agent Card · revision {selected.revision}</span>
-                <h3 style={{ marginTop: 12 }}>{cardText(selected.card, 'name') || selected.name}</h3>
-                <p>{cardText(selected.card, 'description')}</p>
-                <dl className="operator-kv">
-                  <dt>Endpoint</dt>
-                  <dd>
-                    <code>{selected.endpoint}</code>
-                  </dd>
-                  <dt>Availability</dt>
-                  <dd>
-                    {selected.enabled
-                      ? 'Enabled; remote reachability not checked'
-                      : 'Disabled for new delegations'}
-                  </dd>
-                  <dt>Projects</dt>
-                  <dd>
-                    {selected.projects
-                      .map((id) => projects.find((project) => project.id === id)?.name ?? id)
-                      .join(' · ')}
-                  </dd>
-                  <dt>Specialists</dt>
-                  <dd>{selected.roles.join(' · ') || 'No role grant'}</dd>
-                  <dt>Skills</dt>
-                  <dd>{selected.skills.join(' · ') || 'No skill grant'}</dd>
-                  <dt>Remote cost</dt>
-                  <dd>Unknown · reported separately from local usage</dd>
-                  <dt>Card digest</dt>
-                  <dd>
-                    <code>{selected.digest}</code>
-                  </dd>
-                </dl>
-                <div className="operator-actions">
-                  <button className="button" disabled={!connected} onClick={() => choose(selected)}>
-                    Review registration
-                  </button>
-                  <button
-                    className="button"
-                    disabled={!connected}
-                    onClick={() => setCredentialId(selected.credential_id)}
-                  >
-                    Manage scoped credential
-                  </button>
-                </div>
-                <details className="operator-section-divider">
-                  <summary>Reviewed Agent Card</summary>
-                  <pre className="operator-code">{JSON.stringify(selected.card, null, 2)}</pre>
-                </details>
-                <p className="operator-readonly">
-                  Delegation requires the intersection of the registered project, local role and advertised
-                  skill. A card or a saved credential does not expand a run’s budget or permission.
-                </p>
-              </>
-            ) : (
-              <p>Select an external registration to inspect its contract.</p>
+            {active === 'mcp' && (
+              <Card>
+                <CardHeader>
+                  <div className="grid min-w-0 gap-1">
+                    <CardTitle as="h3" className="text-base">
+                      Registered MCP tool bindings
+                    </CardTitle>
+                    <CardDescription>
+                      MCP servers can expose specialist capabilities as reviewed tools. This catalog shows the
+                      actual tool and role grants; it does not infer that a tool is an agent.
+                    </CardDescription>
+                  </div>
+                </CardHeader>
+                {mcp.length ? (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Server / tool</TableHead>
+                        <TableHead>Local roles</TableHead>
+                        <TableHead>Reviewed manifest</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {mcp.flatMap((server) =>
+                        Object.entries(server.tools).map(([tool, policy]) => (
+                          <TableRow key={`${server.name}:${tool}`}>
+                            <TableCell>
+                              {server.name}
+                              <small className="block">
+                                <code className="font-mono text-xs text-muted-foreground">{tool}</code>
+                              </small>
+                            </TableCell>
+                            <TableCell>{policy.roles.join(' · ')}</TableCell>
+                            <TableCell>
+                              {server.tool_digests[tool] ? (
+                                <code className="font-mono text-xs">
+                                  {server.tool_digests[tool].slice(0, 16)}…
+                                </code>
+                              ) : (
+                                'No reviewed digest'
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        )),
+                      )}
+                    </TableBody>
+                  </Table>
+                ) : (
+                  <EmptyState title="No MCP servers are registered." />
+                )}
+                <CardFooter className="justify-between gap-3">
+                  <p className="max-w-[60ch] text-xs text-muted-foreground">
+                    Connection activation, write-only credentials and project access are managed in Tools.
+                    Tool discovery does not execute the tool.
+                  </p>
+                  <Button asChild variant="secondary" size="sm">
+                    <Link to="/tools">Review Tools access</Link>
+                  </Button>
+                </CardFooter>
+              </Card>
             )}
-          </aside>
-        </div>
-      )}
-      {view === 'MCP bindings' && (
-        <section className="operator-panel">
-          <h3>Registered MCP tool bindings</h3>
-          <p className="muted">
-            MCP servers can expose specialist capabilities as reviewed tools. This catalog shows the actual
-            tool and role grants; it does not infer that a tool is an agent.
-          </p>
-          {mcp.length ? (
-            <div className="operator-table-wrap">
-              <table className="operator-table">
-                <thead>
-                  <tr>
-                    <th>Server / tool</th>
-                    <th>Local roles</th>
-                    <th>Reviewed manifest</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {mcp.flatMap((server) =>
-                    Object.entries(server.tools).map(([tool, policy]) => (
-                      <tr key={`${server.name}:${tool}`}>
-                        <td>
-                          {server.name}
-                          <small>
-                            <code>{tool}</code>
-                          </small>
-                        </td>
-                        <td>{policy.roles.join(' · ')}</td>
-                        <td>
-                          {server.tool_digests[tool] ? (
-                            <code>{server.tool_digests[tool].slice(0, 16)}…</code>
-                          ) : (
-                            'No reviewed digest'
-                          )}
-                        </td>
-                      </tr>
-                    )),
-                  )}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <p>No MCP servers are registered.</p>
-          )}
-          <p className="operator-readonly">
-            Connection activation, write-only credentials and project access are managed in Tools. Tool
-            discovery does not execute the tool.
-          </p>
-          <Link className="button" to="/tools">
-            Review Tools access
-          </Link>
-        </section>
-      )}
+          </div>
+        )}
+      </Tabs>
       <Dialog
         open={editing}
         title={current ? `Review ${current.name}` : 'Register external A2A agent'}
@@ -404,12 +483,12 @@ export default function RemoteAgentsPanel({
             void save();
           }}
         >
-          <fieldset disabled={busy || !connected}>
+          <fieldset disabled={busy || !connected} className="grid min-w-0 gap-4">
             <Field
               label="Connection name"
               hint="Stable identifier: letters, numbers, hyphens and underscores."
             >
-              <input
+              <Input
                 required
                 pattern={'[A-Za-z0-9_\\-]+'}
                 maxLength={40}
@@ -422,7 +501,7 @@ export default function RemoteAgentsPanel({
               label="A2A endpoint"
               hint="Public HTTPS on port 443. Exact endpoint; no credentials in the URL."
             >
-              <input
+              <Input
                 required
                 type="url"
                 maxLength={2048}
@@ -438,7 +517,7 @@ export default function RemoteAgentsPanel({
               />
             </Field>
             <Field label="Agent Card URL" hint="The card must come from the same reviewed origin.">
-              <input
+              <Input
                 required
                 type="url"
                 maxLength={2048}
@@ -451,123 +530,119 @@ export default function RemoteAgentsPanel({
                 }}
               />
             </Field>
-            <button
-              className="button"
-              type="button"
-              disabled={busy || !connected || !name || !endpoint || !cardEndpoint}
-              onClick={() => void discover()}
-            >
-              {busy ? 'Inspecting…' : 'Discover Agent Card'}
-            </button>
+            <div>
+              <Button
+                variant="secondary"
+                type="button"
+                disabled={busy || !connected || !name || !endpoint || !cardEndpoint}
+                onClick={() => void discover()}
+              >
+                {busy ? 'Inspecting…' : 'Discover Agent Card'}
+              </Button>
+            </div>
             {error && (
-              <p className="notice error" role="alert">
+              <Notice tone="danger" role="alert">
                 {error}
-              </p>
+              </Notice>
             )}
             {discovered && (
-              <div className="operator-section-divider">
-                <span className="operator-tag">Discovery grants no execution access</span>
-                <h3 style={{ marginTop: 15 }}>{cardText(discovered.card, 'name')}</h3>
-                <p>{cardText(discovered.card, 'description')}</p>
-                <details>
-                  <summary>Inspect full Agent Card and digest</summary>
-                  <pre className="operator-code">{JSON.stringify(discovered.card, null, 2)}</pre>
-                  <p className="operator-readonly">
-                    <code>{discovered.reviewed_digest}</code>
+              <div className="grid min-w-0 gap-4 border-t border-border pt-5">
+                <div className="grid min-w-0 justify-items-start gap-2">
+                  <Badge variant="info">Discovery grants no execution access</Badge>
+                  <h3 className="text-lg font-semibold [overflow-wrap:anywhere]">
+                    {cardText(discovered.card, 'name')}
+                  </h3>
+                  <p className="text-sm text-muted-foreground">{cardText(discovered.card, 'description')}</p>
+                </div>
+                <Disclosure summary="Inspect full Agent Card and digest">
+                  <CodeBlock>{JSON.stringify(discovered.card, null, 2)}</CodeBlock>
+                  <p className="text-xs text-muted-foreground">
+                    <code className="font-mono [overflow-wrap:anywhere]">{discovered.reviewed_digest}</code>
                   </p>
-                </details>
-                <fieldset>
-                  <legend>Allowed projects</legend>
+                </Disclosure>
+                <FieldGroup legend="Allowed projects">
                   {projects.map((project) => (
-                    <label className="check-line" key={project.id}>
-                      <input
-                        type="checkbox"
-                        checked={projectIds.includes(project.id)}
+                    <CheckField
+                      key={project.id}
+                      label={project.name}
+                      checked={projectIds.includes(project.id)}
+                      onChange={(event) => {
+                        setProjectIds(toggleChoice(projectIds, project.id, event.target.checked));
+                        setReviewed(false);
+                      }}
+                    />
+                  ))}
+                  {!projects.length && (
+                    <p className="text-sm text-muted-foreground">
+                      Register a project before granting external access.
+                    </p>
+                  )}
+                </FieldGroup>
+                <Disclosure summary="Role and skill bindings" open={!!current}>
+                  <FieldGroup legend="Allowed local specialist roles">
+                    <div className="@container">
+                      <div className="grid gap-3 @sm:grid-cols-2 @lg:grid-cols-3">
+                        {roles.map((id) => (
+                          <CheckField
+                            key={id}
+                            label={id}
+                            checked={roleIds.includes(id)}
+                            onChange={(event) => {
+                              setRoleIds(toggleChoice(roleIds, id, event.target.checked));
+                              setReviewed(false);
+                            }}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  </FieldGroup>
+                  <FieldGroup legend="Advertised remote skills">
+                    {advertisedSkills(discovered.card).map((skill) => (
+                      <CheckField
+                        key={skill.id}
+                        label={skill.name}
+                        hint={skill.description}
+                        checked={skillIds.includes(skill.id)}
                         onChange={(event) => {
-                          setProjectIds(toggleChoice(projectIds, project.id, event.target.checked));
+                          setSkillIds(toggleChoice(skillIds, skill.id, event.target.checked));
                           setReviewed(false);
                         }}
                       />
-                      {project.name}
-                    </label>
-                  ))}
-                  {!projects.length && <p>Register a project before granting external access.</p>}
-                </fieldset>
-                <details style={{ marginTop: 18 }} open={!!current}>
-                  <summary>Role and skill bindings</summary>
-                  <fieldset>
-                    <legend>Allowed local specialist roles</legend>
-                    {roles.map((id) => (
-                      <label className="check-line" key={id}>
-                        <input
-                          type="checkbox"
-                          checked={roleIds.includes(id)}
-                          onChange={(event) => {
-                            setRoleIds(toggleChoice(roleIds, id, event.target.checked));
-                            setReviewed(false);
-                          }}
-                        />
-                        {id}
-                      </label>
                     ))}
-                  </fieldset>
-                  <fieldset>
-                    <legend>Advertised remote skills</legend>
-                    {advertisedSkills(discovered.card).map((skill) => (
-                      <label className="check-line" key={skill.id}>
-                        <input
-                          type="checkbox"
-                          checked={skillIds.includes(skill.id)}
-                          onChange={(event) => {
-                            setSkillIds(toggleChoice(skillIds, skill.id, event.target.checked));
-                            setReviewed(false);
-                          }}
-                        />
-                        <span>
-                          {skill.name}
-                          <small style={{ display: 'block', color: 'var(--muted)' }}>
-                            {skill.description}
-                          </small>
-                        </span>
-                      </label>
-                    ))}
-                  </fieldset>
-                </details>
-                <label className="check-line" style={{ marginTop: 18 }}>
-                  <input
-                    type="checkbox"
-                    checked={enabled}
-                    onChange={(event) => {
-                      setEnabled(event.target.checked);
-                      setReviewed(false);
-                    }}
-                  />
-                  Enable this registration for its selected bindings
-                </label>
-                <label className="check-line">
-                  <input
-                    type="checkbox"
-                    checked={reviewed}
-                    onChange={(event) => setReviewed(event.target.checked)}
-                  />
-                  I reviewed this Agent Card, destination and exact access bindings.
-                </label>
-                <p className="operator-readonly">
+                  </FieldGroup>
+                </Disclosure>
+                <CheckField
+                  label="Enable this registration for its selected bindings"
+                  checked={enabled}
+                  onChange={(event) => {
+                    setEnabled(event.target.checked);
+                    setReviewed(false);
+                  }}
+                />
+                <CheckField
+                  label="I reviewed this Agent Card, destination and exact access bindings."
+                  checked={reviewed}
+                  onChange={(event) => setReviewed(event.target.checked)}
+                />
+                <p className="text-xs text-muted-foreground">
                   Remote content is untrusted context. Its credentials are destination scoped and never
                   exported. Remote costs remain unknown until reported.
                 </p>
-                <button
-                  className="button primary"
-                  disabled={
-                    busy ||
-                    !connected ||
-                    !reviewed ||
-                    !projectIds.length ||
-                    (enabled && (!roleIds.length || !skillIds.length))
-                  }
-                >
-                  {busy ? 'Saving…' : enabled ? 'Save enabled registration' : 'Save disabled registration'}
-                </button>
+                <div className="flex justify-end">
+                  <Button
+                    variant="primary"
+                    type="submit"
+                    disabled={
+                      busy ||
+                      !connected ||
+                      !reviewed ||
+                      !projectIds.length ||
+                      (enabled && (!roleIds.length || !skillIds.length))
+                    }
+                  >
+                    {busy ? 'Saving…' : enabled ? 'Save enabled registration' : 'Save disabled registration'}
+                  </Button>
+                </div>
               </div>
             )}
           </fieldset>
