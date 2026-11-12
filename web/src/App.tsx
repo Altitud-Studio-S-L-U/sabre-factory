@@ -199,6 +199,7 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
   const [loggingOut, setLoggingOut] = useState(false);
   const [updated, setUpdated] = useState<Date | null>(null);
   const mainContent = useRef<HTMLElement>(null);
+  const [headerActions, setHeaderActions] = useState<HTMLElement | null>(null);
   const returnFocus = useRef<HTMLElement | null>(null);
   const previousForm = useRef({ key: location.key, form });
   const selected =
@@ -388,6 +389,7 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
         }}
         commands={paletteCommands}
         mainRef={mainContent}
+        actionSlot={setHeaderActions}
       >
         <Suspense fallback={viewSkeleton}>
           {logoutError && (
@@ -569,7 +571,13 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
           )}
         </Suspense>
       </AppShell>
-      <SupervisorConsole api={api} orders={orders} selectedId={selectedId} disconnected={Boolean(error)} />
+      <SupervisorConsole
+        api={api}
+        orders={orders}
+        selectedId={selectedId}
+        disconnected={Boolean(error)}
+        headerSlot={headerActions}
+      />
     </>
   );
 }

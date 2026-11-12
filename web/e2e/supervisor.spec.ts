@@ -258,3 +258,25 @@ test('blocked supervisor message resumes by identity without expanding its origi
   expect(resumed).toEqual({ version: 1, expected_error_code: 'MODEL_NOT_READY' });
   expect(message.allowed_actions).toEqual([]);
 });
+
+test('the Supervisor launcher never floats over content on wide screens', async ({ page }) => {
+  await page.goto('/memory');
+  const launcher = page.getByRole('button', { name: 'Supervisor', exact: true });
+  await expect(launcher).toBeVisible();
+  const inHeader = page.getByRole('banner').getByRole('button', { name: 'Supervisor', exact: true });
+  if (test.info().project.name === 'desktop') {
+    await expect(inHeader).toBeVisible();
+    await launcher.click();
+    const conversation = page.getByRole('region', { name: 'Supervisor conversation' });
+    await expect(conversation).toBeVisible();
+    // The header launcher stays reachable beside the docked panel and closes it.
+    await expect(launcher).toHaveAttribute('aria-expanded', 'true');
+    await launcher.click();
+    await expect(conversation).toBeHidden();
+  } else {
+    await expect(inHeader).toHaveCount(0);
+    const box = await launcher.boundingBox();
+    const tabs = await page.getByRole('navigation', { name: 'Main navigation' }).boundingBox();
+    expect(box && tabs && box.y + box.height <= tabs.y).toBe(true);
+  }
+});

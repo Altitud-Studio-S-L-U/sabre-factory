@@ -362,3 +362,36 @@ test('unconfirmed submissions retain their key for an unchanged explicit retry',
   await waitFor(() => expect(writes).toHaveLength(2));
   expect(writes[0].idempotency_key).toBe(writes[1].idempotency_key);
 });
+
+test('the launcher moves into the header on wide screens and floats over the page otherwise', () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => Response.json({ items: [], truncated: false })),
+  );
+  const header = document.createElement('div');
+  document.body.append(header);
+  const props = {
+    api: createApi('synthetic-csrf'),
+    orders: [],
+    selectedId: null,
+    disconnected: false,
+    headerSlot: header,
+  };
+  const narrow = render(<SupervisorConsole {...props} />);
+  expect(header).toBeEmptyDOMElement();
+  expect(screen.getByRole('button', { name: /Supervisor/ })).toHaveClass('fixed');
+  narrow.unmount();
+  vi.stubGlobal(
+    'matchMedia',
+    vi.fn((query: string) => ({
+      matches: query === '(min-width: 64rem)',
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })),
+  );
+  render(<SupervisorConsole {...props} />);
+  const launcher = screen.getByRole('button', { name: /Supervisor/ });
+  expect(header).toContainElement(launcher);
+  expect(launcher).not.toHaveClass('fixed');
+  header.remove();
+});

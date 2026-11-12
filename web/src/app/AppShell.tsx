@@ -46,6 +46,7 @@ export default function AppShell({
   onNavigate,
   commands,
   mainRef,
+  actionSlot,
   children,
 }: {
   items: NavigationItem[];
@@ -61,6 +62,8 @@ export default function AppShell({
   onNavigate: () => void;
   commands: PaletteCommand[];
   mainRef: RefObject<HTMLElement | null>;
+  /** Receives the header element where wide screens place the Supervisor launcher. */
+  actionSlot?: (element: HTMLElement | null) => void;
   children: ReactNode;
 }) {
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -140,6 +143,7 @@ export default function AppShell({
                 ? `Updated ${updated.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`
                 : 'Synchronizing'}
             </span>
+            {actionSlot && <div ref={actionSlot} className="contents" />}
             <button
               type="button"
               className="hidden min-h-9 cursor-pointer items-center gap-2 rounded-md border border-border px-3 text-sm text-muted-foreground transition-colors hover:bg-hover hover:text-foreground sm:inline-flex"
