@@ -1,15 +1,30 @@
+import base64
 import hashlib
 import json
 import re
+from datetime import datetime
 
 from sabre.memory_contracts import (
     MemoryApproval,
     MemoryCarryForward,
+    MemoryDetail,
     MemoryGraph,
+    MemoryItemPage,
+    MemoryLink,
+    MemoryLinkCounts,
+    MemoryListItem,
+    MemoryProvenance,
     MemoryRecall,
     MemoryRecallPage,
+    MemoryRecallStats,
+    MemoryReview,
+    MemoryValidityAt,
     MemoryValidityRecord,
+    OverlapEntry,
+    PendingReview,
+    StaleReview,
 )
+from sabre.memory_store import lifecycle
 from sabre.models import (
     DomainError,
     MemoryCreate,
@@ -26,6 +41,42 @@ MAX_CONTEXT_BYTES = 6144
 MAX_CONTEXT_ITEMS = 4
 MAX_READ_CHARS = 2048
 MAX_RECALL_TERMS = 32
+REVIEW_LIMIT = 100
+
+
+def validity_at(item: MemoryItem, commit: str | None, record: dict | None) -> MemoryValidityAt:
+    """Explain whether ``item`` would be recalled at ``commit`` from its scope and stored evaluation."""
+    def result(state, reason, changed=(), checked=None):
+        return MemoryValidityAt(commit=commit, state=state, reason=reason, changed_paths=list(changed), checked_at=checked)
+    if not item.active or item.invalidated_at is not None:
+        return result("unavailable", "not_active")
+    if commit is None:
+        return result("unavailable", "index_missing")
+    if commit == item.source_commit:
+        return result("valid", "source_commit", checked=item.approved_at)
+    if item.scope != "project":
+        return result("unavailable", "commit_scope")
+    if record is None:
+        return result("unavailable", "not_evaluated")
+    return result(record["state"], record["basis"], record["changed_paths"], record["checked_at"])
+
+
+def encode_cursor(item: MemoryItem) -> str:
+    raw = json.dumps([item.created_at.isoformat(), item.id], separators=(",", ":")).encode()
+    return base64.urlsafe_b64encode(raw).decode().rstrip("=")
+
+
+def decode_cursor(cursor: str | None) -> tuple[str, str] | None:
+    if cursor is None:
+        return None
+    try:
+        created_at, identifier = json.loads(base64.urlsafe_b64decode(cursor + "=" * (-len(cursor) % 4)))
+        datetime.fromisoformat(created_at)
+        if not isinstance(identifier, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", identifier):
+            raise ValueError
+    except (ValueError, TypeError):
+        raise DomainError("INVALID_CURSOR", "Use the next_cursor of a previous page", 422) from None
+    return created_at, identifier
 
 
 def encoded_size(value):
@@ -105,6 +156,75 @@ class MemoryService:
     async def graph(self, project_id: str, focus: str | None = None, depth: int = 1, limit: int = 100) -> MemoryGraph:
         await self.repository.project(project_id)
         return MemoryGraph.model_validate(await self.repository.memory_graph(project_id, focus, depth, limit))
+
+    async def _list_items(self, rows: list[dict], commit: str | None) -> list[MemoryListItem]:
+        stats = await self.repository.memory_recall_stats([row["id"] for row in rows]) if rows else {}
+        result = []
+        for row in rows:
+            item = MemoryItem.model_validate(row["data"])
+            recall = stats.get(item.id) or {}
+            result.append(MemoryListItem(**item.model_dump(), state=lifecycle(item), validity=validity_at(item, commit, row["validity"]),
+                                         recall_count=int(recall.get("recall_count") or 0), last_recalled_at=recall.get("last_recalled_at"),
+                                         link_counts=MemoryLinkCounts(**dict(row["link_counts"] or {}))))
+        return result
+
+    async def items(self, project_id: str, *, state: str | None = None, kind: str | None = None, query: str | None = None,
+                    cursor: str | None = None, limit: int = 50) -> MemoryItemPage:
+        after = decode_cursor(cursor)
+        await self.repository.project(project_id)
+        commit = await self.repository.newest_indexed_commit(project_id)
+        rows = await self.repository.memory_page(project_id, commit=commit, state=state, kind=kind, query=query or None, after=after, limit=limit + 1)
+        items = await self._list_items(rows[:limit], commit)
+        self.guard.check([item.model_dump(mode="json") for item in items])
+        return MemoryItemPage(commit=commit, items=items, next_cursor=encode_cursor(items[-1]) if len(rows) > limit else None)
+
+    async def detail(self, memory_id: str) -> MemoryDetail:
+        item = await self.repository.memory(memory_id)
+        commit = await self.repository.newest_indexed_commit(item.project_id)
+        listed = (await self._list_items(await self.repository.memory_page(item.project_id, commit=commit, memory_id=memory_id, limit=1), commit))[0]
+        outgoing, incoming = await self.repository.memory_links_of(memory_id)
+        work = await self.repository.memory_work_summary(item.project_id, item.source_work_id)
+        stats = (await self.repository.memory_recall_stats([memory_id])).get(memory_id) or {}
+        detail = MemoryDetail(
+            item=listed,
+            provenance=MemoryProvenance(work_id=item.source_work_id, work_objective=work["objective"] if work else None,
+                                        work_status=work["status"] if work else None, commit=item.source_commit,
+                                        evidence_digest=item.evidence_digest, proposed_by=item.proposed_by,
+                                        approved_at=item.approved_at, invalidated_at=item.invalidated_at),
+            links=[MemoryLink.model_validate(row) for row in outgoing],
+            backlinks=[MemoryLink.model_validate(row) for row in incoming],
+            validity_history=[MemoryValidityRecord.model_validate(row) for row in await self.repository.memory_validity_history(memory_id)],
+            recalls=MemoryRecallStats(recall_count=int(stats.get("recall_count") or 0), last_recalled_at=stats.get("last_recalled_at"),
+                                      refused_count=int(stats.get("refused_count") or 0)))
+        self.guard.check(detail.model_dump(mode="json"))
+        return detail
+
+    async def review(self, project_id: str) -> MemoryReview:
+        await self.repository.project(project_id)
+        commit = await self.repository.newest_indexed_commit(project_id)
+        pending_rows = await self.repository.memory_page(project_id, commit=commit, state="pending", limit=REVIEW_LIMIT + 1)
+        stale_rows = await self.repository.memory_page(project_id, commit=commit, state="stale", limit=REVIEW_LIMIT + 1) if commit else []
+        pending = await self._list_items(pending_rows[:REVIEW_LIMIT], commit)
+        stale = await self._list_items(stale_rows[:REVIEW_LIMIT], commit)
+        overlaps: dict[str, list[OverlapEntry]] = {item.id: [] for item in pending}
+        links = await self.repository.memory_overlaps(project_id, list(overlaps)) if overlaps else []
+        for row in links:
+            attrs = dict(row["attrs"])
+            for this, other, own, theirs in ((row["source_id"], row["target"], "only_source", "only_target"),
+                                             (row["target_id"], row["source"], "only_target", "only_source")):
+                if this not in overlaps:
+                    continue
+                other_item = MemoryItem.model_validate(other)
+                overlaps[this].append(OverlapEntry(memory_id=other_item.id, state=lifecycle(other_item), content=other_item.content[:240],
+                                                   score=attrs["score"], lexical=attrs["lexical"], cosine=attrs.get("cosine"),
+                                                   only_this=attrs.get(own, []), only_other=attrs.get(theirs, [])))
+        review = MemoryReview(
+            commit=commit,
+            pending=[PendingReview(item=item, overlaps=sorted(overlaps[item.id], key=lambda entry: (-entry.score, entry.memory_id))) for item in pending],
+            stale=[StaleReview(item=item, changed_paths=item.validity.changed_paths) for item in stale],
+            truncated=len(pending_rows) > REVIEW_LIMIT or len(stale_rows) > REVIEW_LIMIT)
+        self.guard.check(review.model_dump(mode="json"))
+        return review
 
     async def carry_forward(self, memory_id: str, request: MemoryCarryForward):
         return MemoryValidityRecord.model_validate(await self.repository.carry_memory_forward(memory_id, request.commit))

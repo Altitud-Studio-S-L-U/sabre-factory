@@ -3,9 +3,9 @@
 import hmac
 from contextlib import asynccontextmanager
 from datetime import timedelta
-from typing import Any
+from typing import Any, Literal
 
-from fastapi import FastAPI, Query, Request
+from fastapi import FastAPI, Path, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 from pydantic.json_schema import models_json_schema
@@ -37,8 +37,11 @@ from sabre.mcp_connections import MCPConnectionInfo, MCPConnectionSave, MCPDisco
 from sabre.memory_contracts import (
     MemoryApproval,
     MemoryCarryForward,
+    MemoryDetail,
     MemoryGraph,
+    MemoryItemPage,
     MemoryRecallPage,
+    MemoryReview,
     MemoryValidityRecord,
 )
 from sabre.model_configuration import ModelConfiguration, ModelConfigurationChange
@@ -567,6 +570,20 @@ def create_app(service=None, config=None) -> FastAPI:
                              memory_id: str | None = Query(default=None, pattern=MEMORY_ID_PATTERN),
                              cursor: str | None = Query(default=None, max_length=19), limit: int = Query(default=50, ge=1, le=200)):
         return await svc().memory.recalls(project_id, work_id=work_id, memory_id=memory_id, cursor=cursor, limit=limit)
+
+    @application.get("/api/v1/projects/{project_id}/memory/items", response_model=MemoryItemPage)
+    async def memory_items(project_id: str, state: Literal["active", "pending", "invalidated", "stale"] | None = None,
+                           kind: Literal["fact", "lesson"] | None = None, q: str | None = Query(default=None, max_length=200),
+                           cursor: str | None = Query(default=None, max_length=512), limit: int = Query(default=50, ge=1, le=100)):
+        return await svc().memory.items(project_id, state=state, kind=kind, query=q, cursor=cursor, limit=limit)
+
+    @application.get("/api/v1/projects/{project_id}/memory/review", response_model=MemoryReview)
+    async def memory_review(project_id: str):
+        return await svc().memory.review(project_id)
+
+    @application.get("/api/v1/memory/{memory_id}", response_model=MemoryDetail)
+    async def memory_detail(memory_id: str = Path(pattern=MEMORY_ID_PATTERN)):
+        return await svc().memory.detail(memory_id)
 
     @application.get("/api/v1/secret-targets", response_model=list[SecretTarget])
     async def secret_targets():

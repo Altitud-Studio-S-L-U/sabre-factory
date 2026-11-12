@@ -8,7 +8,7 @@ the decision and its basis remain inspectable; invalidation stays final.
 
 import json
 import re
-from typing import Any
+from typing import Any, Literal
 
 from psycopg import sql
 from psycopg.types.json import Jsonb
@@ -69,6 +69,18 @@ RECALLABLE = """m.project_id=%(project)s AND (m.data->>'active')::boolean AND m.
  AND (m.data->>'source_commit'=%(commit)s OR (coalesce(m.data->>'scope','commit')='project' AND EXISTS(
   SELECT 1 FROM memory_validity v WHERE v.memory_id=m.id AND v.commit=%(commit)s AND v.state='valid')))"""
 
+# Lifecycle filters; ``stale`` means approved project memories whose evaluation at the commit is stale.
+STATE_FILTERS = {
+    None: "true",
+    "active": "(m.data->>'active')::boolean AND m.data->>'invalidated_at' IS NULL",
+    "pending": "NOT (m.data->>'active')::boolean AND m.data->>'invalidated_at' IS NULL",
+    "invalidated": "m.data->>'invalidated_at' IS NOT NULL",
+    "stale": """(m.data->>'active')::boolean AND m.data->>'invalidated_at' IS NULL AND coalesce(m.data->>'scope','commit')='project'
+        AND m.data->>'source_commit'<>%(commit)s
+        AND EXISTS(SELECT 1 FROM memory_validity v WHERE v.memory_id=m.id AND v.commit=%(commit)s AND v.state='stale')
+        AND NOT EXISTS(SELECT 1 FROM memory_validity v WHERE v.memory_id=m.id AND v.commit=%(commit)s AND v.state='valid')""",
+}
+
 
 def index_version() -> int:
     from sabre.project_context import INDEX_VERSION
@@ -87,7 +99,7 @@ class RecalledMemory(MemoryItem):
     fused_score: float | None = None
 
 
-def lifecycle(item: MemoryItem) -> str:
+def lifecycle(item: MemoryItem) -> Literal["active", "pending", "invalidated"]:
     return "invalidated" if item.invalidated_at is not None else "active" if item.active else "pending"
 
 
@@ -506,3 +518,56 @@ class MemoryStore:
                 FROM memory_recalls r CROSS JOIN LATERAL unnest(r.memory_ids) AS memory_id
                 WHERE r.memory_ids && %s GROUP BY memory_id""", (memory_ids,))).fetchall()
         return {row["memory_id"]: row for row in rows if row["memory_id"] in memory_ids}
+
+    async def newest_indexed_commit(self, project_id: str) -> str | None:
+        """The commit of the latest completed ingestion, else the most recently captured index."""
+        async with self.connection() as conn:
+            row = await (await conn.execute("""SELECT coalesce(
+                (SELECT j.data->>'source_commit' FROM repository_ingestions j JOIN repository_indexes i ON i.project_id=j.project_id
+                    AND i.source_commit=j.data->>'source_commit' AND i.index_version=%(version)s
+                 WHERE j.project_id=%(project)s AND j.data->>'state'='completed'
+                 ORDER BY (j.data->>'finished_at')::timestamptz DESC,j.id DESC LIMIT 1),
+                (SELECT source_commit FROM repository_indexes WHERE project_id=%(project)s AND index_version=%(version)s
+                 ORDER BY captured_at DESC,source_commit LIMIT 1)) AS commit""", {"project": project_id, "version": index_version()})).fetchone()
+        return row["commit"]
+
+    async def memory_page(self, project_id: str, *, commit: str | None, state: str | None = None, kind: str | None = None,
+                          query: str | None = None, after: tuple[str, str] | None = None, limit: int = 50,
+                          memory_id: str | None = None) -> list[dict]:
+        """Newest first; each row carries the current validity at ``commit`` and link counts in both directions."""
+        pattern = None if query is None else "%" + query.replace("\\", "\\\\").replace("%", "\%").replace("_", "\_") + "%"
+        async with self.connection() as conn:
+            if commit is not None:
+                await self._ensure_validity(conn, project_id, commit)
+            statement = sql.SQL("""SELECT m.id,m.data,
+                    (SELECT jsonb_build_object('state',v.state,'basis',v.basis,'changed_paths',v.changed_paths,'checked_at',v.checked_at)
+                        FROM memory_validity v WHERE v.memory_id=m.id AND v.commit=%(commit)s ORDER BY (v.state='valid') DESC,v.id DESC LIMIT 1) AS validity,
+                    (SELECT coalesce(jsonb_object_agg(k.kind,k.n),'{{}}'::jsonb) FROM (SELECT l.kind,count(*) AS n FROM memory_links l
+                        WHERE l.project_id=m.project_id AND (l.source_id=m.id OR (l.target_type='memory' AND l.target_id=m.id)) GROUP BY l.kind) k) AS link_counts
+                FROM memories m WHERE m.project_id=%(project)s AND {state}
+                    AND (%(kind)s::text IS NULL OR m.data->>'kind'=%(kind)s) AND (%(memory)s::text IS NULL OR m.id=%(memory)s)
+                    AND (%(pattern)s::text IS NULL OR m.data->>'content' ILIKE %(pattern)s)
+                    AND (%(after_at)s::timestamptz IS NULL OR ((m.data->>'created_at')::timestamptz,m.id)<(%(after_at)s::timestamptz,%(after_id)s::text))
+                ORDER BY (m.data->>'created_at')::timestamptz DESC,m.id DESC LIMIT %(limit)s""").format(state=sql.SQL(STATE_FILTERS[state]))
+            return await (await conn.execute(statement, {"project": project_id, "commit": commit, "kind": kind, "pattern": pattern, "memory": memory_id,
+                "after_at": after[0] if after else None, "after_id": after[1] if after else None, "limit": limit})).fetchall()
+
+    async def memory_links_of(self, memory_id: str, limit: int = 200) -> tuple[list[dict], list[dict]]:
+        async with self.connection() as conn:
+            outgoing = await (await conn.execute("""SELECT source_id,kind,target_type,target_id,attrs,created_at FROM memory_links
+                WHERE source_id=%s ORDER BY id LIMIT %s""", (memory_id, limit))).fetchall()
+            incoming = await (await conn.execute("""SELECT source_id,kind,target_type,target_id,attrs,created_at FROM memory_links
+                WHERE target_type='memory' AND target_id=%s ORDER BY id LIMIT %s""", (memory_id, limit))).fetchall()
+        return outgoing, incoming
+
+    async def memory_overlaps(self, project_id: str, memory_ids: list[str], limit: int = 500) -> list[dict]:
+        async with self.connection() as conn:
+            return await (await conn.execute("""SELECT l.source_id,l.target_id,l.attrs,s.data AS source,t.data AS target FROM memory_links l
+                JOIN memories s ON s.id=l.source_id JOIN memories t ON t.id=l.target_id
+                WHERE l.project_id=%s AND l.kind='overlaps' AND l.target_type='memory' AND (l.source_id=ANY(%s) OR l.target_id=ANY(%s))
+                ORDER BY l.id LIMIT %s""", (project_id, memory_ids, memory_ids, limit))).fetchall()
+
+    async def memory_work_summary(self, project_id: str, work_id: str) -> dict | None:
+        async with self.connection() as conn:
+            return await (await conn.execute("""SELECT id,data->>'objective' AS objective,data->>'status' AS status FROM work_orders
+                WHERE id=%s AND project_id=%s""", (work_id, project_id))).fetchone()

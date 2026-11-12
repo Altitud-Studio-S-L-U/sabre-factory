@@ -232,3 +232,58 @@ async def test_recall_log_pages_filters_and_stays_in_its_project(repository):
     with pytest.raises(DomainError) as cursor:
         await service.recalls(project.id, cursor="0")
     assert cursor.value.code == "INVALID_CURSOR"
+
+
+async def test_console_listing_detail_and_review_explain_memory_state(repository):
+    repo, project, work = await delivered(repository)
+    _, other, other_work = await delivered(repository)
+    service = MemoryService(repo, SecretGuard())
+    await index(repo, project.id, A, {"src/app.py": "1" * 64})
+    assert (await service.items(project.id)).commit == A
+    await index(repo, project.id, B, {"src/app.py": "2" * 64})
+    async with repo.connection() as conn:
+        await conn.execute("UPDATE repository_indexes SET captured_at=captured_at+interval '1 minute' WHERE project_id=%s AND source_commit=%s", (project.id, B))
+    cited = await service.update((await service.propose(proposal(project, work, "Listing keeps the parser lesson", scope="project", citations=["src/app.py"]),
+                                                        proposed_by=ProposedBy(channel="owner_console"))).id, True)
+    pinned = await service.update((await service.propose(proposal(project, work, "Listing pinned observation"))).id, True)
+    pending = await service.propose(proposal(project, work, "Listing keeps the parser lessons"))
+    dropped = await service.propose(proposal(project, work, "Listing dropped idea"))
+    await service.update(dropped.id, False)
+    await MemoryService(repo, SecretGuard()).propose(proposal(other, other_work, "Listing in another project"))
+    work.phase = "analysis"
+    await service.context_for_role(project.id, "Listing", "Listing parser", A, work=work, role="analyst")
+
+    page = await service.items(project.id, limit=2)
+    assert page.commit == B and len(page.items) == 2 and page.next_cursor
+    rest = await service.items(project.id, cursor=page.next_cursor, limit=10)
+    listed = {item.id: item for item in page.items + rest.items}
+    assert set(listed) == {cited.id, pinned.id, pending.id, dropped.id} and rest.next_cursor is None
+    assert listed[cited.id].validity.state == "stale" and listed[cited.id].validity.reason == "citations_changed"
+    assert listed[pinned.id].validity.reason == "commit_scope" and listed[pending.id].validity.reason == "not_active"
+    assert listed[cited.id].recall_count == 1 and listed[cited.id].last_recalled_at is not None
+    assert listed[cited.id].link_counts.cites == 1 and listed[cited.id].link_counts.overlaps == 1
+    assert listed[cited.id].proposed_by.channel == "owner_console" and listed[pinned.id].proposed_by is None
+    assert {item.state for item in listed.values()} == {"active", "pending", "invalidated"}
+    assert [item.id for item in (await service.items(project.id, state="stale")).items] == [cited.id]
+    assert [item.id for item in (await service.items(project.id, state="pending")).items] == [pending.id]
+    assert [item.id for item in (await service.items(project.id, state="invalidated")).items] == [dropped.id]
+    assert {item.id for item in (await service.items(project.id, query="parser")).items} == {cited.id, pending.id}
+    assert (await service.items(project.id, query="100%_")).items == []
+    assert (await service.items(project.id, kind="fact")).items == []
+    assert len(await repo.memories(project.id)) == 4
+
+    detail = await service.detail(cited.id)
+    assert detail.provenance.work_id == work.id and detail.provenance.commit == A and detail.provenance.work_objective == work.objective
+    assert [link.kind for link in detail.links] == ["cites"] and [link.kind for link in detail.backlinks] == ["overlaps"]
+    assert [(record.commit, record.state) for record in detail.validity_history] == [(B, "stale")]
+    assert detail.recalls.recall_count == 1 and detail.recalls.refused_count == 0
+
+    review = await service.review(project.id)
+    assert review.commit == B and not review.truncated
+    assert [entry.item.id for entry in review.pending] == [pending.id]
+    overlap = review.pending[0].overlaps[0]
+    assert overlap.memory_id == cited.id and overlap.state == "active" and overlap.only_this == ["lessons"] and overlap.only_other == ["lesson"]
+    assert [entry.item.id for entry in review.stale] == [cited.id] and review.stale[0].changed_paths[0].path == "src/app.py"
+    await service.carry_forward(cited.id, MemoryCarryForward(commit=B))
+    assert (await service.review(project.id)).stale == []
+    assert (await service.items(other.id)).commit is None

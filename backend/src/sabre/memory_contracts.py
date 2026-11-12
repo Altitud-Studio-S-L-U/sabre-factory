@@ -7,7 +7,7 @@ from typing import Any, Literal
 from pydantic import Field, field_validator
 
 from sabre.contracts import Contract
-from sabre.models import MEMORY_ID_PATTERN
+from sabre.models import MEMORY_ID_PATTERN, MemoryItem, ProposedBy
 
 COMMIT_PATTERN = r"^[a-f0-9]{40,64}$"
 ValidityBasis = Literal["source_commit", "no_citations", "citations_unchanged", "citations_changed", "owner"]
@@ -103,3 +103,100 @@ class MemoryRecall(Contract):
 class MemoryRecallPage(Contract):
     items: list[MemoryRecall]
     next_cursor: str | None = Field(description="Pass as cursor to read older recalls; null on the last page")
+
+
+class MemoryValidityAt(Contract):
+    """Whether a memory would be recalled at ``commit`` (the project's newest indexed commit in listings)."""
+
+    commit: str | None
+    state: Literal["valid", "stale", "unavailable"]
+    reason: Literal["source_commit", "no_citations", "citations_unchanged", "citations_changed", "owner",
+                    "commit_scope", "not_active", "index_missing", "not_evaluated"]
+    changed_paths: list[ChangedPath]
+    checked_at: datetime | None
+
+
+class MemoryLinkCounts(Contract):
+    """Links of each kind in either direction."""
+
+    cites: int = 0
+    supersedes: int = 0
+    related: int = 0
+    overlaps: int = 0
+
+
+class MemoryListItem(MemoryItem):
+    state: Literal["active", "pending", "invalidated"]
+    validity: MemoryValidityAt
+    recall_count: int
+    last_recalled_at: datetime | None
+    link_counts: MemoryLinkCounts
+
+
+class MemoryItemPage(Contract):
+    commit: str | None = Field(description="Newest indexed commit used for validity; null when the project has no index")
+    items: list[MemoryListItem]
+    next_cursor: str | None
+
+
+class MemoryLink(Contract):
+    source_id: str
+    kind: Literal["cites", "supersedes", "related", "overlaps"]
+    target_type: Literal["file", "memory"]
+    target_id: str
+    attrs: dict[str, Any]
+    created_at: datetime
+
+
+class MemoryProvenance(Contract):
+    work_id: str
+    work_objective: str | None
+    work_status: str | None
+    commit: str
+    evidence_digest: str | None
+    proposed_by: ProposedBy | None
+    approved_at: datetime | None
+    invalidated_at: datetime | None
+
+
+class MemoryRecallStats(Contract):
+    recall_count: int
+    last_recalled_at: datetime | None
+    refused_count: int
+
+
+class MemoryDetail(Contract):
+    item: MemoryListItem
+    provenance: MemoryProvenance
+    links: list[MemoryLink] = Field(description="Links recorded by this memory")
+    backlinks: list[MemoryLink] = Field(description="Links from other memories to this one")
+    validity_history: list[MemoryValidityRecord] = Field(description="Newest first, at most 50")
+    recalls: MemoryRecallStats
+
+
+class OverlapEntry(Contract):
+    memory_id: str
+    state: Literal["active", "pending", "invalidated"]
+    content: str = Field(description="First 240 characters of the other memory")
+    score: float
+    lexical: float
+    cosine: float | None
+    only_this: list[str] = Field(description="Normalized terms only in the memory under review")
+    only_other: list[str] = Field(description="Normalized terms only in the overlapping memory")
+
+
+class PendingReview(Contract):
+    item: MemoryListItem
+    overlaps: list[OverlapEntry]
+
+
+class StaleReview(Contract):
+    item: MemoryListItem
+    changed_paths: list[ChangedPath]
+
+
+class MemoryReview(Contract):
+    commit: str | None
+    pending: list[PendingReview]
+    stale: list[StaleReview]
+    truncated: bool = Field(description="True when more than 100 pending or 100 stale memories exist")

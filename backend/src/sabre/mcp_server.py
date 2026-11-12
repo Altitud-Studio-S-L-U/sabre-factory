@@ -18,8 +18,10 @@ from sabre.integrations import (
     IntegrationInfo,
 )
 from sabre.mcp_connections import MCPConnectionInfo, MCPConnectionSave, MCPDiscovery
+from sabre.memory_contracts import MemoryGraph, MemoryRecallPage, MemoryReview
 from sabre.model_configuration import ModelConfiguration, ModelConfigurationChange
 from sabre.models import (
+    MEMORY_ID_PATTERN,
     Answer,
     CallBudgetIncrease,
     CliProgressLimitsChange,
@@ -301,5 +303,24 @@ def build_mcp(service):
     async def sabre_resolve_memory(memory_id: str, approve: bool) -> MemoryItem:
         """Approve or invalidate a memory as the authenticated owner."""
         return (await service().memory.update(memory_id, approve))
+
+    @server.tool(structured_output=True)
+    async def sabre_memory_graph(project_id: str, focus: Annotated[str | None, Field(pattern=MEMORY_ID_PATTERN)] = None,
+                                 depth: Annotated[int, Field(ge=1, le=2)] = 1, limit: Annotated[int, Field(ge=1, le=300)] = 100) -> MemoryGraph:
+        """Read a bounded graph of project memories with their runs, commits, cited files, proposers and links. Read-only."""
+        return await service().memory.graph(project_id, focus, depth, limit)
+
+    @server.tool(structured_output=True)
+    async def sabre_memory_recalls(project_id: str, work_id: Annotated[str | None, Field(max_length=128)] = None,
+                                   memory_id: Annotated[str | None, Field(pattern=MEMORY_ID_PATTERN)] = None,
+                                   cursor: Annotated[str | None, Field(max_length=19)] = None,
+                                   limit: Annotated[int, Field(ge=1, le=200)] = 50) -> MemoryRecallPage:
+        """Read which memories each role call recalled, with ranks and sizes, and validator refusals. Read-only."""
+        return await service().memory.recalls(project_id, work_id=work_id, memory_id=memory_id, cursor=cursor, limit=limit)
+
+    @server.tool(structured_output=True)
+    async def sabre_memory_review(project_id: str) -> MemoryReview:
+        """Read pending memory proposals with their overlaps and stale project memories with changed files. Read-only; never approves."""
+        return await service().memory.review(project_id)
 
     return server
