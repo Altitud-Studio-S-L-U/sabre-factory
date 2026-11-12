@@ -6,8 +6,15 @@ import {
   type RepoCreationProposal,
   type RepoCreationRequest,
 } from './api';
+import Button from './components/Button';
+import CheckField from './components/CheckField';
+import DescriptionList from './components/DescriptionList';
 import Field from './components/FormField';
+import Input from './components/Input';
+import Notice from './components/Notice';
+import { SectionHeading } from './components/PageHeader';
 import Select from './components/Select';
+import { Badge } from './components/ui/badge';
 import CreateRepositoryFlow from './CreateRepositoryFlow';
 
 const statusText: Record<RepoCreationProposal['status'], string> = {
@@ -19,6 +26,19 @@ const statusText: Record<RepoCreationProposal['status'], string> = {
   conflict: 'Repository already exists',
   failed: 'Creation failed',
   reconciliation_required: 'Unconfirmed result',
+};
+const statusTone: Record<
+  RepoCreationProposal['status'],
+  'neutral' | 'info' | 'warning' | 'danger' | 'success'
+> = {
+  proposed: 'warning',
+  approved: 'info',
+  rejected: 'neutral',
+  executing: 'info',
+  created: 'success',
+  conflict: 'danger',
+  failed: 'danger',
+  reconciliation_required: 'warning',
 };
 const message = (error: unknown) =>
   error instanceof ApiError
@@ -38,20 +58,28 @@ export default function RepoCreations({ api }: { api: Api }) {
   const [visibility, setVisibility] = useState<'private' | 'public'>('private');
   const [reviewed, setReviewed] = useState<string[]>([]);
   const pending = useRef<{ material: string; key: string } | null>(null);
+  // State is applied in promise callbacks, so the mount effect never sets state synchronously.
+  const fetchProposals = useCallback(
+    () =>
+      api
+        .repositoryProposals()
+        .then(
+          (next) => {
+            setPage(next);
+            setError('');
+          },
+          (reason: unknown) => setError(message(reason)),
+        )
+        .finally(() => setLoading(false)),
+    [api],
+  );
   const load = useCallback(async () => {
     setLoading(true);
-    try {
-      setPage(await api.repositoryProposals());
-      setError('');
-    } catch (reason) {
-      setError(message(reason));
-    } finally {
-      setLoading(false);
-    }
-  }, [api]);
+    await fetchProposals();
+  }, [fetchProposals]);
   useEffect(() => {
-    void load();
-  }, [load]);
+    void fetchProposals();
+  }, [fetchProposals]);
   useEffect(() => {
     if (!page.items.some((item) => ['approved', 'executing'].includes(item.status))) return;
     const timer = window.setTimeout(() => void load(), 15000);
@@ -124,39 +152,47 @@ export default function RepoCreations({ api }: { api: Api }) {
     }
   };
   return (
-    <section className="integration-section" aria-labelledby="repository-creation-title">
+    <section className="grid min-w-0 gap-4" aria-labelledby="repository-creation-title">
       <CreateRepositoryFlow api={api} onCreated={update} />
-      <div className="section-heading">
-        <div>
-          <h2 id="repository-creation-title">Create on GitHub</h2>
-          <p className="muted">Prepare the proposal and review its details before authorizing creation.</p>
-        </div>
-        <div className="integration-actions">
-          <button className="button small" disabled={busy || loading} onClick={() => void load()}>
-            Refresh proposals
-          </button>
-          <button
-            className="button primary"
-            disabled={busy}
-            onClick={() => setEditing((value) => !value)}
-            aria-expanded={editing}
-          >
-            Propose repository
-          </button>
-        </div>
-      </div>
+      <SectionHeading
+        id="repository-creation-title"
+        title="Create on GitHub"
+        description="Prepare the proposal and review its details before authorizing creation."
+        actions={
+          <>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              disabled={busy || loading}
+              onClick={() => void load()}
+            >
+              Refresh proposals
+            </Button>
+            <Button
+              type="button"
+              variant="primary"
+              disabled={busy}
+              onClick={() => setEditing((value) => !value)}
+              aria-expanded={editing}
+            >
+              Propose repository
+            </Button>
+          </>
+        }
+      />
       {error && (
-        <p className="notice error" role="alert">
+        <Notice tone="danger" role="alert">
           {error}
-        </p>
+        </Notice>
       )}
       {editing && (
         <form
-          className="connection-form"
+          className="grid min-w-0 gap-4 rounded-lg border border-border bg-card p-5"
           onSubmit={(event) => void propose(event)}
           aria-label="Repository proposal"
         >
-          <div className="form-grid">
+          <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Owner type">
               <Select
                 value={ownerType}
@@ -168,7 +204,7 @@ export default function RepoCreations({ api }: { api: Api }) {
               </Select>
             </Field>
             <Field label="GitHub owner">
-              <input
+              <Input
                 required
                 pattern={'[A-Za-z0-9][A-Za-z0-9\\-]{0,38}'}
                 maxLength={39}
@@ -178,7 +214,7 @@ export default function RepoCreations({ api }: { api: Api }) {
               />
             </Field>
             <Field label="Repository name">
-              <input
+              <Input
                 required
                 pattern={'[A-Za-z0-9_.\\-]+'}
                 maxLength={100}
@@ -199,57 +235,61 @@ export default function RepoCreations({ api }: { api: Api }) {
             </Field>
           </div>
           <Field label="Description">
-            <input
+            <Input
               maxLength={350}
               value={description}
               disabled={busy}
               onChange={(event) => setDescription(event.target.value)}
             />
           </Field>
-          <p className="muted">
+          <p className="text-sm text-muted-foreground">
             This saves a local proposal. Creation requires your approval and a separate creation credential;
             branch and PR credentials are not reused.
           </p>
-          <button className="button primary" disabled={busy}>
+          <Button type="submit" variant="primary" className="justify-self-start" disabled={busy}>
             {busy ? 'Saving…' : 'Save proposal for review'}
-          </button>
+          </Button>
         </form>
       )}
-      {loading && !page.items.length && <p role="status">Loading proposals…</p>}
-      {!loading && !page.items.length && (
-        <p className="muted">No proposals yet. Choose an owner, name and visibility to prepare the first.</p>
+      {loading && !page.items.length && (
+        <p role="status" className="text-sm text-muted-foreground">
+          Loading proposals…
+        </p>
       )}
-      <div className="proposal-list">
-        {page.items.map((item) => (
-          <article
-            className="proposal"
-            key={item.id}
-            aria-label={`Propuesta ${item.request.owner}/${item.request.name}`}
-          >
-            <div className="integration-heading">
-              <h3>
-                {item.request.owner}/{item.request.name}
-              </h3>
-              <span className="integration-state">{statusText[item.status]}</span>
-            </div>
-            <dl className="proposal-details">
-              <div>
-                <dt>Owner</dt>
-                <dd>
-                  {item.request.owner_type === 'org' ? 'Organization' : 'Usuario'} · {item.request.owner}
-                </dd>
+      {!loading && !page.items.length && (
+        <p className="text-sm text-muted-foreground">
+          No proposals yet. Choose an owner, name and visibility to prepare the first.
+        </p>
+      )}
+      {!!page.items.length && (
+        <div className="grid min-w-0 gap-3">
+          {page.items.map((item) => (
+            <article
+              className="grid min-w-0 gap-3.5 rounded-lg border border-border bg-card p-5 [overflow-wrap:anywhere]"
+              key={item.id}
+              aria-label={`Proposal ${item.request.owner}/${item.request.name}`}
+            >
+              <div className="flex min-w-0 flex-wrap items-center justify-between gap-2.5">
+                <h3 className="min-w-0 text-base font-semibold">
+                  {item.request.owner}/{item.request.name}
+                </h3>
+                <Badge variant={statusTone[item.status]}>{statusText[item.status]}</Badge>
               </div>
-              <div>
-                <dt>Visibility</dt>
-                <dd>{item.request.visibility === 'private' ? 'Private' : 'Public'}</dd>
-              </div>
-            </dl>
-            {item.request.description && <p>{item.request.description}</p>}
-            {item.status === 'proposed' && (
-              <>
-                <label className="check-line">
-                  <input
-                    type="checkbox"
+              <DescriptionList
+                termWidth="6rem"
+                items={[
+                  [
+                    'Owner',
+                    `${item.request.owner_type === 'org' ? 'Organization' : 'User'} · ${item.request.owner}`,
+                  ],
+                  ['Visibility', item.request.visibility === 'private' ? 'Private' : 'Public'],
+                ]}
+              />
+              {item.request.description && <p className="text-sm">{item.request.description}</p>}
+              {item.status === 'proposed' && (
+                <>
+                  <CheckField
+                    label="I reviewed these details and authorize creating this repository."
                     checked={reviewed.includes(item.id)}
                     disabled={busy}
                     onChange={(event) =>
@@ -258,56 +298,71 @@ export default function RepoCreations({ api }: { api: Api }) {
                       )
                     }
                   />
-                  I reviewed these details and authorize creating this repository.
-                </label>
-                <div className="integration-actions">
-                  <button
-                    className="button primary"
-                    disabled={busy || !reviewed.includes(item.id)}
-                    onClick={() => void decide(item, 'approve')}
-                  >
-                    Approve and create
-                  </button>
-                  <button
-                    className="button small"
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      variant="primary"
+                      disabled={busy || !reviewed.includes(item.id)}
+                      onClick={() => void decide(item, 'approve')}
+                    >
+                      Approve and create
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      disabled={busy}
+                      onClick={() => void decide(item, 'reject')}
+                    >
+                      Reject proposal
+                    </Button>
+                  </div>
+                </>
+              )}
+              {item.receipt && (
+                <a
+                  href={item.receipt.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="justify-self-start text-sm font-medium text-link underline-offset-4 hover:underline"
+                >
+                  Open created repository
+                </a>
+              )}
+              {['executing', 'reconciliation_required'].includes(item.status) && (
+                <>
+                  <p className="text-sm text-muted-foreground">
+                    If a response is lost, SABRE checks GitHub and preserves uncertainty. It will not repeat
+                    creation or adopt a repository by name alone.
+                  </p>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    className="justify-self-start"
                     disabled={busy}
-                    onClick={() => void decide(item, 'reject')}
+                    onClick={() => void reconcile(item)}
                   >
-                    Reject proposal
-                  </button>
-                </div>
-              </>
-            )}
-            {item.receipt && (
-              <a href={item.receipt.url} target="_blank" rel="noreferrer">
-                Open created repository
-              </a>
-            )}
-            {['executing', 'reconciliation_required'].includes(item.status) && (
-              <>
-                <p className="muted">
-                  If a response is lost, SABRE checks GitHub and preserves uncertainty. It will not repeat
-                  creation or adopt a repository by name alone.
+                    Verify result on GitHub
+                  </Button>
+                </>
+              )}
+              {item.candidate && (
+                <p className="text-sm text-muted-foreground">
+                  Observed {item.candidate.full_name}, but no receipt links it to this creation request yet.
                 </p>
-                <button className="button small" disabled={busy} onClick={() => void reconcile(item)}>
-                  Verify result on GitHub
-                </button>
-              </>
-            )}
-            {item.candidate && (
-              <p className="muted">
-                Observed {item.candidate.full_name}, but no receipt links it to this creation request yet.
-              </p>
-            )}
-            {item.error_code && (
-              <p className="muted">
-                Reference: <code>{item.error_code}</code>
-              </p>
-            )}
-          </article>
-        ))}
-      </div>
-      {page.truncated && <p className="muted">Showing the 100 most recent proposals.</p>}
+              )}
+              {item.error_code && (
+                <p className="text-sm text-muted-foreground">
+                  Reference: <code className="font-mono text-xs">{item.error_code}</code>
+                </p>
+              )}
+            </article>
+          ))}
+        </div>
+      )}
+      {page.truncated && (
+        <p className="text-xs text-muted-foreground">Showing the 100 most recent proposals.</p>
+      )}
     </section>
   );
 }

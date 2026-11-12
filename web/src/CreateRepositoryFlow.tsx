@@ -5,8 +5,14 @@ import {
   type FlowConfiguration as Configuration,
   type RepoCreationProposal,
 } from './api';
+import Button from './components/Button';
+import CheckField from './components/CheckField';
+import Disclosure from './components/Disclosure';
 import Field from './components/FormField';
+import Input from './components/Input';
+import Notice from './components/Notice';
 import Select from './components/Select';
+import Textarea from './components/Textarea';
 import FlowConfiguration from './FlowConfiguration';
 
 export default function CreateRepositoryFlow({
@@ -78,15 +84,28 @@ export default function CreateRepositoryFlow({
     }
   };
   return (
-    <details className="phase-configuration" onToggle={(event) => setOpen(event.currentTarget.open)}>
-      <summary>Create a repository and launch its flow</summary>
-      <p>Authorize the exact repository below and the work it may perform. SABRE stops at a draft PR.</p>
-      {error && <p role="alert">{error}</p>}
-      {receipt && <p role="status">{receipt}</p>}
+    <Disclosure
+      summary="Create a repository and launch its flow"
+      onToggle={(event) => setOpen(event.currentTarget.open)}
+      contentClassName="gap-4"
+    >
+      <p className="text-sm text-muted-foreground">
+        Authorize the exact repository below and the work it may perform. SABRE stops at a draft PR.
+      </p>
+      {error && (
+        <Notice tone="danger" role="alert">
+          {error}
+        </Notice>
+      )}
+      {receipt && (
+        <Notice tone="success" role="status">
+          {receipt}
+        </Notice>
+      )}
       {open && (
-        <form onSubmit={(event) => void submit(event)}>
-          <fieldset disabled={busy} className="form-grid">
-            <legend>Repository and scope</legend>
+        <form className="grid min-w-0 gap-5" onSubmit={(event) => void submit(event)}>
+          <fieldset disabled={busy} className="grid min-w-0 gap-4 sm:grid-cols-2">
+            <legend className="mb-3 text-sm font-semibold">Repository and scope</legend>
             <Field label="Owner type">
               <Select name="owner_type" defaultValue="org">
                 <option value="org">Organization</option>
@@ -94,10 +113,10 @@ export default function CreateRepositoryFlow({
               </Select>
             </Field>
             <Field label="Repository owner">
-              <input name="owner" required pattern={'[A-Za-z0-9\\-]+'} />
+              <Input name="owner" required pattern={'[A-Za-z0-9\\-]+'} />
             </Field>
             <Field label="New repository name">
-              <input name="name" required pattern={'[A-Za-z0-9_.\\-]+'} />
+              <Input name="name" required pattern={'[A-Za-z0-9_.\\-]+'} />
             </Field>
             <Field label="Repository visibility">
               <Select name="visibility" defaultValue="private">
@@ -106,7 +125,7 @@ export default function CreateRepositoryFlow({
               </Select>
             </Field>
             <Field label="Description">
-              <input name="description" maxLength={350} />
+              <Input name="description" maxLength={350} />
             </Field>
             <Field label="Project language">
               <Select
@@ -121,41 +140,52 @@ export default function CreateRepositoryFlow({
                 <option value="python">Python</option>
               </Select>
             </Field>
-            <Field label="New project objective">
-              <textarea name="objective" required minLength={5} maxLength={12000} />
+            <Field label="New project objective" className="sm:col-span-2">
+              <Textarea name="objective" required minLength={5} maxLength={12000} />
             </Field>
-            <Field label="New project acceptance criteria" hint="One verifiable outcome per line.">
-              <textarea name="acceptance" required />
+            <Field
+              label="New project acceptance criteria"
+              hint="One verifiable outcome per line."
+              className="sm:col-span-2"
+            >
+              <Textarea name="acceptance" required />
             </Field>
             <Field
               label="Verification commands"
               hint="JSON arrays of arguments; these checks must pass before delivery."
+              className="sm:col-span-2"
             >
-              <textarea required value={commands} onChange={(event) => setCommands(event.target.value)} />
+              <Textarea
+                required
+                value={commands}
+                className="font-mono text-xs"
+                onChange={(event) => setCommands(event.target.value)}
+              />
             </Field>
             <Field label="Model call limit">
-              <input name="calls" type="number" min={1} max={500} defaultValue={40} required />
+              <Input name="calls" type="number" min={1} max={500} defaultValue={40} required />
             </Field>
             <Field label="Token limit">
-              <input name="tokens" type="number" min={1} max={10000000} defaultValue={100000} required />
+              <Input name="tokens" type="number" min={1} max={10000000} defaultValue={100000} required />
             </Field>
             <Field label="Active minutes">
-              <input name="minutes" type="number" min={1} max={1440} defaultValue={60} required />
+              <Input name="minutes" type="number" min={1} max={1440} defaultValue={60} required />
             </Field>
             <Field label="API budget (USD)">
-              <input name="cost" type="number" min={0} max={1000} step="0.01" defaultValue={0} required />
+              <Input name="cost" type="number" min={0} max={1000} step="0.01" defaultValue={0} required />
             </Field>
           </fieldset>
           <FlowConfiguration api={api} mode="create" value={config} onChange={setConfig} />
-          <label className="inline-check">
-            <input type="checkbox" required disabled={busy} /> I authorize creation with these details and
-            execution within these limits.
-          </label>
-          <button className="button primary" disabled={busy} type="submit">
+          <CheckField
+            required
+            disabled={busy}
+            label="I authorize creation with these details and execution within these limits."
+          />
+          <Button variant="primary" className="justify-self-start" disabled={busy} type="submit">
             {busy ? 'Launching…' : 'Authorize and launch create flow'}
-          </button>
+          </Button>
         </form>
       )}
-    </details>
+    </Disclosure>
   );
 }

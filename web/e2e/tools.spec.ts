@@ -1,4 +1,9 @@
 import { test, expect } from '@playwright/test';
+import { mockFactoryApi } from './fixtures';
+
+test.beforeEach(async ({ page }) => {
+  await mockFactoryApi(page);
+});
 
 test('connection action links open the registered setup surface without saving', async ({ page }) => {
   const writes: string[] = [];
@@ -6,8 +11,8 @@ test('connection action links open the registered setup surface without saving',
     if (request.method() === 'POST') writes.push(request.url());
   });
   await page.goto('/tools?connection=github.read');
-  await expect(page.getByRole('button', { name: 'Credentials', exact: true })).toHaveAttribute(
-    'aria-pressed',
+  await expect(page.getByRole('tab', { name: 'Credentials', exact: true })).toHaveAttribute(
+    'aria-selected',
     'true',
   );
   await expect(page.getByText(/Opening this page does not save credentials/)).toBeVisible();

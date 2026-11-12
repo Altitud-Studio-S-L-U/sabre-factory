@@ -93,7 +93,7 @@ it('separa propuesta local y aprobación vinculada al contenido y revision exact
   const { user, calls } = fixture();
   await fillProposal(user);
   await user.click(screen.getByRole('button', { name: 'Save proposal for review' }));
-  const article = await screen.findByRole('article', { name: 'Propuesta fixture/example' });
+  const article = await screen.findByRole('article', { name: 'Proposal fixture/example' });
   expect(within(article).getByText('Public')).toBeInTheDocument();
   expect(within(article).getByText('Reviewed repository')).toBeInTheDocument();
   expect(within(article).getByRole('button', { name: 'Approve and create' })).toBeDisabled();
@@ -114,7 +114,7 @@ it('reutiliza la clave de propuesta cuando se pierde la respuesta sin aprobar au
   await user.click(screen.getByRole('button', { name: 'Save proposal for review' }));
   await screen.findByRole('alert');
   await user.click(screen.getByRole('button', { name: 'Save proposal for review' }));
-  await screen.findByRole('article', { name: 'Propuesta fixture/example' });
+  await screen.findByRole('article', { name: 'Proposal fixture/example' });
   expect(calls).toHaveLength(2);
   expect(calls[0].body?.idempotency_key).toBe(calls[1].body?.idempotency_key);
   expect(calls.every((call) => call.path === '/repository-proposals')).toBe(true);
@@ -136,7 +136,7 @@ it('usa una nueva clave para otra propuesta explícita tras confirmar y rechazar
     ...proposals[0].body,
     idempotency_key: expect.any(String),
   });
-  expect(screen.getAllByRole('article', { name: 'Propuesta fixture/example' })).toHaveLength(2);
+  expect(screen.getAllByRole('article', { name: 'Proposal fixture/example' })).toHaveLength(2);
 });
 
 it('rechaza la aprobación obsoleta y exige revisar de nuevo', async () => {

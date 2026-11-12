@@ -12,14 +12,25 @@ import Icon from './Icon';
 import MCPConnections from './MCPConnections';
 import ModelConfiguration from './ModelConfiguration';
 import RepoCreations from './RepoCreations';
+import Button from './components/Button';
+import Disclosure from './components/Disclosure';
+import Field from './components/FormField';
+import Input from './components/Input';
+import Notice from './components/Notice';
+import { SectionHeading } from './components/PageHeader';
 import Select from './components/Select';
-import './integrations.css';
+import Textarea from './components/Textarea';
+import { Badge } from './components/ui/badge';
+import { cn } from './lib/utils';
 
 function failure(error: unknown) {
   return error instanceof ApiError
     ? error.message
     : 'The operation could not be confirmed. Refresh status before retrying.';
 }
+
+/** Page-level block of the Integrations screen: a rule above each section keeps the rhythm. */
+const integrationSection = 'grid min-w-0 gap-4 border-t border-border pt-8';
 
 export default function Integrations({
   api,
@@ -36,20 +47,28 @@ export default function Integrations({
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const [credentialsFor, setCredentialsFor] = useState<string | null>(null);
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      setItems(await api.integrations());
-      setError('');
-    } catch (reason) {
-      setError(failure(reason));
-    } finally {
-      setLoading(false);
-    }
-  }, [api]);
+  // State is applied in promise callbacks, so the mount effect never sets state synchronously.
+  const fetchIntegrations = useCallback(
+    () =>
+      api
+        .integrations()
+        .then(
+          (next) => {
+            setItems(next);
+            setError('');
+          },
+          (reason: unknown) => setError(failure(reason)),
+        )
+        .finally(() => setLoading(false)),
+    [api],
+  );
   useEffect(() => {
-    void load();
-  }, [load]);
+    void fetchIntegrations();
+  }, [fetchIntegrations]);
+  const load = async () => {
+    setLoading(true);
+    await fetchIntegrations();
+  };
   const changed = async () => {
     await load();
     await onChanged();
@@ -80,45 +99,55 @@ export default function Integrations({
   const selected = items.find((item) => item.id === credentialsFor);
   const readConnection = items.find((item) => item.id === 'github.read');
   return (
-    <div className="integrations">
-      <section aria-labelledby="integrations-title">
-        <div className="section-heading">
-          <div>
-            <h2 id="integrations-title">Integrations and tools</h2>
-            <p className="muted">
-              Control the services the factory may use and the credentials for each connection.
-            </p>
-          </div>
-          <button
-            className="button small"
-            type="button"
-            onClick={() => void load()}
-            disabled={loading || !!busy}
-          >
-            <Icon name="refresh" />
-            Refresh connections
-          </button>
-        </div>
+    <div className="grid min-w-0 gap-8">
+      <section aria-labelledby="integrations-title" className="grid min-w-0 gap-4">
+        <SectionHeading
+          id="integrations-title"
+          title="Integrations and tools"
+          description="Control the services the factory may use and the credentials for each connection."
+          actions={
+            <Button
+              variant="secondary"
+              size="sm"
+              type="button"
+              onClick={() => void load()}
+              disabled={loading || !!busy}
+            >
+              <Icon name="refresh" />
+              Refresh connections
+            </Button>
+          }
+        />
         {error && (
-          <p className="notice error" role="alert">
+          <Notice tone="danger" role="alert">
             {error}
-          </p>
+          </Notice>
         )}
         {notice && (
-          <p className="notice neutral" role="status">
+          <Notice tone="neutral" role="status">
             {notice}
+          </Notice>
+        )}
+        {loading && !items.length && (
+          <p role="status" className="text-sm text-muted-foreground">
+            Loading connections…
           </p>
         )}
-        {loading && !items.length && <p role="status">Loading connections…</p>}
-        <div className="integration-grid">
+        <div className="grid min-w-0 gap-4 md:grid-cols-2">
           {items.map((item) => (
-            <article className="integration-card" key={item.id} aria-labelledby={`integration-${item.id}`}>
-              <div className="integration-heading">
-                <Icon name={item.kind === 'github' ? 'projects' : 'settings'} />
-                <h3 id={`integration-${item.id}`}>{item.title}</h3>
-                <span
-                  className={`integration-state ${item.toggleable && !item.enabled ? 'is-disabled' : ''}`}
-                >
+            <article
+              className="flex min-w-0 flex-col gap-3 rounded-lg border border-border bg-card p-5"
+              key={item.id}
+              aria-labelledby={`integration-${item.id}`}
+            >
+              <div className="flex min-w-0 flex-wrap items-center gap-2.5">
+                <span className="text-muted-foreground" aria-hidden="true">
+                  <Icon name={item.kind === 'github' ? 'projects' : 'settings'} />
+                </span>
+                <h3 id={`integration-${item.id}`} className="min-w-0 flex-1 text-base font-semibold">
+                  {item.title}
+                </h3>
+                <Badge variant={item.toggleable ? (item.enabled ? 'success' : 'warning') : 'neutral'}>
                   {item.toggleable
                     ? item.enabled
                       ? 'Enabled'
@@ -126,18 +155,17 @@ export default function Integrations({
                     : item.kind === 'model'
                       ? 'Configuration by role'
                       : 'Instance configuration'}
-                </span>
+                </Badge>
               </div>
-              <p>{item.description}</p>
-              <p className="muted">{item.access}</p>
+              <p className="text-sm">{item.description}</p>
+              <p className="text-sm text-muted-foreground">{item.access}</p>
               {!!item.tools.length && (
-                <details>
-                  <summary>Available tools ({item.tools.length})</summary>
-                  <ul className="integration-tools">
+                <Disclosure variant="plain" summary={`Available tools (${item.tools.length})`}>
+                  <ul className="grid gap-2.5">
                     {item.tools.map((tool) => (
-                      <li key={tool.name}>
-                        <code>{tool.name}</code>
-                        <span>
+                      <li key={tool.name} className="grid min-w-0 gap-0.5 [overflow-wrap:anywhere]">
+                        <code className="font-mono text-xs">{tool.name}</code>
+                        <span className="text-xs text-muted-foreground">
                           {tool.effect === 'read'
                             ? 'Read'
                             : tool.effect === 'external_write'
@@ -150,45 +178,55 @@ export default function Integrations({
                       </li>
                     ))}
                   </ul>
-                </details>
+                </Disclosure>
               )}
-              <div className="integration-actions">
-                {!!item.credential_ids.length && (
-                  <button
-                    className="button small"
-                    type="button"
-                    onClick={() => setCredentialsFor(credentialsFor === item.id ? null : item.id)}
-                    aria-expanded={credentialsFor === item.id}
-                    aria-label={`${item.credential_configured ? 'Manage credentials' : 'Configure credentials'} of ${item.title}`}
-                  >
-                    {item.credential_configured ? 'Manage credentials' : 'Configure credentials'}
-                    <span className="sr-only"> of {item.title}</span>
-                  </button>
-                )}
-                {item.toggleable && (
-                  <button
-                    className="button small"
-                    type="button"
-                    disabled={!!busy}
-                    onClick={() => void toggle(item)}
-                    aria-label={`${busy === item.id ? 'Saving' : item.enabled ? 'Disable' : 'Enable'} ${item.title}`}
-                  >
-                    {busy === item.id ? 'Saving…' : item.enabled ? 'Disable' : 'Enable'}
-                    <span className="sr-only"> {item.title}</span>
-                  </button>
-                )}
-              </div>
+              {(!!item.credential_ids.length || item.toggleable) && (
+                <div className="mt-auto flex flex-wrap gap-2 pt-2">
+                  {!!item.credential_ids.length && (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      type="button"
+                      onClick={() => setCredentialsFor(credentialsFor === item.id ? null : item.id)}
+                      aria-expanded={credentialsFor === item.id}
+                      aria-label={`${item.credential_configured ? 'Manage credentials' : 'Configure credentials'} of ${item.title}`}
+                    >
+                      {item.credential_configured ? 'Manage credentials' : 'Configure credentials'}
+                      <span className="sr-only"> of {item.title}</span>
+                    </Button>
+                  )}
+                  {item.toggleable && (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      type="button"
+                      disabled={!!busy}
+                      onClick={() => void toggle(item)}
+                      aria-label={`${busy === item.id ? 'Saving' : item.enabled ? 'Disable' : 'Enable'} ${item.title}`}
+                    >
+                      {busy === item.id ? 'Saving…' : item.enabled ? 'Disable' : 'Enable'}
+                      <span className="sr-only"> {item.title}</span>
+                    </Button>
+                  )}
+                </div>
+              )}
             </article>
           ))}
         </div>
         {selected && (
-          <section className="integration-credentials" aria-label={`Credentials for ${selected.title}`}>
-            <div className="section-heading">
-              <h3>{selected.title}</h3>
-              <button className="button small" type="button" onClick={() => setCredentialsFor(null)}>
-                Close credentials
-              </button>
-            </div>
+          <section
+            className="grid min-w-0 gap-4 rounded-lg border border-border bg-card p-5"
+            aria-label={`Credentials for ${selected.title}`}
+          >
+            <SectionHeading
+              as="h3"
+              title={selected.title}
+              actions={
+                <Button variant="secondary" size="sm" type="button" onClick={() => setCredentialsFor(null)}>
+                  Close credentials
+                </Button>
+              }
+            />
             <Credentials
               key={selected.id}
               api={api}
@@ -200,11 +238,22 @@ export default function Integrations({
       </section>
       {includeModels && <ModelConfiguration api={api} onChanged={changed} />}
       {readConnection && (
-        <GitHubRepositories api={api} enabled={readConnection.enabled} onChanged={onChanged} />
+        <GitHubRepositories
+          api={api}
+          enabled={readConnection.enabled}
+          onChanged={onChanged}
+          className={integrationSection}
+        />
       )}
-      <MCPConnections api={api} onChanged={changed} />
-      <RepoCreations api={api} />
-      <Deliveries api={api} />
+      <div className={integrationSection}>
+        <MCPConnections api={api} onChanged={changed} />
+      </div>
+      <div className={integrationSection}>
+        <RepoCreations api={api} />
+      </div>
+      <div className={integrationSection}>
+        <Deliveries api={api} />
+      </div>
     </div>
   );
 }
@@ -213,10 +262,12 @@ export function GitHubRepositories({
   api,
   enabled,
   onChanged,
+  className,
 }: {
   api: Api;
   enabled: boolean;
   onChanged: () => Promise<void>;
+  className?: string;
 }) {
   const id = useId();
   const [owner, setOwner] = useState('');
@@ -302,18 +353,19 @@ export function GitHubRepositories({
     }
   };
   return (
-    <section className="github-browser" aria-labelledby={`${id}-heading`}>
-      <h2 id={`${id}-heading`}>GitHub repositories</h2>
-      <p className="muted">
-        Browse an account and import an existing repository. Import registers it with SABRE without changing
-        GitHub or starting work.
-      </p>
-      {!enabled && <p className="notice neutral">Enable GitHub repository access to browse and import.</p>}
-      <form className="repository-search" onSubmit={submit}>
-        <label htmlFor={`${id}-type`}>
-          Account type
+    <section className={cn('grid min-w-0 gap-4', className)} aria-labelledby={`${id}-heading`}>
+      <SectionHeading
+        id={`${id}-heading`}
+        title="GitHub repositories"
+        description="Browse an account and import an existing repository. Import registers it with SABRE without changing GitHub or starting work."
+      />
+      {!enabled && <Notice tone="neutral">Enable GitHub repository access to browse and import.</Notice>}
+      <form
+        className="grid min-w-0 items-end gap-3.5 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]"
+        onSubmit={submit}
+      >
+        <Field label="Account type">
           <Select
-            id={`${id}-type`}
             value={ownerType}
             disabled={busy}
             onChange={(event) => setOwnerType(event.target.value as 'user' | 'org')}
@@ -321,11 +373,9 @@ export function GitHubRepositories({
             <option value="org">Organization</option>
             <option value="user">User · public repositories</option>
           </Select>
-        </label>
-        <label htmlFor={`${id}-owner`}>
-          User or organization
-          <input
-            id={`${id}-owner`}
+        </Field>
+        <Field label="User or organization">
+          <Input
             value={owner}
             required
             maxLength={39}
@@ -333,137 +383,152 @@ export function GitHubRepositories({
             disabled={busy}
             onChange={(event) => setOwner(event.target.value)}
           />
-        </label>
-        <button className="button primary" type="submit" disabled={!enabled || busy}>
+        </Field>
+        <Button variant="primary" type="submit" disabled={!enabled || busy}>
           {busy && !selected ? 'Searching…' : 'Search repositories'}
-        </button>
+        </Button>
       </form>
       {error && (
-        <p className="notice error" role="alert">
+        <Notice tone="danger" role="alert">
           {error}
-        </p>
+        </Notice>
       )}
       {notice && (
-        <p className="notice neutral" role="status">
+        <Notice tone="neutral" role="status">
           {notice}
-        </p>
+        </Notice>
       )}
       {page && (
-        <div aria-live="polite">
-          <p className="muted">
+        <div aria-live="polite" className="grid min-w-0 gap-3">
+          <p className="text-sm text-muted-foreground">
             {page.access === 'public'
               ? 'Showing public repositories.'
               : 'Showing repositories accessible with the read credential.'}{' '}
             Page {page.page}.
           </p>
-          {!page.items.length && <p>No repositories found on this page.</p>}
-          <ul className="repository-list">
-            {page.items.map((repository) => (
-              <li key={repository.id}>
-                <div>
-                  <a href={repository.url} target="_blank" rel="noreferrer">
-                    {repository.full_name}
-                  </a>
-                  <p>{repository.description}</p>
-                  <span className="muted">
-                    {repository.visibility === 'private' ? 'Private' : 'Public'}
-                    {repository.language ? ` · ${repository.language}` : ''}
-                    {repository.archived ? ' · Archived' : ''}
-                    {repository.disabled ? ' · Unavailable' : ''}
-                  </span>
-                </div>
-                <button
-                  className="button small"
-                  type="button"
-                  disabled={
-                    busy ||
-                    !enabled ||
-                    repository.archived ||
-                    repository.disabled ||
-                    !repository.default_branch
-                  }
-                  onClick={() => choose(repository)}
-                  aria-label={`Import ${repository.full_name}`}
+          {!page.items.length && <p className="text-sm">No repositories found on this page.</p>}
+          {!!page.items.length && (
+            <ul className="divide-y divide-border rounded-lg border border-border">
+              {page.items.map((repository) => (
+                <li
+                  key={repository.id}
+                  className="flex min-w-0 flex-wrap items-center justify-between gap-3 px-4 py-3"
                 >
-                  Import<span className="sr-only"> {repository.full_name}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
-          <div className="integration-actions">
-            <button
-              className="button small"
+                  <div className="grid min-w-0 flex-1 gap-1 [overflow-wrap:anywhere]">
+                    <a
+                      href={repository.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-sm font-semibold text-link underline-offset-4 hover:underline"
+                    >
+                      {repository.full_name}
+                    </a>
+                    {repository.description && <p className="text-sm">{repository.description}</p>}
+                    <span className="text-xs text-muted-foreground">
+                      {repository.visibility === 'private' ? 'Private' : 'Public'}
+                      {repository.language ? ` · ${repository.language}` : ''}
+                      {repository.archived ? ' · Archived' : ''}
+                      {repository.disabled ? ' · Unavailable' : ''}
+                    </span>
+                  </div>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    type="button"
+                    disabled={
+                      busy ||
+                      !enabled ||
+                      repository.archived ||
+                      repository.disabled ||
+                      !repository.default_branch
+                    }
+                    onClick={() => choose(repository)}
+                    aria-label={`Import ${repository.full_name}`}
+                  >
+                    Import<span className="sr-only"> {repository.full_name}</span>
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="secondary"
+              size="sm"
               type="button"
               disabled={busy || !enabled || page.page <= 1}
               onClick={() => query && void search(query, page.page - 1)}
             >
               Previous page
-            </button>
-            <button
-              className="button small"
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
               type="button"
               disabled={busy || !enabled || !page.next_page}
               onClick={() => query && page.next_page && void search(query, page.next_page)}
             >
               Next page
-            </button>
+            </Button>
           </div>
         </div>
       )}
       {selected && (
         <form
-          className="repository-import"
+          className="grid min-w-0 gap-4 border-t border-border pt-5"
           onSubmit={(event) => void importRepository(event)}
           aria-labelledby={`${id}-import-heading`}
         >
-          <h3 id={`${id}-import-heading`}>Import {selected.full_name}</h3>
-          <p className="muted">SABRE will check the repository again and use its default branch.</p>
-          <label htmlFor={`${id}-name`}>
-            Project name
-            <input
-              id={`${id}-name`}
-              value={name}
-              required
-              maxLength={100}
-              disabled={busy}
-              onChange={(event) => setName(event.target.value)}
-            />
-          </label>
-          <label htmlFor={`${id}-profile`}>
-            Project environment
-            <Select
-              id={`${id}-profile`}
-              value={profile}
-              disabled={busy}
-              onChange={(event) => setProfile(event.target.value as 'node' | 'python')}
-            >
-              <option value="node">JavaScript / TypeScript</option>
-              <option value="python">Python</option>
-            </Select>
-          </label>
-          <label htmlFor={`${id}-commands`}>
-            Delivery checks
-            <textarea
-              id={`${id}-commands`}
+          <div className="grid gap-1">
+            <h3 id={`${id}-import-heading`} className="text-base font-semibold [overflow-wrap:anywhere]">
+              Import {selected.full_name}
+            </h3>
+            <p className="text-sm text-muted-foreground">
+              SABRE will check the repository again and use its default branch.
+            </p>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Project name">
+              <Input
+                value={name}
+                required
+                maxLength={100}
+                disabled={busy}
+                onChange={(event) => setName(event.target.value)}
+              />
+            </Field>
+            <Field label="Project environment">
+              <Select
+                value={profile}
+                disabled={busy}
+                onChange={(event) => setProfile(event.target.value as 'node' | 'python')}
+              >
+                <option value="node">JavaScript / TypeScript</option>
+                <option value="python">Python</option>
+              </Select>
+            </Field>
+          </div>
+          <Field
+            label="Delivery checks"
+            hint="One argument array per line. Enter the actual repository verification commands."
+          >
+            <Textarea
               value={commands}
               required
               rows={3}
               disabled={busy}
               placeholder={'["npm", "test"]'}
+              className="font-mono text-xs"
               onChange={(event) => setCommands(event.target.value)}
-              aria-describedby={`${id}-commands-hint`}
             />
-          </label>
-          <p className="muted" id={`${id}-commands-hint`}>
-            One argument array per line. Enter the actual repository verification commands.
-          </p>
-          <div className="integration-actions">
-            <button className="button primary" type="submit" disabled={busy || !enabled}>
+          </Field>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="primary" type="submit" disabled={busy || !enabled}>
               {busy ? 'Importing…' : 'Register project'}
-            </button>
-            <button className="button small" type="button" disabled={busy} onClick={() => setSelected(null)}>
+            </Button>
+            <Button variant="secondary" type="button" disabled={busy} onClick={() => setSelected(null)}>
               Cancel import
-            </button>
+            </Button>
           </div>
         </form>
       )}

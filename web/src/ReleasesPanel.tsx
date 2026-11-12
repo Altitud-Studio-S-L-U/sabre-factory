@@ -7,9 +7,18 @@ import {
   type ReleasePublication,
   type WorkOrder,
 } from './api';
+import Button from './components/Button';
+import CheckField from './components/CheckField';
+import CodeBlock from './components/CodeBlock';
+import DescriptionList from './components/DescriptionList';
 import Dialog from './components/Dialog';
+import Disclosure from './components/Disclosure';
 import Field from './components/FormField';
-import './ReleasesPanel.css';
+import Input from './components/Input';
+import Notice from './components/Notice';
+import Textarea from './components/Textarea';
+import { Badge } from './components/ui/badge';
+import { cn } from './lib/utils';
 
 const semver = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
 const validVersion = (value: string) =>
@@ -77,22 +86,34 @@ export default function ReleasesPanel({
     setItems((current) => [candidate, ...current.filter((item) => item.id !== candidate.id)]);
     setSelectedId(candidate.id);
   }, []);
-  const load = useCallback(async () => {
+  // Another run (or session) shows its own candidates: reset the view before they load.
+  const [source, setSource] = useState({ api, workId: work.id });
+  if (source.api !== api || source.workId !== work.id) {
+    setSource({ api, workId: work.id });
     setLoading(true);
     setError('');
-    try {
-      const page = await api.releases();
-      if (!page || !Array.isArray(page.items)) throw new Error('Invalid release snapshot');
-      setItems(page.items.filter((item) => item.work_id === work.id));
-    } catch (reason) {
-      setError(failure(reason));
-    } finally {
-      setLoading(false);
-    }
-  }, [api, work.id]);
+  }
+  // State is applied in promise callbacks, so the mount effect never sets state synchronously.
+  const fetchCandidates = useCallback(
+    () =>
+      api
+        .releases()
+        .then((page) => {
+          if (!page || !Array.isArray(page.items)) throw new Error('Invalid release snapshot');
+          setItems(page.items.filter((item) => item.work_id === work.id));
+        })
+        .catch((reason: unknown) => setError(failure(reason)))
+        .finally(() => setLoading(false)),
+    [api, work.id],
+  );
   useEffect(() => {
-    void load();
-  }, [load]);
+    void fetchCandidates();
+  }, [fetchCandidates]);
+  const load = async () => {
+    setLoading(true);
+    setError('');
+    await fetchCandidates();
+  };
   const inspect = async (id: string) => {
     if (busy) return;
     setBusy(true);
@@ -225,25 +246,40 @@ export default function ReleasesPanel({
     await inspect(id);
   };
 
+  const caption = 'text-xs leading-relaxed text-muted-foreground';
+  const blockers = (list: string[]) => (
+    <Notice tone="danger" title="Publication blocked">
+      <ul className="grid list-disc gap-1 pl-4 [overflow-wrap:anywhere]">
+        {list.map((blocker) => (
+          <li key={blocker}>{blocker}</li>
+        ))}
+      </ul>
+    </Notice>
+  );
+
   return (
-    <section className="releases-panel" aria-label="Release candidates">
-      <header className="releases-heading">
-        <div>
-          <h3>Release candidates</h3>
-          <p>Immutable versioned artifacts and publication bound to their checked commit.</p>
+    <section className="grid min-w-0 gap-4" aria-label="Release candidates">
+      <header className="flex min-w-0 flex-wrap items-start justify-between gap-3">
+        <div className="grid min-w-0 gap-1">
+          <h3 className="text-base font-semibold">Release candidates</h3>
+          <p className="text-sm text-muted-foreground">
+            Immutable versioned artifacts and publication bound to their checked commit.
+          </p>
         </div>
-        <div className="releases-actions">
-          <button
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
             type="button"
-            className="button small"
+            variant="secondary"
+            size="sm"
             disabled={busy || loading}
             onClick={() => void load()}
           >
             Refresh candidates
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
-            className="button"
+            variant="secondary"
+            size="sm"
             disabled={!connected || busy || work.status !== 'completed'}
             onClick={() => {
               setPrepare(true);
@@ -254,122 +290,142 @@ export default function ReleasesPanel({
             }}
           >
             Prepare candidate
-          </button>
+          </Button>
         </div>
       </header>
       {!connected && (
-        <p className="notice warning" role="status">
+        <Notice tone="warning" role="status">
           Disconnected. Candidate mutations and publication are unavailable; saved results may be stale.
-        </p>
+        </Notice>
       )}
       {work.status !== 'completed' && (
-        <p className="inspector-caption">
+        <p className={caption}>
           Candidate preparation requires a completed run with delivered, verified source evidence.
         </p>
       )}
       {error && !prepare && !action && (
-        <p role="alert" className="notice error">
+        <Notice tone="danger" role="alert">
           {error}
-        </p>
+        </Notice>
       )}
       {notice && (
-        <p role="status" className="notice">
+        <Notice tone="neutral" role="status">
           {notice}
-        </p>
+        </Notice>
       )}
       {loading ? (
-        <p role="status">Loading release candidates…</p>
+        <p role="status" className="text-sm text-muted-foreground">
+          Loading release candidates…
+        </p>
       ) : !items.length ? (
-        <p className="inspector-empty">No release candidate recorded for this run.</p>
+        <p className="rounded-lg border border-dashed border-border px-4 py-5 text-center text-sm text-muted-foreground">
+          No release candidate recorded for this run.
+        </p>
       ) : (
         <>
-          <div className="release-candidate-list" aria-label="Recorded candidates">
+          <div role="group" aria-label="Recorded candidates" className="flex max-w-full flex-wrap gap-2">
             {items.map((item) => (
-              <button
+              <Button
                 type="button"
-                className={`button small ${selected?.id === item.id ? 'active' : ''}`}
+                variant="outline"
+                size="sm"
+                aria-pressed={selected?.id === item.id}
+                className="aria-pressed:border-primary/60 aria-pressed:bg-accent"
                 key={item.id}
                 onClick={() => setSelectedId(item.id)}
               >
                 {item.tag} · {item.status}
-              </button>
+              </Button>
             ))}
           </div>
           {selected && (
-            <article className="release-candidate-detail">
-              <header>
-                <h4>{selected.tag}</h4>
-                <span>{selected.status}</span>
-                <button
+            <article className="grid min-w-0 gap-4 rounded-lg border border-border bg-card p-4">
+              <header className="flex min-w-0 flex-wrap items-center gap-2.5">
+                <h4 className="text-base font-semibold [overflow-wrap:anywhere]">{selected.tag}</h4>
+                <Badge variant={selected.status === 'published' ? 'success' : 'neutral'}>
+                  {selected.status}
+                </Badge>
+                <Button
                   type="button"
-                  className="text-button"
+                  variant="link"
+                  size="sm"
+                  className="ml-auto px-0"
                   disabled={busy}
                   onClick={() => void inspect(selected.id)}
                 >
                   Inspect current checks
-                </button>
+                </Button>
               </header>
-              <dl>
-                <dt>Candidate</dt>
-                <dd>
-                  <code>
-                    {selected.id} · revision {selected.revision}
-                  </code>
-                </dd>
-                <dt>Digest</dt>
-                <dd>
-                  <code>{selected.digest}</code>
-                </dd>
-                <dt>Exact commit</dt>
-                <dd>
-                  <code>{selected.commit}</code>
-                </dd>
-                <dt>Source snapshot</dt>
-                <dd>
-                  <code>{selected.snapshot_digest}</code>
-                </dd>
-                <dt>Required CI</dt>
-                <dd>{selected.required_checks.join(', ')}</dd>
-                <dt>Authorization expiry</dt>
-                <dd>{selected.authorization_expires_at ?? 'Not authorized'}</dd>
-              </dl>
+              <DescriptionList
+                termWidth="10rem"
+                className="text-xs"
+                items={[
+                  [
+                    'Candidate',
+                    <code key="candidate" className="font-mono">
+                      {selected.id} · revision {selected.revision}
+                    </code>,
+                  ],
+                  [
+                    'Digest',
+                    <code key="digest" className="font-mono">
+                      {selected.digest}
+                    </code>,
+                  ],
+                  [
+                    'Exact commit',
+                    <code key="commit" className="font-mono">
+                      {selected.commit}
+                    </code>,
+                  ],
+                  [
+                    'Source snapshot',
+                    <code key="snapshot" className="font-mono">
+                      {selected.snapshot_digest}
+                    </code>,
+                  ],
+                  ['Required CI', selected.required_checks.join(', ')],
+                  ['Authorization expiry', selected.authorization_expires_at ?? 'Not authorized'],
+                ]}
+              />
               {selected.blockers.length ? (
-                <div className="notice error">
-                  <strong>Publication blocked</strong>
-                  <ul>
-                    {selected.blockers.map((blocker) => (
-                      <li key={blocker}>{blocker}</li>
-                    ))}
-                  </ul>
-                </div>
+                blockers(selected.blockers)
               ) : (
-                <p className="inspector-caption">
+                <p className={caption}>
                   No blockers reported by the latest inspection. Publication rechecks live CI, security,
                   authorization and artifact identity.
                 </p>
               )}
-              <details>
-                <summary>Prepared changelog</summary>
-                <pre>{selected.changelog}</pre>
-              </details>
-              <details>
-                <summary>Artifacts and checksums ({selected.artifacts.length})</summary>
-                <div className="release-artifacts">
-                  {selected.artifacts.map((artifact) => (
-                    <article key={artifact.id}>
-                      <strong>{artifact.name}</strong>
-                      <span>
-                        {artifact.media_type} · {artifact.size_bytes.toLocaleString('en-US')} bytes
-                      </span>
-                      <code>{artifact.digest}</code>
-                    </article>
-                  ))}
-                </div>
-              </details>
-              <div className="releases-actions">
-                <button
+              <div className="grid gap-1">
+                <Disclosure variant="plain" summary="Prepared changelog">
+                  <CodeBlock>{selected.changelog}</CodeBlock>
+                </Disclosure>
+                <Disclosure
+                  variant="plain"
+                  summary={`Artifacts and checksums (${selected.artifacts.length})`}
+                >
+                  <div className="grid gap-2">
+                    {selected.artifacts.map((artifact) => (
+                      <article
+                        key={artifact.id}
+                        className="grid min-w-0 gap-1 rounded-md border border-border px-3 py-2.5 text-xs"
+                      >
+                        <strong className="text-sm font-semibold [overflow-wrap:anywhere]">
+                          {artifact.name}
+                        </strong>
+                        <span className="text-muted-foreground">
+                          {artifact.media_type} · {artifact.size_bytes.toLocaleString('en-US')} bytes
+                        </span>
+                        <code className="font-mono [overflow-wrap:anywhere]">{artifact.digest}</code>
+                      </article>
+                    ))}
+                  </div>
+                </Disclosure>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
                   type="button"
-                  className="button"
+                  variant="secondary"
                   disabled={
                     !connected ||
                     busy ||
@@ -379,10 +435,10 @@ export default function ReleasesPanel({
                   onClick={() => void chooseAction('authorize')}
                 >
                   Authorize exact candidate
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
-                  className="button primary"
+                  variant="primary"
                   disabled={
                     !connected ||
                     busy ||
@@ -392,10 +448,10 @@ export default function ReleasesPanel({
                   onClick={() => void chooseAction('publish')}
                 >
                   {selected.status === 'uncertain' ? 'Reconcile publication' : 'Publish authorized candidate'}
-                </button>
+                </Button>
                 {githubRelease(selected.release_url) && (
                   <a
-                    className="text-button"
+                    className="px-2 text-sm font-medium text-link underline-offset-4 hover:underline"
                     href={githubRelease(selected.release_url)!}
                     target="_blank"
                     rel="noreferrer"
@@ -419,9 +475,9 @@ export default function ReleasesPanel({
           dirty={!!packageVersion && !preparedRequest}
           description={`Prepare local immutable artifacts for completed run ${work.id}. This does not publish a release.`}
           footer={
-            <button
+            <Button
               type="button"
-              className="button primary"
+              variant="primary"
               disabled={!connected || busy || (!preparedRequest && !validPreparation)}
               onClick={() => void prepareCandidate()}
             >
@@ -430,33 +486,36 @@ export default function ReleasesPanel({
                 : preparedRequest
                   ? 'Retry exact preparation'
                   : 'Prepare immutable candidate'}
-            </button>
+            </Button>
           }
         >
-          {error && (
-            <p role="alert" className="notice error">
-              {error}
-            </p>
-          )}
-          <fieldset disabled={!connected || busy || !!preparedRequest} className="release-form-fields">
-            <Field label="Package version" hint="Semantic version without a leading v, for example 1.2.3.">
-              <input
-                value={packageVersion}
-                onChange={(event) => setPackageVersion(event.target.value)}
-                maxLength={100}
-              />
-            </Field>
-            <Field
-              label="Required CI check names"
-              hint="One exact required check name per line. Missing or failed checks block publication."
-            >
-              <textarea
-                value={checksText}
-                onChange={(event) => setChecksText(event.target.value)}
-                maxLength={8000}
-              />
-            </Field>
-          </fieldset>
+          <div className="grid gap-4">
+            {error && (
+              <Notice tone="danger" role="alert">
+                {error}
+              </Notice>
+            )}
+            <fieldset disabled={!connected || busy || !!preparedRequest} className="grid min-w-0 gap-4">
+              <Field label="Package version" hint="Semantic version without a leading v, for example 1.2.3.">
+                <Input
+                  value={packageVersion}
+                  onChange={(event) => setPackageVersion(event.target.value)}
+                  maxLength={100}
+                />
+              </Field>
+              <Field
+                label="Required CI check names"
+                hint="One exact required check name per line. Missing or failed checks block publication."
+              >
+                <Textarea
+                  value={checksText}
+                  className="font-mono text-xs"
+                  onChange={(event) => setChecksText(event.target.value)}
+                  maxLength={8000}
+                />
+              </Field>
+            </fieldset>
+          </div>
         </Dialog>
       )}
       {action && (
@@ -472,13 +531,13 @@ export default function ReleasesPanel({
           description={`${action.candidate.tag} · revision ${action.candidate.revision} · commit ${action.candidate.commit}`}
           footer={
             <>
-              <button type="button" className="button" disabled={busy} onClick={() => void refreshDialog()}>
+              <Button type="button" variant="secondary" disabled={busy} onClick={() => void refreshDialog()}>
                 Refresh candidate
-              </button>
+              </Button>
               {action.type === 'authorize' ? (
-                <button
+                <Button
                   type="button"
-                  className="button primary"
+                  variant="primary"
                   disabled={
                     !connected ||
                     busy ||
@@ -491,11 +550,11 @@ export default function ReleasesPanel({
                   onClick={() => void authorize()}
                 >
                   Authorize this digest
-                </button>
+                </Button>
               ) : (
-                <button
+                <Button
                   type="button"
-                  className="button primary"
+                  variant="primary"
                   disabled={
                     !connected ||
                     busy ||
@@ -509,74 +568,73 @@ export default function ReleasesPanel({
                     : publication
                       ? 'Retry exact publication'
                       : 'Confirm publication'}
-                </button>
+                </Button>
               )}
             </>
           }
         >
-          {error && (
-            <p role="alert" className="notice error">
-              {error}
-            </p>
-          )}
-          <p>Exact candidate digest:</p>
-          <code className="release-exact-digest">{action.candidate.digest}</code>
-          {action.candidate.blockers.length > 0 && (
-            <div className="notice error">
-              <strong>Publication blocked</strong>
-              <ul>
-                {action.candidate.blockers.map((blocker) => (
-                  <li key={blocker}>{blocker}</li>
-                ))}
-              </ul>
+          <div className="grid gap-4">
+            {error && (
+              <Notice tone="danger" role="alert">
+                {error}
+              </Notice>
+            )}
+            <div className="grid gap-1.5">
+              <p className="text-sm">Exact candidate digest:</p>
+              <code
+                className={cn(
+                  'block rounded-md border border-border bg-code px-3 py-2 font-mono text-xs',
+                  '[overflow-wrap:anywhere]',
+                )}
+              >
+                {action.candidate.digest}
+              </code>
             </div>
-          )}
-          {action.type === 'authorize' ? (
-            <fieldset disabled={!connected || busy} className="release-form-fields">
-              <Field label="Authorization validity · seconds">
-                <input
-                  type="number"
-                  min={60}
-                  max={86400}
-                  step={1}
-                  value={expires}
-                  onChange={(event) => setExpires(event.target.value)}
-                />
-              </Field>
-              <label>
-                <input
-                  type="checkbox"
+            {action.candidate.blockers.length > 0 && blockers(action.candidate.blockers)}
+            {action.type === 'authorize' ? (
+              <fieldset disabled={!connected || busy} className="grid min-w-0 gap-4">
+                <Field label="Authorization validity · seconds">
+                  <Input
+                    type="number"
+                    min={60}
+                    max={86400}
+                    step={1}
+                    value={expires}
+                    onChange={(event) => setExpires(event.target.value)}
+                  />
+                </Field>
+                <CheckField
+                  label="I authorize publication of this exact candidate digest."
                   checked={authorizationChecked}
                   onChange={(event) => setAuthorizationChecked(event.target.checked)}
-                />{' '}
-                I authorize publication of this exact candidate digest.
-              </label>
-              <p>
-                Authorization applies only to these artifacts and this commit. Publication requires a separate
-                confirmation.
-              </p>
-            </fieldset>
-          ) : (
-            <>
-              <p>
-                This command can create a GitHub release for the exact authorized candidate. Merge and
-                deployment remain separately controlled.
-              </p>
-              <Field label={`Type ${action.candidate.tag} to confirm publication`}>
-                <input
-                  value={confirmedTag}
-                  disabled={!connected || busy || !!publication}
-                  onChange={(event) => setConfirmedTag(event.target.value)}
                 />
-              </Field>
-              {publication && (
-                <p>
-                  The publication request is locked. A retry preserves its receipt; refresh the candidate to
-                  inspect an uncertain outcome.
+                <p className="text-sm text-muted-foreground">
+                  Authorization applies only to these artifacts and this commit. Publication requires a
+                  separate confirmation.
                 </p>
-              )}
-            </>
-          )}
+              </fieldset>
+            ) : (
+              <>
+                <p className="text-sm text-muted-foreground">
+                  This command can create a GitHub release for the exact authorized candidate. Merge and
+                  deployment remain separately controlled.
+                </p>
+                <Field label={`Type ${action.candidate.tag} to confirm publication`}>
+                  <Input
+                    value={confirmedTag}
+                    disabled={!connected || busy || !!publication}
+                    onChange={(event) => setConfirmedTag(event.target.value)}
+                  />
+                </Field>
+                {publication && (
+                  <p className="text-sm text-muted-foreground">
+                    The publication request is locked. A retry preserves its receipt; refresh the candidate to
+                    inspect an uncertain outcome.
+                  </p>
+                )}
+              </>
+            )}
+          </div>
         </Dialog>
       )}
     </section>

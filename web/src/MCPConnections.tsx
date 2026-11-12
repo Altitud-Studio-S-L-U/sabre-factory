@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import {
   ApiError,
   type Api,
@@ -8,9 +8,16 @@ import {
   type Project,
   type ProjectToolsPolicy,
 } from './api';
+import Button from './components/Button';
+import CheckField from './components/CheckField';
+import CodeBlock from './components/CodeBlock';
+import Dialog, { DialogActions } from './components/Dialog';
+import Disclosure from './components/Disclosure';
 import Field from './components/FormField';
+import Input from './components/Input';
+import Notice from './components/Notice';
+import { SectionHeading } from './components/PageHeader';
 import Select from './components/Select';
-import Dialog from './components/Dialog';
 
 const roles = {
   supervisor: 'Supervisor',
@@ -54,23 +61,7 @@ export default function MCPConnections({
   const [discovery, setDiscovery] = useState<MCPDiscovery | null>(null);
   const [policies, setPolicies] = useState<Record<string, MCPToolSettings>>({});
   const [digests, setDigests] = useState<Record<string, string>>({});
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      setItems(await api.mcpConnections());
-      setError('');
-    } catch (reason) {
-      setError(failure(reason));
-    } finally {
-      setLoading(false);
-    }
-  }, [api]);
-  useEffect(() => {
-    void load();
-  }, [load]);
-  useEffect(() => {
-    if (!compact || loading) return;
-    const item = items.find((value) => value.name === initialConnection) ?? null;
+  const fill = useCallback((item: MCPConnectionInfo | null) => {
     setCurrent(item);
     setName(item?.name || '');
     setEndpoint(item?.endpoint || '');
@@ -78,17 +69,39 @@ export default function MCPConnections({
     setDigests(item?.tool_digests || {});
     setDiscovery(null);
     setEditing(true);
-  }, [compact, initialConnection, loading, items]);
+  }, []);
+  // State is applied in promise callbacks, so the mount effect never sets state synchronously.
+  const fetchConnections = useCallback(
+    () =>
+      api
+        .mcpConnections()
+        .then(
+          (next) => {
+            setItems(next);
+            setError('');
+            // The compact editor (opened from Tools) follows the loaded connection it was asked for.
+            if (compact) fill(next.find((value) => value.name === initialConnection) ?? null);
+          },
+          (reason: unknown) => {
+            setError(failure(reason));
+            // Without a catalog the compact editor still opens, keeping the values it already holds.
+            if (compact) setEditing(true);
+          },
+        )
+        .finally(() => setLoading(false)),
+    [api, compact, initialConnection, fill],
+  );
+  useEffect(() => {
+    void fetchConnections();
+  }, [fetchConnections]);
+  const load = async () => {
+    setLoading(true);
+    await fetchConnections();
+  };
   const choose = (item: MCPConnectionInfo | null) => {
-    setCurrent(item);
-    setName(item?.name || '');
-    setEndpoint(item?.endpoint || '');
-    setPolicies(item?.tools || {});
-    setDigests(item?.tool_digests || {});
-    setDiscovery(null);
+    fill(item);
     setError('');
     setNotice('');
-    setEditing(true);
   };
   const save = async (event: FormEvent) => {
     event.preventDefault();
@@ -164,61 +177,81 @@ export default function MCPConnections({
     });
   };
   return (
-    <section className="integration-section" aria-labelledby="mcp-connections-title">
+    <section className="grid min-w-0 gap-4" aria-labelledby="mcp-connections-title">
       {!compact && (
         <>
-          <div className="section-heading">
-            <div>
-              <h2 id="mcp-connections-title">MCP servers</h2>
-              <p className="muted">
-                Connect external tools and choose which roles and projects may use them.
-              </p>
-            </div>
-            <div className="integration-actions">
-              <button className="button small" disabled={loading || busy} onClick={() => void load()}>
-                Refresh servers
-              </button>
-              <button className="button primary" disabled={busy} onClick={() => choose(null)}>
-                Add MCP server
-              </button>
-            </div>
-          </div>
+          <SectionHeading
+            id="mcp-connections-title"
+            title="MCP servers"
+            description="Connect external tools and choose which roles and projects may use them."
+            actions={
+              <>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  disabled={loading || busy}
+                  onClick={() => void load()}
+                >
+                  Refresh servers
+                </Button>
+                <Button type="button" variant="primary" disabled={busy} onClick={() => choose(null)}>
+                  Add MCP server
+                </Button>
+              </>
+            }
+          />
           {error && (
-            <p className="notice error" role="alert">
+            <Notice tone="danger" role="alert">
               {error}
-            </p>
+            </Notice>
           )}
           {notice && (
-            <p className="notice neutral" role="status">
+            <Notice tone="neutral" role="status">
               {notice}
+            </Notice>
+          )}
+          {loading && !items.length && (
+            <p role="status" className="text-sm text-muted-foreground">
+              Loading servers…
             </p>
           )}
-          {loading && !items.length && <p role="status">Loading servers…</p>}
-          {!loading && !items.length && <p className="muted">No MCP servers registered yet.</p>}
-          <ul className="repository-list">
-            {items.map((item) => (
-              <li key={item.name}>
-                <div>
-                  <strong>{item.name}</strong>
-                  <span className="muted connection-endpoint">{item.endpoint}</span>
-                  <span className="muted">
-                    {Object.keys(item.tools).length} authorized tools ·{' '}
-                    {item.source === 'static' ? 'Instance configuration' : `Review ${item.revision}`}
-                  </span>
-                </div>
-                {item.source === 'dynamic' && (
-                  <button
-                    className="button small"
-                    disabled={busy}
-                    onClick={() => choose(item)}
-                    aria-label={`Configure MCP ${item.name}`}
-                  >
-                    Configure
-                  </button>
-                )}
-              </li>
-            ))}
-          </ul>
+          {!loading && !items.length && (
+            <p className="text-sm text-muted-foreground">No MCP servers registered yet.</p>
+          )}
+          {!!items.length && (
+            <ul className="divide-y divide-border rounded-lg border border-border bg-card">
+              {items.map((item) => (
+                <li
+                  key={item.name}
+                  className="flex min-w-0 flex-wrap items-center justify-between gap-3 px-4 py-3"
+                >
+                  <div className="grid min-w-0 gap-0.5">
+                    <strong className="text-sm font-semibold">{item.name}</strong>
+                    <span className="font-mono text-xs text-muted-foreground [overflow-wrap:anywhere]">
+                      {item.endpoint}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {Object.keys(item.tools).length} authorized tools ·{' '}
+                      {item.source === 'static' ? 'Instance configuration' : `Review ${item.revision}`}
+                    </span>
+                  </div>
+                  {item.source === 'dynamic' && (
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      disabled={busy}
+                      onClick={() => choose(item)}
+                      aria-label={`Configure MCP ${item.name}`}
+                    >
+                      Configure
+                    </Button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
         </>
       )}
       <Dialog
@@ -236,132 +269,145 @@ export default function MCPConnections({
           onEditorClose?.();
         }}
       >
-        {error && compact && (
-          <p className="notice error" role="alert">
-            {error}
-          </p>
-        )}
-        {notice && compact && (
-          <p className="notice neutral" role="status">
-            {notice}
-          </p>
-        )}
-        {!connected && (
-          <p className="notice warning" role="status">
-            Disconnected. Reconnect before changing this connection.
-          </p>
-        )}
-        {editing && (
-          <form
-            className="connection-form"
-            onSubmit={(event) => void save(event)}
-            aria-label="Configure MCP server"
-          >
-            <div className="form-grid">
-              <Field
-                label="Connection name"
-                hint="Stable identifier: letters, numbers, hyphens and underscores."
-              >
-                <input
-                  value={name}
-                  required
-                  maxLength={40}
-                  pattern={'[A-Za-z0-9_\\-]+'}
-                  disabled={busy || !!current}
-                  onChange={(event) => setName(event.target.value)}
-                />
-              </Field>
-              <Field
-                label="Endpoint MCP"
-                hint="Public HTTPS, port 443 and an exact path. Local destinations require instance configuration."
-              >
-                <input
-                  type="url"
-                  value={endpoint}
-                  required
-                  maxLength={2048}
-                  disabled={busy}
-                  placeholder="https://tools.example.com/mcp"
-                  onChange={(event) => {
-                    setEndpoint(event.target.value);
-                    setDiscovery(null);
-                  }}
-                />
-              </Field>
-            </div>
-            <p className="muted">
-              Credentials are encrypted through the connection card. Do not include them in URLs. Changing
-              destinations clears selected tools and creates a distinct credential target.
-            </p>
-            {current && (
-              <div>
-                <button
-                  className="button small"
-                  type="button"
-                  disabled={busy || endpoint !== current.endpoint}
-                  onClick={() => void discover()}
+        <div className="grid gap-4">
+          {error && compact && (
+            <Notice tone="danger" role="alert">
+              {error}
+            </Notice>
+          )}
+          {notice && compact && (
+            <Notice tone="neutral" role="status">
+              {notice}
+            </Notice>
+          )}
+          {!connected && (
+            <Notice tone="warning" role="status">
+              Disconnected. Reconnect before changing this connection.
+            </Notice>
+          )}
+          {editing && (
+            <form
+              className="grid min-w-0 gap-5"
+              onSubmit={(event) => void save(event)}
+              aria-label="Configure MCP server"
+            >
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field
+                  label="Connection name"
+                  hint="Stable identifier: letters, numbers, hyphens and underscores."
                 >
-                  {busy ? 'Loading…' : 'Discover tools'}
-                </button>
-                <p className="muted">
-                  Discovery reads the remote catalog without executing tools. Saved connections start
-                  disabled.
-                </p>
+                  <Input
+                    value={name}
+                    required
+                    maxLength={40}
+                    pattern={'[A-Za-z0-9_\\-]+'}
+                    disabled={busy || !!current}
+                    onChange={(event) => setName(event.target.value)}
+                  />
+                </Field>
+                <Field
+                  label="Endpoint MCP"
+                  hint="Public HTTPS, port 443 and an exact path. Local destinations require instance configuration."
+                >
+                  <Input
+                    type="url"
+                    value={endpoint}
+                    required
+                    maxLength={2048}
+                    disabled={busy}
+                    placeholder="https://tools.example.com/mcp"
+                    onChange={(event) => {
+                      setEndpoint(event.target.value);
+                      setDiscovery(null);
+                    }}
+                  />
+                </Field>
               </div>
-            )}
-            {discovery && (
-              <div className="mcp-tool-list">
-                <h3>Tools and roles</h3>
-                <p className="muted">
-                  Inspect each contract. External tools are read-only in this release; also grant read-only
-                  permissions at the remote service. Tool descriptions do not prove behavior.
-                </p>
-                {discovery.tools.map((tool) => (
-                  <fieldset className="mcp-tool" key={tool.name} disabled={busy}>
-                    <legend>{tool.name}</legend>
-                    <p>{tool.description}</p>
-                    <details>
-                      <summary>View input contract</summary>
-                      <pre className="schema-preview">{JSON.stringify(tool.input_schema, null, 2)}</pre>
-                    </details>
-                    <div className="role-options">
-                      {(Object.keys(roles) as Role[]).map((role) => (
-                        <label className="check-line" key={role}>
-                          <input
-                            type="checkbox"
+              <p className="text-sm text-muted-foreground">
+                Credentials are encrypted through the connection card. Do not include them in URLs. Changing
+                destinations clears selected tools and creates a distinct credential target.
+              </p>
+              {current && (
+                <div className="grid justify-items-start gap-2">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    type="button"
+                    disabled={busy || endpoint !== current.endpoint}
+                    onClick={() => void discover()}
+                  >
+                    {busy ? 'Loading…' : 'Discover tools'}
+                  </Button>
+                  <p className="text-xs text-muted-foreground">
+                    Discovery reads the remote catalog without executing tools. Saved connections start
+                    disabled.
+                  </p>
+                </div>
+              )}
+              {discovery && (
+                <div className="grid gap-4">
+                  <div className="grid gap-1">
+                    <h3 className="text-base font-semibold">Tools and roles</h3>
+                    <p className="text-sm text-muted-foreground">
+                      Inspect each contract. External tools are read-only in this release; also grant
+                      read-only permissions at the remote service. Tool descriptions do not prove behavior.
+                    </p>
+                  </div>
+                  {discovery.tools.map((tool) => (
+                    <fieldset
+                      className="grid min-w-0 gap-3 rounded-lg border border-border p-4"
+                      key={tool.name}
+                      disabled={busy}
+                    >
+                      <legend className="px-1.5 text-sm font-semibold [overflow-wrap:anywhere]">
+                        {tool.name}
+                      </legend>
+                      <p className="text-sm whitespace-pre-wrap [overflow-wrap:anywhere]">
+                        {tool.description}
+                      </p>
+                      <Disclosure variant="plain" summary="View input contract">
+                        <CodeBlock className="max-h-56">
+                          {JSON.stringify(tool.input_schema, null, 2)}
+                        </CodeBlock>
+                      </Disclosure>
+                      <div className="flex flex-wrap gap-x-6 gap-y-3">
+                        {(Object.keys(roles) as Role[]).map((role) => (
+                          <CheckField
+                            key={role}
+                            label={roles[role]}
                             checked={policies[tool.name]?.roles.includes(role) || false}
                             onChange={(event) =>
                               setRole(tool.name, tool.manifest_digest, role, event.target.checked)
                             }
                           />
-                          {roles[role]}
-                        </label>
-                      ))}
-                    </div>
-                  </fieldset>
-                ))}
-                {!discovery.tools.length && <p className="muted">The server advertises no tools.</p>}
-              </div>
-            )}
-            {!!current && !discovery && !!Object.keys(policies).length && (
-              <p className="muted">
-                Retaining {Object.keys(policies).length} reviewed contracts if the endpoint is unchanged.
-                Discover the catalog to change role assignments.
-              </p>
-            )}
-            <div className="integration-actions">
-              <button className="button primary" disabled={busy || !connected}>
-                {busy ? 'Saving…' : 'Save disabled connection'}
-              </button>
-            </div>
-          </form>
-        )}
+                        ))}
+                      </div>
+                    </fieldset>
+                  ))}
+                  {!discovery.tools.length && (
+                    <p className="text-sm text-muted-foreground">The server advertises no tools.</p>
+                  )}
+                </div>
+              )}
+              {!!current && !discovery && !!Object.keys(policies).length && (
+                <p className="text-sm text-muted-foreground">
+                  Retaining {Object.keys(policies).length} reviewed contracts if the endpoint is unchanged.
+                  Discover the catalog to change role assignments.
+                </p>
+              )}
+              <DialogActions>
+                <Button type="submit" variant="primary" disabled={busy || !connected}>
+                  {busy ? 'Saving…' : 'Save disabled connection'}
+                </Button>
+              </DialogActions>
+            </form>
+          )}
+        </div>
       </Dialog>
       {!compact && !!items.length && (
-        <details>
-          <summary>Project access</summary>
+        <Disclosure summary="Project access">
           <ProjectToolAccess api={api} connections={items} />
-        </details>
+        </Disclosure>
       )}
     </section>
   );
@@ -375,6 +421,7 @@ function ProjectToolAccess({ api, connections }: { api: Api; connections: MCPCon
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const policyRequest = useRef(0);
   useEffect(() => {
     let active = true;
     void api
@@ -389,27 +436,24 @@ function ProjectToolAccess({ api, connections }: { api: Api; connections: MCPCon
       active = false;
     };
   }, [api]);
-  useEffect(() => {
-    let active = true;
+  const chooseProject = (id: string) => {
+    const request = ++policyRequest.current;
+    setProjectId(id);
     setPolicy(null);
     setError('');
     setNotice('');
-    if (projectId)
-      void api
-        .projectTools(projectId)
-        .then((value) => {
-          if (active) {
-            setPolicy(value);
-            setServers(value.servers);
-          }
-        })
-        .catch((reason) => {
-          if (active) setError(failure(reason));
-        });
-    return () => {
-      active = false;
-    };
-  }, [api, projectId]);
+    if (!id) return;
+    void api
+      .projectTools(id)
+      .then((value) => {
+        if (policyRequest.current !== request) return;
+        setPolicy(value);
+        setServers(value.servers);
+      })
+      .catch((reason) => {
+        if (policyRequest.current === request) setError(failure(reason));
+      });
+  };
   const save = async (event: FormEvent) => {
     event.preventDefault();
     if (!policy || busy) return;
@@ -432,16 +476,18 @@ function ProjectToolAccess({ api, connections }: { api: Api; connections: MCPCon
   };
   return (
     <form
-      className="connection-form"
+      className="grid min-w-0 gap-4"
       aria-label="MCP access by project"
       onSubmit={(event) => void save(event)}
     >
-      <h3>Project access</h3>
-      <p className="muted">
-        Stop active project work before changing permissions. Selecting a server does not enable it.
-      </p>
+      <div className="grid gap-1">
+        <h3 className="text-base font-semibold">Project access</h3>
+        <p className="text-sm text-muted-foreground">
+          Stop active project work before changing permissions. Selecting a server does not enable it.
+        </p>
+      </div>
       <Field label="Project tool permissions">
-        <Select value={projectId} disabled={busy} onChange={(event) => setProjectId(event.target.value)}>
+        <Select value={projectId} disabled={busy} onChange={(event) => chooseProject(event.target.value)}>
           <option value="">Choose a project</option>
           {projects.map((project) => (
             <option key={project.id} value={project.id}>
@@ -451,39 +497,37 @@ function ProjectToolAccess({ api, connections }: { api: Api; connections: MCPCon
         </Select>
       </Field>
       {error && (
-        <p className="notice error" role="alert">
+        <Notice tone="danger" role="alert">
           {error}
-        </p>
+        </Notice>
       )}
       {notice && (
-        <p className="notice neutral" role="status">
+        <Notice tone="neutral" role="status">
           {notice}
-        </p>
+        </Notice>
       )}
       {policy && (
         <>
-          <fieldset disabled={busy} className="server-options">
-            <legend>Allowed servers</legend>
+          <fieldset disabled={busy} className="grid min-w-0 gap-2.5">
+            <legend className="mb-2.5 text-sm font-medium">Allowed servers</legend>
             {connections.map((connection) => (
-              <label className="check-line" key={connection.name}>
-                <input
-                  type="checkbox"
-                  checked={servers.includes(connection.name)}
-                  onChange={(event) =>
-                    setServers((current) =>
-                      event.target.checked
-                        ? [...new Set([...current, connection.name])]
-                        : current.filter((name) => name !== connection.name),
-                    )
-                  }
-                />
-                {connection.name}
-              </label>
+              <CheckField
+                key={connection.name}
+                label={connection.name}
+                checked={servers.includes(connection.name)}
+                onChange={(event) =>
+                  setServers((current) =>
+                    event.target.checked
+                      ? [...new Set([...current, connection.name])]
+                      : current.filter((name) => name !== connection.name),
+                  )
+                }
+              />
             ))}
           </fieldset>
-          <button className="button primary" disabled={busy}>
+          <Button type="submit" variant="primary" className="justify-self-start" disabled={busy}>
             Save project permissions
-          </button>
+          </Button>
         </>
       )}
     </form>

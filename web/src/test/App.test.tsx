@@ -665,7 +665,7 @@ describe('Control room', () => {
     mockApi();
     const user = await enter();
     await user.click(screen.getByRole('link', { name: 'Tools' }));
-    await user.click(await screen.findByRole('button', { name: 'Credentials' }));
+    await user.click(await screen.findByRole('tab', { name: 'Credentials' }));
     expect(await screen.findByRole('heading', { name: 'SABRE credentials' })).toBeVisible();
     expect(await screen.findByText('No saved credentials yet.')).toBeVisible();
     expect(writes).toEqual([]);
