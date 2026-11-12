@@ -34,6 +34,7 @@ from sabre.integrations import (
     IntegrationStateChange,
 )
 from sabre.mcp_connections import MCPConnectionInfo, MCPConnectionSave, MCPDiscovery
+from sabre.memory_contracts import MemoryApproval, MemoryCarryForward, MemoryValidityRecord
 from sabre.model_configuration import ModelConfiguration, ModelConfigurationChange
 from sabre.models import (
     Answer,
@@ -537,8 +538,12 @@ def create_app(service=None, config=None) -> FastAPI:
         return await svc().memory.search(project_id, query, commit)
 
     @application.post("/api/v1/memory/{memory_id}/approve", response_model=MemoryItem)
-    async def approve_memory(memory_id: str):
-        return await svc().memory.update(memory_id, True)
+    async def approve_memory(memory_id: str, body: MemoryApproval | None = None):
+        return await svc().memory.update(memory_id, True, body)
+
+    @application.post("/api/v1/memory/{memory_id}/carry-forward", response_model=MemoryValidityRecord)
+    async def carry_memory_forward(memory_id: str, body: MemoryCarryForward):
+        return await svc().memory.carry_forward(memory_id, body)
 
     @application.post("/api/v1/memory/{memory_id}/invalidate", response_model=MemoryItem)
     async def invalidate_memory(memory_id: str):

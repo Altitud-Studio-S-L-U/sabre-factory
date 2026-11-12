@@ -2,7 +2,8 @@ import hashlib
 import json
 import re
 
-from sabre.models import DomainError, MemoryCreate, MemoryItem, WorkOrder, now
+from sabre.memory_contracts import MemoryApproval, MemoryCarryForward, MemoryValidityRecord
+from sabre.models import DomainError, MemoryCreate, MemoryItem, WorkOrder, memory_identity, now
 from sabre.repository import digest
 
 MAX_CONTEXT_BYTES = 6144
@@ -40,7 +41,7 @@ def memory_excerpt(item, query, limit):
 
 
 def verified_fact(work) -> str:
-    return f"Commit {work.evidence.commit}: {len(work.evidence.gates)} comprobaciones aprobadas; snapshot {work.evidence.snapshot_digest}."
+    return f"Commit {work.evidence.commit}: {len(work.evidence.gates)} checks passed; snapshot {work.evidence.snapshot_digest}."
 
 
 class MemoryService:
@@ -56,13 +57,21 @@ class MemoryService:
             raise DomainError("MEMORY_PROVENANCE", "Provenance does not match a project delivery")
         # Recovery may queue a published order before replaying its final memory write.
         delivered = work.status == "completed" or bool(work.evidence.branch and work.evidence.pr_url)
-        verifiable = request.kind == "fact" and delivered and request.content == verified_fact(work) and request.evidence_digest == work.evidence.snapshot_digest
-        item = MemoryItem(**request.model_dump(), id=digest(request.model_dump()), active=verifiable, approved_at=now() if verifiable else None)
+        # Only the mechanically derived delivery fact activates itself, and it stays commit-scoped.
+        verifiable = (request.kind == "fact" and delivered and request.content == verified_fact(work)
+                      and request.evidence_digest == work.evidence.snapshot_digest and request.scope == "commit"
+                      and not request.citations and request.supersedes is None)
+        item = MemoryItem(**request.model_dump(), id=digest(memory_identity(request)), active=verifiable, approved_at=now() if verifiable else None)
         embedding = await self.embeddings.aembed_query(item.content) if self.embeddings and not verifiable else None
         return await self.repository.create_memory(item, embedding)
 
-    async def update(self, memory_id: str, approve: bool):
-        return await self.repository.set_memory_state(memory_id, approve)
+    async def update(self, memory_id: str, approve: bool, decision: MemoryApproval | None = None):
+        if decision is None or not approve:
+            return await self.repository.set_memory_state(memory_id, approve)
+        return await self.repository.set_memory_state(memory_id, approve, scope=decision.scope)
+
+    async def carry_forward(self, memory_id: str, request: MemoryCarryForward):
+        return MemoryValidityRecord.model_validate(await self.repository.carry_memory_forward(memory_id, request.commit))
 
     async def search(self, project_id: str, query: str, commit: str, *, work: WorkOrder | None = None):
         self.guard.check(query)
@@ -134,7 +143,7 @@ class MemoryService:
                 identifier, signature = reference.get("id"), reference.get("content_digest")
                 if not isinstance(identifier, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", identifier) or not isinstance(signature, str) or not re.fullmatch(r"[a-f0-9]{64}", signature):
                     raise changed()
-                if reference.get("project_id", project_id) != project_id or reference.get("source_commit", commit) != commit:
+                if reference.get("project_id", project_id) != project_id:
                     raise changed()
                 key = (identifier, signature)
                 if key in checked:
@@ -146,7 +155,11 @@ class MemoryService:
                         raise changed() from None
                     raise
                 self.guard.check(item.model_dump(mode="json"))
-                if item.project_id != project_id or item.source_commit != commit or not item.active or item.invalidated_at is not None or hashlib.sha256(item.content.encode()).hexdigest() != signature:
+                # The repository admits the memory only while it is valid at this commit; the reference
+                # must still name the same source commit, and a commit-scoped memory only its own commit.
+                if (item.project_id != project_id or reference.get("source_commit", item.source_commit) != item.source_commit
+                        or (item.scope != "project" and item.source_commit != commit) or not item.active
+                        or item.invalidated_at is not None or hashlib.sha256(item.content.encode()).hexdigest() != signature):
                     raise changed()
                 checked.add(key)
         return validate
