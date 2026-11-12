@@ -535,7 +535,8 @@ class MemoryStore:
                           query: str | None = None, after: tuple[str, str] | None = None, limit: int = 50,
                           memory_id: str | None = None) -> list[dict]:
         """Newest first; each row carries the current validity at ``commit`` and link counts in both directions."""
-        pattern = None if query is None else "%" + query.replace("\\", "\\\\").replace("%", "\%").replace("_", "\_") + "%"
+        # ILIKE uses backslash as its escape character; user text matches literally.
+        pattern = None if query is None else "%" + query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
         async with self.connection() as conn:
             if commit is not None:
                 await self._ensure_validity(conn, project_id, commit)
