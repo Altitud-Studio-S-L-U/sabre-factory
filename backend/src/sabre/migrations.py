@@ -27,6 +27,15 @@ ALTER TABLE panel_sessions ADD COLUMN created_at timestamptz NOT NULL DEFAULT cl
 ALTER TABLE panel_sessions ADD COLUMN last_used_at timestamptz NOT NULL DEFAULT clock_timestamp();
 """
 
+# Per-call measurement: provider-reported token split and settlement time. Older
+# rows keep NULL, which projections report as unknown rather than zero.
+USAGE_BREAKDOWN = """
+ALTER TABLE model_usage ADD COLUMN input_tokens bigint CHECK(input_tokens>=0);
+ALTER TABLE model_usage ADD COLUMN output_tokens bigint CHECK(output_tokens>=0);
+ALTER TABLE model_usage ADD COLUMN cache_read_tokens bigint CHECK(cache_read_tokens>=0);
+ALTER TABLE model_usage ADD COLUMN settled_at timestamptz;
+"""
+
 
 async def migrate(conn, baseline: str):
     from sabre.console_configuration import CONSOLE_CONFIGURATION_SCHEMA
@@ -70,7 +79,8 @@ async def migrate(conn, baseline: str):
             work_id text NOT NULL REFERENCES work_orders(id) ON DELETE CASCADE,
             revision integer NOT NULL, data jsonb NOT NULL,
             created_at timestamptz NOT NULL DEFAULT clock_timestamp(), PRIMARY KEY(work_id,revision));
-        """, 10: INGESTION_SCHEMA, 11: RELEASE_SCHEMA, 12: PANEL_SESSION_DIRECTORY}
+        """, 10: INGESTION_SCHEMA, 11: RELEASE_SCHEMA, 12: PANEL_SESSION_DIRECTORY,
+        13: USAGE_BREAKDOWN}
     if set(applied) - set(migrations):
         raise DomainError("SCHEMA_NEWER_THAN_RUNTIME", "Restore the matching application version before opening this database", 503)
     for version, statement in migrations.items():

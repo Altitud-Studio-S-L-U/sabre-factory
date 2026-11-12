@@ -1,6 +1,7 @@
 """Role-scoped tools and the small MCP-to-LangChain boundary."""
 
 import asyncio
+import json
 from collections.abc import Awaitable, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager, nullcontext
 from dataclasses import dataclass
@@ -16,6 +17,16 @@ from sabre.error_boundaries import guarded_call
 from sabre.models import DomainError
 from sabre.security import SecretGuard
 from sabre.telemetry import span
+
+
+def result_bytes(result: Any) -> int:
+    """UTF-8 size of a tool result as the model receives it (strings verbatim, other values as JSON)."""
+    if isinstance(result, str):
+        return len(result.encode())
+    try:
+        return len(json.dumps(result, ensure_ascii=False, separators=(",", ":"), default=str).encode())
+    except (TypeError, ValueError, RecursionError):
+        return len(str(result).encode())
 
 
 @dataclass(frozen=True)
@@ -53,8 +64,11 @@ class ToolCatalog:
     async def invoke(self, name: str, arguments: dict, role: str, *, allow_external_write=False):
         internal = {"list_files", "read_file", "search_source", "read_file_range", "write_file", "execute", "prepare_dependencies", "resolve_dependencies", "read_context", "read_memory", "edit_source"}
         with span("tool.call", tool=name if name in internal else "mcp", role=role):
-            async with self.observer(name) if self.observer else nullcontext():
-                return await guarded_call(self._invoke, self.guard, "TOOL_EXECUTION_FAILED", name, arguments, role, allow_external_write=allow_external_write)
+            async with self.observer(name) if self.observer else nullcontext() as boundary:
+                result = await guarded_call(self._invoke, self.guard, "TOOL_EXECUTION_FAILED", name, arguments, role, allow_external_write=allow_external_write)
+                if boundary is not None:
+                    boundary.output_bytes = result_bytes(result)
+                return result
 
     async def _invoke(self, name: str, arguments: dict, role: str, *, allow_external_write=False):
         if self.credential_check:

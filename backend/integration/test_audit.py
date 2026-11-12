@@ -101,3 +101,39 @@ async def test_audit_reads_latest_official_checkpoint_and_preserves_usage_and_pr
         assert row == {"total": 2, "settled": 1}
         await saver.adelete_thread(thread)
         await saver.adelete_thread(foreign_thread)
+
+
+async def test_per_call_split_and_measured_boundaries_persist_without_content(repository):
+    from sabre.events import ExecutionEvent
+    from sabre.models import new_id, now
+
+    repo, _, work = await fixture_work(repository)
+    split = await repo.reserve_usage(work, 9000, 0, 10)
+    await repo.settle_usage(split, 3005, 0, breakdown={"input_tokens": 3000, "output_tokens": 5, "cache_read_tokens": 2048})
+    legacy = await repo.reserve_usage(work, 500, 0, 10)
+    await repo.settle_usage(legacy, 400, 0)
+    await repo.reserve_usage(work, 700, 0, 10)
+    calls, truncated = await repo.audit_calls(work.id)
+    assert not truncated and [call["reserved_tokens"] for call in calls] == [9000, 500, 700]
+    first, second, pending = calls
+    assert (first["input_tokens"], first["output_tokens"], first["cache_read_tokens"], first["actual_tokens"]) == (3000, 5, 2048, 3005)
+    assert first["call_ms"] is not None and first["call_ms"] >= 0
+    assert (second["input_tokens"], second["actual_tokens"]) == (None, 400)
+    assert pending["actual_tokens"] is None and pending["call_ms"] is None
+    models = await repo.audit_model_usage(work.id)
+    assert sum(entry["input_tokens"] or 0 for entry in models) == 3000
+    assert sum(entry["unsplit_calls"] for entry in models) == 1
+    agent = "c" * 64
+
+    def event(kind, name, state, duration=None, size=None):
+        return ExecutionEvent(id=new_id(), work_id=work.id, plan_revision=1, phase="implementation", correlation_id=new_id(),
+            agent_id=agent, kind=kind, state=state, name=name, timestamp=now(), duration_ms=duration, output_bytes=size)
+
+    for item in (event("agent", "developer", "started"), event("tool", "read_file", "started"),
+                 event("tool", "read_file", "completed", 1400, 900), event("tool", "read_file", "failed", 30),
+                 event("tool", "read_file", "completed", 1500, 1100), event("agent", "developer", "completed", 9000)):
+        await repo.record_execution_event(item)
+    timings = {(row["kind"], row["name"]): row for row in await repo.audit_execution_timings(work.id)}
+    reads = timings[("tool", "read_file")]
+    assert (reads["count"], reads["failed"], reads["total_ms"], reads["max_ms"], reads["output_bytes"]) == (3, 1, 2930, 1500, 2000)
+    assert timings[("agent", "developer")]["total_ms"] == 9000

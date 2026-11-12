@@ -76,6 +76,41 @@ async def test_model_audit_retains_legacy_unknown_and_measured_vs_reserved_usage
     repository.audit_model_usage.assert_awaited_once_with(work.id)
 
 
+async def test_audit_reports_per_call_split_and_measured_agent_and_tool_time_without_content():
+    service, repository, saver, work, thread = fixture()
+    saver.aget_tuple.return_value = checkpoint([answer()])
+    agent_id = service_public_id(thread)
+    repository.audit_calls = AsyncMock(return_value=([
+        {"role": "developer", "model_provider": "codex_cli", "model_name": "gpt-5", "reserved_tokens": 9000,
+         "actual_tokens": 3005, "input_tokens": 3000, "output_tokens": 5, "cache_read_tokens": 2048,
+         "sent_bytes": 8100, "original_bytes": 12000, "call_ms": 4200},
+        {"role": "developer", "model_provider": "codex_cli", "model_name": "gpt-5", "reserved_tokens": 9000,
+         "actual_tokens": None, "input_tokens": None, "output_tokens": None, "cache_read_tokens": None,
+         "sent_bytes": 8200, "original_bytes": 8200, "call_ms": None},
+    ], True))
+    repository.audit_execution_timings = AsyncMock(return_value=[
+        {"kind": "agent", "agent_id": agent_id, "name": "developer", "count": 1, "failed": 0, "total_ms": 61000, "max_ms": 61000, "output_bytes": None},
+        {"kind": "tool", "agent_id": agent_id, "name": "read_file", "count": 52, "failed": 1, "total_ms": 72800, "max_ms": 2100, "output_bytes": 180000},
+        {"kind": "tool", "agent_id": agent_id, "name": SECRET, "count": 1, "failed": 0, "total_ms": 10, "max_ms": 10, "output_bytes": None},
+    ])
+    report = await service.audit(work.id)
+    assert [call.sequence for call in report.calls] == [1, 2] and report.calls_truncated
+    first, unsettled = report.calls
+    assert (first.input_tokens, first.output_tokens, first.cache_read_tokens, first.measured_tokens) == (3000, 5, 2048, 3005)
+    assert (first.sent_bytes, first.original_bytes, first.call_ms) == (8100, 12000, 4200)
+    assert unsettled.measured_tokens is None and unsettled.input_tokens is None and unsettled.call_ms is None
+    assert report.agents[0].duration_ms == 61000
+    reads = next(timing for timing in report.tool_timings if timing.name == "read_file")
+    assert (reads.count, reads.failed, reads.total_ms, reads.max_ms, reads.output_bytes) == (52, 1, 72800, 2100, 180000)
+    assert {timing.name for timing in report.tool_timings} == {"read_file", "external_tool"}
+    assert SECRET not in report.model_dump_json()
+
+
+def service_public_id(value):
+    from sabre.audit import public_id
+    return public_id(value)
+
+
 def context(work):
     return {"project_id": work.project_id, "work_id": work.id, "role": "developer", "source": "current_workspace_snapshot", "untrusted": True,
         "source_commit": "a" * 40, "snapshot_digest": "b" * 64, "total_files": 62, "text_files": 62, "omitted_files": 61,

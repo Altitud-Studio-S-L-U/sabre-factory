@@ -52,6 +52,7 @@ Flows use code-defined transitions. YAML selects registered models and skills; i
 
 ```sh
 node --test infra/*.test.mjs
+node bin/sabre.mjs bench
 node infra/dev.mjs test
 node infra/dev.mjs lint
 node infra/dev.mjs types

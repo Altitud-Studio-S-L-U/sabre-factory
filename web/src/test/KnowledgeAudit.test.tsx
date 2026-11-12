@@ -29,6 +29,9 @@ describe('actividad y contexto guardados', () => {
       truncated: false,
       context: null,
       models: [],
+      calls: [],
+      calls_truncated: false,
+      tool_timings: [],
       usage: {
         calls: 2,
         settled_calls: 1,
@@ -68,7 +71,11 @@ describe('actividad y contexto guardados', () => {
     };
     render(<WorkAudit data={data} />);
     expect(screen.getByText(/120 tokens remain reserved/)).toBeInTheDocument();
-    expect(screen.getByText(/Individual duration is not recorded/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/runs recorded before this measurement show them as unknown/),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Tool time' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/model calls/)).not.toBeInTheDocument();
     const tools = screen.getByText('View 2 tool requests').closest('details');
     expect(tools).not.toHaveAttribute('open');
     expect(within(tools!).getByText('Command finished · exit 1')).toBeInTheDocument();
@@ -90,6 +97,9 @@ describe('actividad y contexto guardados', () => {
       truncated: false,
       agents: [],
       models: [],
+      calls: [],
+      calls_truncated: false,
+      tool_timings: [],
       tools: [],
       usage: {
         calls: 5,
@@ -173,5 +183,117 @@ describe('actividad y contexto guardados', () => {
     rerender(<ProjectKnowledge data={{ ...data, context: null, truncated: true }} />);
     expect(screen.getByText('No context is available in this bounded selection.')).toBeInTheDocument();
     expect(screen.queryByText(/Todavía no hay un contexto de código/)).not.toBeInTheDocument();
+  });
+  it('shows measured tool time and per-call tokens, keeping unreported values unknown', () => {
+    const data = {
+      work_id: 'work',
+      plan_revision: 1,
+      status: 'blocked',
+      phase: 'verification',
+      checkpoint_count: 1,
+      checkpoint_threads: 1,
+      truncated: false,
+      context: null,
+      models: [],
+      usage: {
+        calls: 2,
+        settled_calls: 1,
+        unsettled_calls: 1,
+        tokens: 12005,
+        measured_tokens: 3005,
+        unknown_reserved_tokens: 9000,
+        cost_usd: 0,
+      },
+      agents: [
+        {
+          id: 'a'.repeat(64),
+          role: 'qa',
+          plan_revision: 1,
+          model_responses: 1,
+          input_tokens: 3000,
+          output_tokens: 5,
+          cache_read_tokens: 2048,
+          tool_requests: 52,
+          tool_responses: 52,
+          last_checkpoint_at: null,
+          duration_ms: 61000,
+        },
+      ],
+      tools: [],
+      calls: [
+        {
+          sequence: 1,
+          role: 'qa',
+          model_provider: 'codex_cli',
+          model_name: 'gpt-5',
+          reserved_tokens: 9000,
+          measured_tokens: 3005,
+          input_tokens: 3000,
+          output_tokens: 5,
+          cache_read_tokens: 2048,
+          sent_bytes: 8100,
+          original_bytes: 12000,
+          call_ms: 4200,
+        },
+        {
+          sequence: 2,
+          role: 'qa',
+          model_provider: 'codex_cli',
+          model_name: 'gpt-5',
+          reserved_tokens: 9000,
+          measured_tokens: null,
+          input_tokens: null,
+          output_tokens: null,
+          cache_read_tokens: null,
+          sent_bytes: 8200,
+          original_bytes: 8200,
+          call_ms: null,
+        },
+      ],
+      calls_truncated: false,
+      tool_timings: [
+        {
+          agent_id: 'a'.repeat(64),
+          name: 'read_file',
+          count: 52,
+          failed: 1,
+          total_ms: 72800,
+          max_ms: 2100,
+          output_bytes: 180000,
+        },
+        {
+          agent_id: 'b'.repeat(64),
+          name: 'read_file',
+          count: 2,
+          failed: 0,
+          total_ms: 200,
+          max_ms: 150,
+          output_bytes: null,
+        },
+        {
+          agent_id: 'a'.repeat(64),
+          name: 'execute',
+          count: 1,
+          failed: 0,
+          total_ms: 900,
+          max_ms: 900,
+          output_bytes: 300,
+        },
+      ],
+    } satisfies AuditView;
+    render(<WorkAudit data={data} />);
+    expect(screen.getByText('Active 1 min 1 s')).toBeVisible();
+    const time = within(screen.getByRole('region', { name: 'Tool time' }));
+    const rows = time.getAllByRole('listitem');
+    expect(rows[0]).toHaveTextContent('Read file');
+    expect(rows[0]).toHaveTextContent('54 calls · 1 min 13 s total · slowest 2.1 s · 1 failed');
+    expect(rows[0]).toHaveTextContent('Results sent to the model: 175.8 KB');
+    expect(rows[1]).toHaveTextContent('Execute command');
+    const calls = screen.getByText('View 2 model calls').closest('details')!;
+    const cells = within(calls)
+      .getAllByRole('row')
+      .map((row) => row.textContent);
+    expect(cells[1]).toBe('1Verification9,0003,0002,04857.9 KB4.2 s');
+    expect(cells[2]).toBe('2Verification9,000unknownunknownunknown8.0 KBunknown');
   });
 });

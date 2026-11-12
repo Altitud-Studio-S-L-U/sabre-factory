@@ -714,9 +714,12 @@ class Repository:
                                  ("active_seconds", current.active_seconds_used + 0.001)):
             await self.ensure_budget_metric(work, metric, required)
 
-    async def settle_usage(self, usage_id: str, tokens: int, usd: float):
+    async def settle_usage(self, usage_id: str, tokens: int, usd: float, *, breakdown: dict[str, int] | None = None):
+        split = breakdown or {}
         async with self.connection() as conn:
-            await conn.execute("UPDATE model_usage SET actual_tokens=%s,actual_usd=%s WHERE id=%s", (tokens, usd, usage_id))
+            await conn.execute("""UPDATE model_usage SET actual_tokens=%s,actual_usd=%s,input_tokens=%s,output_tokens=%s,
+                cache_read_tokens=%s,settled_at=clock_timestamp() WHERE id=%s""",
+                (tokens, usd, split.get("input_tokens"), split.get("output_tokens"), split.get("cache_read_tokens"), usage_id))
 
     async def reserve_chat_usage(self, context_key: str, tokens: int, usd: float, monthly_limit: float, context_limit: float = 0.25):
         async with self.connection() as conn:
@@ -756,6 +759,39 @@ class Repository:
             return UsageBreakdown(usage=usage,
                 measured_api_cost_usd=float(row["measured_api_cost_usd"]) if row["measured_api_cost_usd"] is not None else None,
                 reserved_api_cost_usd=float(row["reserved_api_cost_usd"]))
+
+    async def audit_calls(self, work_id: str, limit: int = 500) -> tuple[list[dict], bool]:
+        """Per-call measurements in reservation order; unknown values stay NULL."""
+        async with self.connection() as conn:
+            rows = await (await conn.execute("""
+                SELECT context_receipt->>'role' AS role,
+                    context_receipt->>'model_provider' AS model_provider,
+                    context_receipt->>'model_name' AS model_name,
+                    reserved_tokens, actual_tokens, input_tokens, output_tokens, cache_read_tokens,
+                    (context_receipt->>'sent_bytes')::bigint AS sent_bytes,
+                    (context_receipt->>'original_bytes')::bigint AS original_bytes,
+                    CASE WHEN settled_at IS NULL THEN NULL
+                        ELSE greatest(0, (extract(epoch FROM settled_at-created_at)*1000)::bigint) END AS call_ms
+                FROM model_usage WHERE work_id=%s ORDER BY created_at,id LIMIT %s
+            """, (work_id, limit + 1))).fetchall()
+        return [dict(row) for row in rows[:limit]], len(rows) > limit
+
+    async def audit_execution_timings(self, work_id: str) -> list[dict]:
+        """Measured agent and tool boundaries from content-free execution events."""
+        async with self.connection() as conn:
+            rows = await (await conn.execute("""
+                SELECT data->>'kind' AS kind, data->>'agent_id' AS agent_id, data->>'name' AS name,
+                    count(*) AS count,
+                    count(*) FILTER(WHERE data->>'state'='failed') AS failed,
+                    coalesce(sum((data->>'duration_ms')::bigint),0) AS total_ms,
+                    coalesce(max((data->>'duration_ms')::bigint),0) AS max_ms,
+                    sum((data->>'output_bytes')::bigint) AS output_bytes
+                FROM run_events
+                WHERE work_id=%s AND data->>'kind' IN ('agent','tool') AND data->>'state'<>'started'
+                    AND data->>'agent_id' IS NOT NULL
+                GROUP BY 1,2,3 ORDER BY 1,2,3 LIMIT 1000
+            """, (work_id,))).fetchall()
+        return [dict(row) for row in rows]
 
     async def audit_context_usage(self, work_id: str) -> ContextUsageSummary | None:
         async with self.connection() as conn:
@@ -953,7 +989,12 @@ class Repository:
                     count(*) AS calls, count(actual_tokens) AS settled_calls,
                     coalesce(sum(actual_tokens),0) AS measured_tokens,
                     coalesce(sum(reserved_tokens) FILTER(WHERE actual_tokens IS NULL),0) AS unknown_reserved_tokens,
-                    coalesce(sum(coalesce(actual_usd,reserved_usd)),0) AS cost_usd
+                    coalesce(sum(coalesce(actual_usd,reserved_usd)),0) AS cost_usd,
+                    sum(input_tokens) AS input_tokens, sum(output_tokens) AS output_tokens,
+                    sum(cache_read_tokens) AS cache_read_tokens,
+                    count(*) FILTER(WHERE actual_tokens IS NOT NULL AND input_tokens IS NULL) AS unsplit_calls
                 FROM model_usage WHERE work_id=%s GROUP BY 1,2,3,4 ORDER BY 1,2,3,4
             """, (work_id,))).fetchall()
-        return [{**row, "cost_usd": float(row["cost_usd"])} for row in rows]
+        return [{**row, "cost_usd": float(row["cost_usd"]),
+                 **{key: int(row[key]) if row[key] is not None else None for key in ("input_tokens", "output_tokens", "cache_read_tokens")},
+                 "unsplit_calls": int(row["unsplit_calls"])} for row in rows]

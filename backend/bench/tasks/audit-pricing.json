@@ -1,0 +1,13 @@
+{
+  "id": "audit-pricing",
+  "repo": "pricing",
+  "mode": "audit",
+  "objective": "Audit the pricing module for money-handling defects without changing it.",
+  "acceptance": ["Report rounding and input-validation risks with the affected paths"],
+  "gate_commands": [["python", "-m", "unittest"]],
+  "grader": {"kind": "audit", "mentions": ["pricing.py", "rounding", "discount"]},
+  "reference": {
+    "inspect": ["pricing.py", "tests/test_pricing.py", "README.md"],
+    "findings": "pricing.py: total() uses the default half-even rounding, so half a cent rounds down for even cents; apply_discount() accepts percentages outside 0..100 and can produce negative amounts. Neither case is covered by tests/test_pricing.py."
+  }
+}

@@ -49,7 +49,8 @@ class AuditAgent(Contract):
     tool_requests: int = 0
     tool_responses: int = 0
     last_checkpoint_at: datetime | None = None
-    duration_ms: None = None
+    # Measured wall time of this agent's completed, failed or interrupted boundaries.
+    duration_ms: int | None = Field(default=None, ge=0)
 
 
 class AuditModelUsage(Contract):
@@ -62,6 +63,38 @@ class AuditModelUsage(Contract):
     measured_tokens: int = Field(ge=0)
     unknown_reserved_tokens: int = Field(ge=0)
     cost_usd: float = Field(ge=0)
+    # Provider-reported split; None when no settled call reported it. Cached tokens are part of input.
+    input_tokens: int | None = Field(default=None, ge=0)
+    output_tokens: int | None = Field(default=None, ge=0)
+    cache_read_tokens: int | None = Field(default=None, ge=0)
+    unsplit_calls: int = Field(default=0, ge=0)
+
+
+class AuditCall(Contract):
+    """One model invocation in reservation order. Values the provider did not report stay None."""
+    sequence: int = Field(ge=1)
+    role: Role | None = None
+    model_provider: ModelProvider | None = None
+    model_name: str | None = Field(default=None, max_length=128, pattern=r"^[A-Za-z0-9._:/-]*$")
+    reserved_tokens: int = Field(ge=0)
+    measured_tokens: int | None = Field(default=None, ge=0)
+    input_tokens: int | None = Field(default=None, ge=0)
+    output_tokens: int | None = Field(default=None, ge=0)
+    cache_read_tokens: int | None = Field(default=None, ge=0)
+    sent_bytes: int | None = Field(default=None, ge=0)
+    original_bytes: int | None = Field(default=None, ge=0)
+    call_ms: int | None = Field(default=None, ge=0)
+
+
+class AuditToolTiming(Contract):
+    """Measured tool boundaries per agent and tool name; output_bytes is the result size sent to the model."""
+    agent_id: str = Field(pattern=r"^[a-f0-9]{64}$")
+    name: str
+    count: int = Field(ge=0)
+    failed: int = Field(ge=0)
+    total_ms: int = Field(ge=0)
+    max_ms: int = Field(ge=0)
+    output_bytes: int | None = Field(default=None, ge=0)
 
 
 class AuditTool(Contract):
@@ -87,6 +120,9 @@ class AuditView(Contract):
     models: list[AuditModelUsage] = Field(default_factory=list)
     agents: list[AuditAgent]
     tools: list[AuditTool]
+    calls: list[AuditCall] = Field(default_factory=list)
+    calls_truncated: bool = False
+    tool_timings: list[AuditToolTiming] = Field(default_factory=list)
     checkpoint_count: int
     checkpoint_threads: int
     truncated: bool
@@ -275,15 +311,30 @@ class AuditService:
         agents: list[AuditAgent] = []
         tools: list[AuditTool] = []
         truncated = inventory["truncated"]
+        timings = await self.repository.audit_execution_timings(work.id) if hasattr(self.repository, "audit_execution_timings") else []
+        agent_ms: dict[str, int] = {}
+        tool_timings = []
+        for row in timings:
+            if row["kind"] == "agent":
+                agent_ms[row["agent_id"]] = agent_ms.get(row["agent_id"], 0) + int(row["total_ms"])
+            else:
+                tool_timings.append(AuditToolTiming(agent_id=row["agent_id"], name=row["name"] if row["name"] in TOOLS else "external_tool",
+                    count=int(row["count"]), failed=int(row["failed"]), total_ms=int(row["total_ms"]), max_ms=int(row["max_ms"]),
+                    output_bytes=int(row["output_bytes"]) if row["output_bytes"] is not None else None))
         async for thread_id, identity, saved in self._children(work.id, inventory["child_threads"]):
             agent, entries, partial = project_agent(thread_id, identity, saved)
+            agent.duration_ms = agent_ms.get(agent.id)
             agents.append(agent)
             tools.extend(entries[:max(0, MAX_TOOLS - len(tools))])
             truncated = truncated or partial or sum(a.tool_requests for a in agents) > MAX_TOOLS
+        calls, calls_truncated = await self.repository.audit_calls(work.id) if hasattr(self.repository, "audit_calls") else ([], False)
+        calls = [{key: value for key, value in row.items() if key != "actual_tokens"} | {"measured_tokens": row.get("actual_tokens")} for row in calls]
         result = AuditView(work_id=work.id, plan_revision=work.plan_revision, status=work.status, phase=work.phase,
             usage=AuditUsage(**await self.repository.audit_usage(work.id)), agents=agents, tools=tools,
             context=await self.repository.audit_context_usage(work.id),
             models=[AuditModelUsage(**entry) for entry in await self.repository.audit_model_usage(work.id)],
+            calls=[AuditCall(sequence=index, **row) for index, row in enumerate(calls, start=1)], calls_truncated=calls_truncated,
+            tool_timings=tool_timings,
             checkpoint_count=inventory["count"], checkpoint_threads=inventory["threads"], truncated=truncated)
         self.guard.check(result.model_dump(mode="json"))
         return result

@@ -58,6 +58,18 @@ PLATFORM_CONTRACT = (
 )
 
 
+def input_reservation_tokens(sent_bytes: int) -> int:
+    """Input tokens reserved before a call: one token per sent byte plus a fixed margin."""
+    return sent_bytes + 2048
+
+
+def cache_read_tokens(usage: dict) -> int:
+    """Provider-reported cached input tokens (a subset of input tokens), or 0 when unreported."""
+    details = usage.get("input_token_details") or {}
+    value = details.get("cache_read", 0) if isinstance(details, dict) else 0
+    return value if type(value) is int and value >= 0 else 0
+
+
 class GuardedCalls(AgentMiddleware):
     def __init__(self, repository, settings, work, guard, role="model", credential_check=None, artifacts=None,
                  context_archive=None, child_id=None, memory_validator=None):
@@ -139,7 +151,7 @@ class GuardedCalls(AgentMiddleware):
         if sent_bytes > limit:
             raise DomainError("CONTEXT_BUDGET_EXHAUSTED", "Required context exceeds the input limit; narrow the task or review its configuration before continuing", 409)
         observation.set(context_request_original_bytes=original_bytes, context_request_sent_bytes=sent_bytes)
-        input_bound = sent_bytes + 2048
+        input_bound = input_reservation_tokens(sent_bytes)
         output_bound = self.settings.model_max_output_tokens
         provider = getattr(self.settings, "model_provider", None)
         cli = provider in {"codex_cli", "claude_cli"}
@@ -171,9 +183,11 @@ class GuardedCalls(AgentMiddleware):
         if usages:
             inputs = sum(u.get("input_tokens", 0) for u in usages)
             outputs = sum(u.get("output_tokens", 0) for u in usages)
+            cached = sum(cache_read_tokens(u) for u in usages)
             actual = (inputs * input_rate + outputs * output_rate) / 1_000_000
-            await self.repository.settle_usage(usage_id, inputs + outputs, actual)
-            observation.set(input_tokens=inputs, output_tokens=outputs, tokens=inputs + outputs, cost_usd=actual)
+            await self.repository.settle_usage(usage_id, inputs + outputs, actual, breakdown={
+                "input_tokens": inputs, "output_tokens": outputs, "cache_read_tokens": cached})
+            observation.set(input_tokens=inputs, output_tokens=outputs, cache_read_tokens=cached, tokens=inputs + outputs, cost_usd=actual)
             if cli and self.work.effective_budget_policy is not None and hasattr(self.repository, "check_dispatch_budget"):
                 await self.repository.check_dispatch_budget(self.work)
             if cli and self.work.effective_budget_policy is None and not self.work.budget.progress_limits and inputs + outputs > input_bound + output_bound:
