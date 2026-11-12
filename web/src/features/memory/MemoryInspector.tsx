@@ -3,7 +3,7 @@ import { Link } from 'react-router';
 import type { Api, MemoryDetail } from '../../api';
 import Button from '../../components/Button';
 import DescriptionList from '../../components/DescriptionList';
-import LoadingState from '../../components/LoadingState';
+import { InspectorSkeleton } from '../../components/Skeletons';
 import Notice from '../../components/Notice';
 import { message } from '../runs/shared';
 import { runPath } from '../runs/RunsTable';
@@ -69,6 +69,7 @@ export default function MemoryInspector({
     }
   };
 
+  if (!current) return <InspectorSkeleton />;
   return (
     <aside
       aria-label="Memory inspector"
@@ -79,7 +80,6 @@ export default function MemoryInspector({
           {current.error}
         </Notice>
       )}
-      {!current && <LoadingState label="Loading memory…" />}
       {detail && (
         <>
           <div className="grid gap-2">

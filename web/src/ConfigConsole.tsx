@@ -29,7 +29,7 @@ import Disclosure from './components/Disclosure';
 import DescriptionList from './components/DescriptionList';
 import CheckField from './components/CheckField';
 import CodeBlock from './components/CodeBlock';
-import LoadingState from './components/LoadingState';
+import { ConfigSkeleton } from './components/Skeletons';
 import { Badge } from './components/ui/badge';
 import { Card, CardDescription, CardHeader, CardTitle } from './components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './components/ui/table';
@@ -338,7 +338,7 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
           {notice}
         </Notice>
       )}
-      {loading && !draft && <LoadingState label="Loading the effective configuration…" />}
+      {loading && !draft && <ConfigSkeleton header={false} />}
       {draft && saved && selection && (
         <>
           <div className="grid min-w-0 items-start gap-6 @5xl:grid-cols-[12.5rem_minmax(0,1fr)]">

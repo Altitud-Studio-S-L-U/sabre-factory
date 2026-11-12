@@ -20,7 +20,14 @@ import {
 import Button from './components/Button';
 import Notice from './components/Notice';
 import EmptyState from './components/EmptyState';
-import LoadingState from './components/LoadingState';
+import {
+  AgentsSkeleton,
+  ConfigSkeleton,
+  MemorySkeleton,
+  RunDetailSkeleton,
+  RunsSkeleton,
+  SectionSkeleton,
+} from './components/Skeletons';
 import PageHeader from './components/PageHeader';
 import Dialog from './components/Dialog';
 import { buttonVariants } from './components/ui/button';
@@ -345,6 +352,24 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
     },
   ];
 
+  // While data or section code loads, show the shape of the screen that is coming.
+  const viewSkeleton =
+    view === 'work' ? (
+      selectedId ? (
+        <RunDetailSkeleton />
+      ) : (
+        <RunsSkeleton />
+      )
+    ) : view === 'agents' ? (
+      <AgentsSkeleton />
+    ) : view === 'memory' ? (
+      <MemorySkeleton />
+    ) : view === 'config' ? (
+      <ConfigSkeleton />
+    ) : (
+      <SectionSkeleton />
+    );
+
   return (
     <>
       <AppShell
@@ -364,7 +389,7 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
         commands={paletteCommands}
         mainRef={mainContent}
       >
-        <Suspense fallback={<LoadingState label="Loading section…" />}>
+        <Suspense fallback={viewSkeleton}>
           {logoutError && (
             <div className="mb-5">
               <ErrorNotice>{logoutError}</ErrorNotice>
@@ -386,7 +411,7 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
             </Notice>
           )}
           {loading ? (
-            <LoadingState label="Connecting to the factory…" />
+            viewSkeleton
           ) : !updated ? (
             <EmptyState title="The factory could not be loaded">Check the connection and retry.</EmptyState>
           ) : (
@@ -445,20 +470,14 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
                   </Dialog>
                 </>
               )}
-              {view === 'work' && selectedId && !selected && (
-                <>
-                  <div className="grid justify-items-start gap-4">
-                    <PageHeader
-                      eyebrow="Run"
-                      title={detailError ? 'Run unavailable' : 'Loading run'}
-                      description={detailError || 'Reading the saved factory state.'}
-                    />
-                    {!detailError && <LoadingState label="Loading run…" />}
-                    <Link className={buttonVariants({ variant: 'link', className: 'px-0' })} to="/runs">
-                      ← All runs
-                    </Link>
-                  </div>
-                </>
+              {view === 'work' && selectedId && !selected && !detailError && <RunDetailSkeleton />}
+              {view === 'work' && selectedId && !selected && detailError && (
+                <div className="grid justify-items-start gap-4">
+                  <PageHeader eyebrow="Run" title="Run unavailable" description={detailError} />
+                  <Link className={buttonVariants({ variant: 'link', className: 'px-0' })} to="/runs">
+                    ← All runs
+                  </Link>
+                </div>
               )}
               {!view && (
                 <>

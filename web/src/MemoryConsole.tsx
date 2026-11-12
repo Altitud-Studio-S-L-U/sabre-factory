@@ -16,6 +16,12 @@ import {
   type MemoryReview,
 } from './api';
 import StatTile, { StatGrid } from './components/StatTile';
+import {
+  InspectorSkeleton,
+  KnowledgeMapSkeleton,
+  SkeletonStatus,
+  SkeletonTable,
+} from './components/Skeletons';
 import MemoryLayers from './features/memory/MemoryLayers';
 import KnowledgeMap from './features/memory/KnowledgeMap';
 import MemoryInspector from './features/memory/MemoryInspector';
@@ -495,9 +501,19 @@ export default function MemoryConsole({ api, projects, connected = true }: Memor
           >
             {(view) =>
               loading ? (
-                <Card role="status" className="text-sm text-muted-foreground">
-                  Loading this project’s knowledge and provenance…
-                </Card>
+                view === 'Knowledge map' ? (
+                  <SkeletonStatus
+                    label="Loading this project’s knowledge and provenance…"
+                    className="items-start gap-4 pt-1 @5xl:grid-cols-[minmax(0,1fr)_22rem]"
+                  >
+                    <KnowledgeMapSkeleton />
+                    <InspectorSkeleton />
+                  </SkeletonStatus>
+                ) : (
+                  <SkeletonStatus label="Loading this project’s knowledge and provenance…" className="pt-1">
+                    <SkeletonTable rows={4} columns={['title', 'text', 'mono', 'badge', 'actions']} />
+                  </SkeletonStatus>
+                )
               ) : error ? null : (
                 <div className="grid min-w-0 gap-4 pt-1">
                   {view === 'Knowledge map' && (

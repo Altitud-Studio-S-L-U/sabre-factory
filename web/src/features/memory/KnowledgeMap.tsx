@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { Api, MemoryGraph } from '../../api';
 import EmptyState from '../../components/EmptyState';
-import LoadingState from '../../components/LoadingState';
+import { KnowledgeMapSkeleton } from '../../components/Skeletons';
 import Notice from '../../components/Notice';
 import SegmentedControl from '../../components/SegmentedControl';
 import { cn } from '../../lib/utils';
@@ -182,7 +182,7 @@ export default function KnowledgeMap({
           <p>{current.error}</p>
         </Notice>
       )}
-      {!current && <LoadingState label="Drawing the knowledge map…" />}
+      {!current && <KnowledgeMapSkeleton />}
       {graph && !graph.nodes.length && (
         <EmptyState as="h3" title="Nothing to map yet">
           Delivered runs propose facts with their evidence. Approved memories, their runs and the files they

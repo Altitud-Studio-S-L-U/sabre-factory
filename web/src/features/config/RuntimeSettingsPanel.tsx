@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { Lock } from 'lucide-react';
 import type { Api, ConfigurationHistory, RuntimeSettings } from '../../api';
 import LoadingState from '../../components/LoadingState';
+import { SkeletonCard, SkeletonStatus } from '../../components/Skeletons';
 import Notice from '../../components/Notice';
 import { Card } from '../../components/ui/card';
 import { message } from '../runs/shared';
@@ -105,7 +106,13 @@ export function RuntimeSettingsPanel({ api }: { api: Api }) {
       live = false;
     };
   }, [api]);
-  if (!state) return <LoadingState label="Reading the instance settings…" />;
+  if (!state)
+    return (
+      <SkeletonStatus label="Reading the instance settings…" className="gap-4">
+        <SkeletonCard rows={6} />
+        <SkeletonCard rows={2} />
+      </SkeletonStatus>
+    );
   if (state.error)
     return (
       <Notice tone="danger" role="alert">

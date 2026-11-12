@@ -174,3 +174,36 @@ test.describe('gallery', () => {
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   });
 });
+
+// Loading states: hold the named requests open so each screen's skeleton can be reviewed.
+const loadingStates = [
+  { name: 'loading-runs', path: '/runs', hold: ['**/api/v1/work'] },
+  {
+    name: 'loading-run-detail',
+    path: '/runs/synthetic-run',
+    hold: ['**/api/v1/work', '**/api/v1/work/synthetic-run'],
+  },
+  { name: 'loading-agents', path: '/agents', hold: ['**/api/v1/flows/*/topology', '**/api/v1/agents'] },
+  { name: 'loading-memory', path: '/memory', hold: ['**/api/v1/projects/*/knowledge'] },
+  { name: 'loading-config', path: '/config', hold: ['**/api/v1/configuration'] },
+];
+
+test.describe('gallery · loading', () => {
+  test.skip(!label, 'Set SABRE_GALLERY=<label> to capture the gallery');
+
+  for (const state of loadingStates) {
+    test(state.name, async ({ page }) => {
+      await mockFactoryApi(page);
+      for (const pattern of state.hold) await page.route(pattern, () => new Promise<void>(() => undefined));
+      await page.goto(state.path);
+      await expect(page.locator('[data-skeleton]').first()).toBeVisible();
+      await page.mouse.move(0, 0);
+      await page.screenshot({
+        path: `../work/gallery/${label}/${state.name}-${test.info().project.name}.png`,
+        fullPage: true,
+        scale: 'css',
+        animations: 'disabled',
+      });
+    });
+  }
+});

@@ -18,7 +18,7 @@ import DescriptionList from './components/DescriptionList';
 import Dialog, { DialogActions } from './components/Dialog';
 import EmptyState from './components/EmptyState';
 import Field from './components/FormField';
-import LoadingState from './components/LoadingState';
+import { SkeletonStatus, SkeletonTable } from './components/Skeletons';
 import Notice from './components/Notice';
 import PageHeader, { Eyebrow } from './components/PageHeader';
 import Select from './components/Select';
@@ -296,7 +296,11 @@ export default function ToolsConsole({ api, projects, connected = true, onRefres
           </button>
         ))}
       </div>
-      {loading && !items.length && <LoadingState label="Loading registered connections…" />}
+      {loading && !items.length && (
+        <SkeletonStatus label="Loading registered connections…">
+          <SkeletonTable rows={4} columns={['title', 'badge', 'text', 'mono']} />
+        </SkeletonStatus>
+      )}
       <div className="grid min-w-0 items-start gap-5 lg:grid-cols-[minmax(0,1.45fr)_minmax(18rem,1fr)]">
         <div role="group" aria-label="Connection catalog" className="grid min-w-0 gap-2">
           {filtered.map((item) => (

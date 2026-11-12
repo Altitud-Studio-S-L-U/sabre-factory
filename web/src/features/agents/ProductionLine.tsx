@@ -3,7 +3,7 @@ import { Link } from 'react-router';
 import { Cog, GitBranch, ListChecks, Repeat, UserRound } from 'lucide-react';
 import type { Api, ProcessTopology, WorkOrder } from '../../api';
 import DescriptionList from '../../components/DescriptionList';
-import LoadingState from '../../components/LoadingState';
+import { ProductionLineSkeleton } from '../../components/Skeletons';
 import Notice from '../../components/Notice';
 import SegmentedControl from '../../components/SegmentedControl';
 import { isClosed } from '../../runState';
@@ -129,7 +129,7 @@ export default function ProductionLine({ api, orders }: { api: Api; orders: Work
           <p>{current.error}</p>
         </Notice>
       )}
-      {!current && <LoadingState label="Loading the production line…" />}
+      {!current && <ProductionLineSkeleton />}
       {current?.topology && !stations.length && (
         <Notice tone="neutral" title="This server does not describe stations yet.">
           <p>Update SABRE to see the production line. Runs and their timelines are unaffected.</p>
