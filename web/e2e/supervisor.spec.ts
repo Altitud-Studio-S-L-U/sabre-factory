@@ -86,8 +86,8 @@ test('supervisor offers observed connection actions and opens setup from the sam
   await chat.getByRole('link', { name: 'Connect GitHub repositories' }).click();
   await expect(chat).not.toBeVisible();
   await expect(page).toHaveURL(/\/tools\?connection=github.read/);
-  await expect(page.getByRole('button', { name: 'Credentials', exact: true })).toHaveAttribute(
-    'aria-pressed',
+  await expect(page.getByRole('tab', { name: 'Credentials', exact: true })).toHaveAttribute(
+    'aria-selected',
     'true',
   );
   expect(writes).toEqual([]);

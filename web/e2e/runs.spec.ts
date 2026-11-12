@@ -384,12 +384,12 @@ test('new run protects dirty input and pending submission from Escape or backdro
     .click();
   const dialog = page.getByRole('dialog', { name: 'New run', exact: true });
   await dialog.getByLabel('What do you need?').fill('Synthetic guarded run');
+  await dialog.getByRole('button', { name: 'Next' }).click();
   await dialog.getByLabel('Acceptance criteria').fill('Synthetic registered checks pass');
   await page.keyboard.press('Escape');
   await expect(dialog.getByText('Discard your unsaved changes?')).toBeVisible();
   await dialog.getByRole('button', { name: 'Keep editing' }).click();
   await expect(dialog.getByLabel('What do you need?')).toHaveValue('Synthetic guarded run');
-  await dialog.getByRole('button', { name: 'Next' }).click();
   await dialog.getByRole('button', { name: 'Next' }).click();
   await dialog.getByRole('button', { name: 'Next' }).click();
   await dialog.getByRole('button', { name: 'Launch flow' }).click();

@@ -144,6 +144,8 @@ export default function CreateRunWizard({
   };
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    const submitter = (event.nativeEvent as SubmitEvent).submitter;
+    if (submitter && submitter.getAttribute('type') !== 'submit') return;
     if (step < steps.length - 1) {
       advance();
       return;
@@ -385,8 +387,11 @@ export default function CreateRunWizard({
             Back
           </Button>
         )}
+        {/* Distinct keys: reusing one element would turn the clicked Next into a submit button
+            before the click's default action runs, launching the run from the Flow step. */}
         {last ? (
           <Button
+            key="launch"
             type="submit"
             variant="primary"
             disabled={action.busy || !connected || !defaults[mode] || Boolean(configurationError)}
@@ -394,7 +399,7 @@ export default function CreateRunWizard({
             {action.busy ? 'Sending…' : 'Launch flow'}
           </Button>
         ) : (
-          <Button type="button" variant="primary" disabled={action.busy} onClick={advance}>
+          <Button key="next" type="button" variant="primary" disabled={action.busy} onClick={advance}>
             Next
           </Button>
         )}
