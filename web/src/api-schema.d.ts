@@ -4553,6 +4553,18 @@ export interface components {
             /** Overlaps */
             overlaps: components["schemas"]["OverlapEntry"][];
         };
+        /**
+         * ProcessHelper
+         * @description A specialist a station may call besides its own, and when.
+         */
+        ProcessHelper: {
+            /** Role */
+            role: string;
+            /** Agent */
+            agent: string;
+            /** Condition */
+            condition: string;
+        };
         /** ProcessLane */
         ProcessLane: {
             /** Id */
@@ -4566,6 +4578,17 @@ export interface components {
             /** Next */
             next: string[];
         };
+        /** ProcessLoop */
+        ProcessLoop: {
+            /** Source */
+            source: string;
+            /** Target */
+            target: string;
+            /** Condition */
+            condition: string;
+            /** Limit */
+            limit: string;
+        };
         /** ProcessRoute */
         ProcessRoute: {
             /** Source */
@@ -4574,6 +4597,43 @@ export interface components {
             target: string;
             /** Condition */
             condition: string;
+        };
+        /**
+         * ProcessStation
+         * @description One node of the sabre-v1 graph as the owner sees it. Routing is deterministic: no model chooses edges.
+         */
+        ProcessStation: {
+            /** Id */
+            id: string;
+            /** Label */
+            label: string;
+            /**
+             * Stage
+             * @enum {string}
+             */
+            stage: "understand" | "plan" | "build" | "verify" | "review" | "security" | "deliver";
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "rules" | "gates" | "model" | "gates_model";
+            /** Role */
+            role: string | null;
+            /** Agent */
+            agent: string | null;
+            /** Summary */
+            summary: string;
+            /** Phases */
+            phases: string[];
+            /** Condition */
+            condition: string | null;
+            /**
+             * Asks Owner
+             * @default false
+             */
+            asks_owner: boolean;
+            /** Helpers */
+            helpers: components["schemas"]["ProcessHelper"][];
         };
         /** ProcessTopology */
         ProcessTopology: {
@@ -4598,6 +4658,10 @@ export interface components {
             lanes: components["schemas"]["ProcessLane"][];
             /** Alternatives */
             alternatives: components["schemas"]["ProcessRoute"][];
+            /** Stations */
+            stations: components["schemas"]["ProcessStation"][];
+            /** Loops */
+            loops: components["schemas"]["ProcessLoop"][];
         };
         /** Project */
         Project: {

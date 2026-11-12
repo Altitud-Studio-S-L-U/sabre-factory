@@ -69,6 +69,8 @@ const topology: ProcessTopology = {
   graph_version: 'sabre-v1',
   mode: 'patch',
   alternatives: [],
+  stations: [],
+  loops: [],
   lanes: [
     { id: 'spec', label: 'Spec', specialist: 'PM', stages: ['analyze', 'clarify'], next: ['build'] },
     { id: 'build', label: 'Build', specialist: 'Developer', stages: ['implement'], next: [] },
