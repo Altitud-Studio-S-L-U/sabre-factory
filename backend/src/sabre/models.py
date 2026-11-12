@@ -390,6 +390,10 @@ class MemoryItem(MemoryCreate):
     proposed_by: ProposedBy | None = Field(default=None, description="Absent on memories recorded before attribution; show as unknown")
 
 
+# Question kinds only the owner may answer: an approval, not a clarification.
+OWNER_DECISIONS = frozenset({"permission", "architecture", "scope", "exception"})
+
+
 class DomainError(Exception):
     def __init__(self, code: str, message: str, status_code: int = 409, *, budget_denial: BudgetDenial | None = None):
         self.code = code

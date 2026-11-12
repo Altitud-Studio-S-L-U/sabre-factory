@@ -103,6 +103,24 @@ describe('PendingConfirmations', () => {
     expect(await screen.findByRole('status')).toHaveTextContent('Nothing changed.');
   });
 
+  it('shows a request that is not about one run without a run link', () => {
+    mount(
+      [
+        confirmation({
+          kind: 'repository.decide',
+          work_id: null,
+          summary: 'Approve creating the private repository example/new-service',
+          request: { proposal_id: 'proposal-1' },
+        }),
+      ],
+      {},
+    );
+    const section = screen.getByRole('region', { name: 'A request is waiting for your confirmation' });
+    expect(section).toHaveTextContent('Repository · asked');
+    expect(within(section).queryByRole('link')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Confirm: Approve creating/ })).toBeEnabled();
+  });
+
   it('never reports a refused or unknown outcome as applied', async () => {
     const results = [
       confirmation({ state: 'failed', error_code: 'STALE_BUDGET', error_message: 'The budget changed.' }),

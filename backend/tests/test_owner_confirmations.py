@@ -11,10 +11,12 @@ from mcp import Client
 from sabre.budget_contracts import BudgetAmendment, BudgetReconciliation, MetricBudget
 from sabre.mcp_server import build_mcp
 from sabre.models import (
+    Answer,
     Budget,
     CallBudgetIncrease,
     CliProgressLimitsChange,
     DomainError,
+    HumanQuestion,
     SecurityExceptionCreate,
     Status,
     TokenBudgetIncrease,
@@ -27,6 +29,7 @@ from sabre.owner_confirmations import (
     ConfirmationDecision,
     OwnerConfirmations,
 )
+from sabre.repo_creation import RepoCreationProposal, RepoCreationRequest
 from sabre.security import SecretGuard
 from tests.test_panel_sessions import BEARER, ORIGIN, UI, WRITE, SessionRepository, application, exchange
 
@@ -332,3 +335,129 @@ async def test_only_a_paired_browser_decides_and_the_owner_credential_alone_is_r
         page = (await client.get("/api/v1/confirmations", headers=UI)).json()
         assert page["pending"] == 0 and {item["state"] for item in page["items"]} == {"applied", "rejected"}
     assert len(applied) == 1
+
+
+def decision_fixture(kind="architecture"):
+    service, work, store, applied, events = fixture(Status.WAITING_INPUT)
+    question = HumanQuestion(work_id=work.id, plan_revision=work.plan_revision, kind=kind,
+                             prompt="Approve the proposed architecture: one service, PostgreSQL, no queue?", options=["Approve", "Revise"])
+    work.questions = [question]
+    answered = []
+
+    async def answer(work_id, request):
+        answered.append((work_id, request))
+        return work
+
+    service.answer = answer
+    return service, work, question, store, answered, events
+
+
+async def test_an_answer_to_an_owner_decision_is_filed_with_its_question_and_applied_on_confirmation():
+    service, work, question, _store, answered, events = decision_fixture()
+    manager = service.owner_confirmations()
+    answer = Answer(question_id=question.id, plan_revision=work.plan_revision, answer="Approve")
+    pending = await manager.request_answer(work.id, answer)
+    assert pending.kind == "question.answer" and pending.state == "pending" and answered == []
+    assert pending.summary == 'Answer "Approve" to the architecture decision: Approve the proposed architecture: one service, PostgreSQL, no queue?'
+    assert len(events) == 1
+    confirmed = await manager.confirm(pending.id, decision(pending))
+    assert confirmed.state == "applied" and answered == [(work.id, answer)]
+    for stale in (answer.model_copy(update={"plan_revision": work.plan_revision + 1}), answer.model_copy(update={"question_id": "unknown"})):
+        with pytest.raises(DomainError) as error:
+            await manager.request_answer(work.id, stale)
+        assert error.value.code == "QUESTION_CLOSED"
+    question.kind = "clarification"
+    with pytest.raises(DomainError) as error:
+        await manager.request_answer(work.id, answer)
+    assert error.value.code == "OWNER_DECISION_NOT_REQUIRED"
+    assert len(answered) == 1
+
+
+@pytest.mark.parametrize("kind", ["architecture", "permission", "scope", "exception"])
+async def test_mcp_cannot_answer_an_owner_decision_directly_or_through_the_native_prompt(kind):
+    service, work, question, store, answered, _events = decision_fixture(kind)
+    arguments = {"work_id": work.id, "answer": {"question_id": question.id, "plan_revision": work.plan_revision, "answer": "Approve"}}
+
+    async def unexpected(context, params):
+        pytest.fail("An owner decision must not be asked through the MCP client")
+
+    async with Client(build_mcp(lambda: service), elicitation_callback=unexpected) as client:
+        direct = await client.call_tool("sabre_answer_question", arguments)
+        assert direct.is_error and direct.content[0].text.startswith("OWNER_CONFIRMATION_REQUIRED: ")
+        native = await client.call_tool("sabre_resolve_question_native", {"work_id": work.id, "question_id": question.id, "plan_revision": work.plan_revision})
+        assert native.is_error and native.content[0].text.startswith("OWNER_CONFIRMATION_REQUIRED: ")
+        assert answered == [] and store.rows == {}
+        filed = await client.call_tool("sabre_propose_answer", arguments)
+        assert not filed.is_error and filed.structured_content["state"] == "pending" and filed.structured_content["kind"] == "question.answer"
+    assert answered == [] and len(store.rows) == 1
+
+
+async def test_mcp_still_answers_a_clarification_directly():
+    service, work, question, store, answered, _events = decision_fixture("clarification")
+    arguments = {"work_id": work.id, "answer": {"question_id": question.id, "plan_revision": work.plan_revision, "answer": "It must return zero"}}
+    async with Client(build_mcp(lambda: service)) as client:
+        response = await client.call_tool("sabre_answer_question", arguments)
+        assert not response.is_error
+        refused = await client.call_tool("sabre_propose_answer", arguments)
+        assert refused.is_error and refused.content[0].text.startswith("OWNER_DECISION_NOT_REQUIRED: ")
+    assert len(answered) == 1 and store.rows == {}
+
+
+REPOSITORY = {"owner_type": "org", "owner": "example", "name": "new-service", "visibility": "private",
+              "description": "", "initialize": True, "idempotency_key": "repository-key-1"}
+
+
+def repository_fixture():
+    service, _work, store, _applied, events = fixture()
+    decided = []
+    proposal = RepoCreationProposal(id="proposal-1", request=RepoCreationRequest(**REPOSITORY), request_digest="b" * 64, status="proposed",
+        revision=0, created_at=datetime.now(UTC), updated_at=datetime.now(UTC), approved_at=None, started_at=None, receipt=None,
+        candidate=None, error_code=None)
+
+    async def get(proposal_id):
+        if proposal_id != proposal.id:
+            raise DomainError("REPOSITORY_PROPOSAL_NOT_FOUND", "The proposal does not exist", 404)
+        return proposal
+
+    async def decide(proposal_id, request):
+        decided.append((proposal_id, request))
+        return proposal
+
+    service.repository_proposals = lambda: SimpleNamespace(get=get, decide=decide)
+    return service, store, decided, events
+
+
+async def test_repository_creation_over_mcp_waits_for_the_owner_while_a_rejection_does_not(monkeypatch):
+    service, store, decided, events = repository_fixture()
+    launched = []
+
+    async def launch(current, request):
+        launched.append(request)
+
+    monkeypatch.setattr("sabre.owner_confirmations.launch_create", launch)
+    approve = {"expected_revision": 0, "request_digest": "b" * 64, "decision": "approve"}
+    launch_request = {"version": 1, "authorize_repository_creation": True, "repository": REPOSITORY, "profile": "python",
+                      "gate_commands": [["python", "-m", "unittest"]], "objective": "Create the billing service skeleton",
+                      "acceptance": ["The registered tests pass"], "budget": Budget().model_dump(mode="json")}
+    async with Client(build_mcp(lambda: service)) as client:
+        refused = await client.call_tool("sabre_decide_repository", {"proposal_id": "proposal-1", "decision": approve})
+        assert refused.is_error and refused.content[0].text.startswith("OWNER_CONFIRMATION_REQUIRED: ") and decided == []
+        rejected = await client.call_tool("sabre_decide_repository", {"proposal_id": "proposal-1", "decision": approve | {"decision": "reject"}})
+        assert not rejected.is_error and [item[1].decision for item in decided] == ["reject"]
+        filed = await client.call_tool("sabre_propose_repository_approval", {"proposal_id": "proposal-1", "decision": approve})
+        assert filed.structured_content["summary"] == "Approve creating the private repository example/new-service"
+        assert filed.structured_content["work_id"] is None and filed.structured_content["kind"] == "repository.decide"
+        only_approvals = await client.call_tool("sabre_propose_repository_approval", {"proposal_id": "proposal-1", "decision": approve | {"decision": "reject"}})
+        assert only_approvals.is_error
+        missing = await client.call_tool("sabre_propose_repository_approval", {"proposal_id": "unknown", "decision": approve})
+        assert missing.is_error
+        create = await client.call_tool("sabre_launch_create", {"request": launch_request})
+        assert create.structured_content["state"] == "pending" and create.structured_content["kind"] == "repository.launch"
+        assert create.structured_content["summary"] == "Create the private repository example/new-service and start a create run: Create the billing service skeleton"
+    assert len(decided) == 1 and launched == [] and events == [] and len(store.rows) == 2
+    manager = service.owner_confirmations()
+    page = await manager.list()
+    for item in page.items:
+        assert (await manager.confirm(item.id, decision(item))).state == "applied"
+    assert [item[1].decision for item in decided] == ["reject", "approve"] and decided[1][0] == "proposal-1"
+    assert len(launched) == 1 and launched[0].repository.name == "new-service" and launched[0].authorize_repository_creation is True

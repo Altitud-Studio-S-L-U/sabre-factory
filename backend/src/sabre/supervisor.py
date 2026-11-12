@@ -24,6 +24,7 @@ from sabre.error_boundaries import guarded_call
 from sabre.model_configuration import selection_updates
 from sabre.model_providers import chat_model
 from sabre.models import (
+    OWNER_DECISIONS,
     Answer,
     DomainError,
     MemoryCreate,
@@ -111,9 +112,6 @@ class ChatGuard(AgentMiddleware):
 
 # Questions whose answer grants or withholds authority. The Supervisor may relay the
 # owner's decision but never compose it: the answer must appear in the owner's message.
-OWNER_DECISIONS = frozenset({"permission", "architecture", "scope", "exception"})
-
-
 def owner_said(answer: str, text: str) -> bool:
     normalized = " ".join(answer.casefold().split())
     return bool(normalized) and normalized in " ".join(text.casefold().split())
@@ -222,6 +220,9 @@ def conversation_tools(service, store, event: ConversationMessage | OperatorCont
         question = next((q for q in work.questions if q.id == answer.question_id), None)
         if question and question.answer == answer.answer and question.plan_revision == answer.plan_revision:
             return await checked(work)
+        if question and question.kind in OWNER_DECISIONS and getattr(event, "source", None) == "mcp":
+            # A message that arrived over MCP is not the owner's own words.
+            raise DomainError("OWNER_DECISION_REQUIRED", "This question is an owner decision; the owner decides it in the console", 403)
         if question and question.kind in OWNER_DECISIONS and not owner_said(answer.answer, event.text):
             raise DomainError("OWNER_DECISION_REQUIRED", "This question is an owner decision; reply with the exact answer to record it", 403)
         pending = await repository.pending_answer(work_id)

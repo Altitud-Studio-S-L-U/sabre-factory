@@ -9,7 +9,7 @@ from sabre import __version__
 from sabre.audit import AuditView, ProjectKnowledgeReport
 from sabre.budget_contracts import BudgetAmendment, BudgetReconciliation
 from sabre.commands import AmendBudget, CommandEnvelope, CommandResult, ReconcileBudget, dispatch
-from sabre.create_flow import CreateFlowLaunch, launch_create
+from sabre.create_flow import CreateFlowLaunch
 from sabre.events import EventPage
 from sabre.integrations import (
     GitHubRepositoryImport,
@@ -23,6 +23,7 @@ from sabre.memory_contracts import MemoryGraph, MemoryRecallPage, MemoryReview
 from sabre.model_configuration import ModelConfiguration, ModelConfigurationChange
 from sabre.models import (
     MEMORY_ID_PATTERN,
+    OWNER_DECISIONS,
     Answer,
     CallBudgetIncrease,
     CliProgressLimitsChange,
@@ -65,8 +66,8 @@ def build_mcp(service):
     server = DomainMCPServer("SABRE", version=__version__, instructions=(
         "SABRE is a software factory. Submit a work order and use its returned id for status, tasks, questions and results. "
         "Work continues after disconnect. Answer only the pending question matching its id and plan revision. "
-        "Budget changes and security exceptions requested here change nothing until the owner confirms them in the SABRE console: "
-        "follow the request with sabre_confirmation and never assume approval. "
+        "Budget changes, security exceptions, answers to owner decisions and repository creation requested here change nothing "
+        "until the owner confirms them in the SABRE console: follow the request with sabre_confirmation and never assume approval. "
         "Never send passwords, API keys or access tokens as tool arguments."
     ))
 
@@ -153,9 +154,9 @@ def build_mcp(service):
         return (await service().repository_proposals().list())
 
     @server.tool(structured_output=True)
-    async def sabre_launch_create(request: CreateFlowLaunch) -> RepoCreationProposal:
-        """Create the explicitly authorized repository and launch its pinned create flow."""
-        return await launch_create(service(), request)
+    async def sabre_launch_create(request: CreateFlowLaunch) -> OwnerConfirmation:
+        """Ask the owner to create this repository and launch its pinned create flow. Nothing is created until the owner confirms it in the SABRE console."""
+        return await service().owner_confirmations().request("repository.launch", None, request)
 
     @server.tool(structured_output=True)
     async def sabre_get_repository_proposal(proposal_id: str) -> RepoCreationProposal:
@@ -174,8 +175,15 @@ def build_mcp(service):
 
     @server.tool(structured_output=True)
     async def sabre_decide_repository(proposal_id: str, decision: RepoCreationDecision) -> RepoCreationProposal:
-        """Record the owner's explicit approve/reject decision matching the current revision and digest. Never invent approval. Approval queues creation and returns immediately."""
+        """Reject a repository proposal matching the current revision and digest. An approval is refused here: file it with sabre_propose_repository_approval, which waits for the owner."""
+        if decision.decision == "approve":
+            raise DomainError("OWNER_CONFIRMATION_REQUIRED", "Repository creation waits for the owner: use sabre_propose_repository_approval", 403)
         return (await service().repository_proposals().decide(proposal_id, decision))
+
+    @server.tool(structured_output=True)
+    async def sabre_propose_repository_approval(proposal_id: str, decision: RepoCreationDecision) -> OwnerConfirmation:
+        """Ask the owner to approve a repository proposal matching its current revision and digest. No repository is created until the owner confirms it in the SABRE console."""
+        return await service().owner_confirmations().request_repository(proposal_id, decision)
 
     @server.tool(structured_output=True)
     async def sabre_reconcile_repository(proposal_id: str) -> RepoCreationProposal:
@@ -227,8 +235,16 @@ def build_mcp(service):
 
     @server.tool(structured_output=True)
     async def sabre_answer_question(work_id: str, answer: Answer) -> WorkOrder:
-        """Resolve the owner's pending HITL decision; stale or duplicated answers are rejected."""
+        """Answer a pending clarification question; stale or duplicated answers are rejected. Owner decisions (architecture, permission, scope, exception) are refused here: file them with sabre_propose_answer, which waits for the owner."""
+        work = await service().repository.work(work_id)
+        if any(question.id == answer.question_id and question.kind in OWNER_DECISIONS for question in work.questions):
+            raise DomainError("OWNER_CONFIRMATION_REQUIRED", "This question is an owner decision: use sabre_propose_answer and the owner confirms it in the console", 403)
         return (await service().answer(work_id, answer))
+
+    @server.tool(structured_output=True)
+    async def sabre_propose_answer(work_id: str, answer: Answer) -> OwnerConfirmation:
+        """Ask the owner to record this answer to a pending owner decision (architecture, permission, scope or exception). Nothing changes until the owner confirms it in the SABRE console."""
+        return await service().owner_confirmations().request_answer(work_id, answer)
 
     @server.tool(structured_output=True)
     async def sabre_control_work(work_id: str, command: Literal["pause", "resume", "cancel"]) -> WorkOrder:
@@ -240,6 +256,8 @@ def build_mcp(service):
         question = next((q for q in work.questions if q.id == question_id), None)
         if work.status != "waiting_input" or work.plan_revision != plan_revision or not question or question.plan_revision != plan_revision or question.answer is not None:
             raise DomainError("QUESTION_CLOSED", "The question is no longer pending in this revision")
+        if question.kind in OWNER_DECISIONS:
+            raise DomainError("OWNER_CONFIRMATION_REQUIRED", "This question is an owner decision: use sabre_propose_answer and the owner confirms it in the console", 403)
         return Elicit(question.prompt, NativeAnswer)
 
     @server.tool(structured_output=True)

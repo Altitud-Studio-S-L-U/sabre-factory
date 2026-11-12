@@ -4618,9 +4618,9 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "budget.tokens" | "budget.calls" | "budget.cli_progress" | "budget.amend" | "budget.reconcile" | "security.exception";
+            kind: "budget.tokens" | "budget.calls" | "budget.cli_progress" | "budget.amend" | "budget.reconcile" | "security.exception" | "question.answer" | "repository.decide" | "repository.launch";
             /** Work Id */
-            work_id: string;
+            work_id: string | null;
             /**
              * Source
              * @constant

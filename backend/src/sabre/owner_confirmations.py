@@ -1,9 +1,10 @@
 """Owner confirmations: high-impact MCP requests wait for the owner in the console.
 
-An MCP client acts with the owner's authority but is not the owner. A budget increase or a
-security exception requested there is stored as a proposal and changes nothing. Only a
-paired browser can confirm it, and confirming runs the same service operation the console
-uses, with its own revision checks. Rows are kept as the record of what was asked and decided.
+An MCP client acts with the owner's authority but is not the owner. A budget increase, a
+security exception, an answer to an owner decision or a repository creation requested there
+is stored as a proposal and changes nothing. Only a paired browser can confirm it, and
+confirming runs the same service operation the console uses, with its own revision checks.
+Rows are kept as the record of what was asked and decided.
 """
 
 import json
@@ -17,7 +18,10 @@ from pydantic import Field, ValidationError
 
 from sabre.budget_contracts import BudgetAmendment, BudgetReconciliation
 from sabre.contracts import StrictContract
+from sabre.create_flow import CreateFlowLaunch, launch_create
 from sabre.models import (
+    OWNER_DECISIONS,
+    Answer,
     CallBudgetIncrease,
     CliProgressLimitsChange,
     Contract,
@@ -27,6 +31,7 @@ from sabre.models import (
     TokenBudgetIncrease,
     new_id,
 )
+from sabre.repo_creation import RepoCreationDecision
 
 OWNER_CONFIRMATION_SCHEMA = """
 CREATE TABLE owner_confirmations(
@@ -43,12 +48,16 @@ CREATE UNIQUE INDEX owner_confirmations_pending
 CREATE INDEX owner_confirmations_recent ON owner_confirmations(created_at DESC);
 """
 
+# Requests that are not about one run (creating a repository) carry no work order.
+OWNER_CONFIRMATION_SUBJECTS = "ALTER TABLE owner_confirmations ALTER COLUMN work_id DROP NOT NULL;"
+
 PENDING_HOURS = 24
 PENDING_LIMIT = 20
 RECENT_DECIDED = 20
 
 ConfirmationKind = Literal["budget.tokens", "budget.calls", "budget.cli_progress", "budget.amend",
-                           "budget.reconcile", "security.exception"]
+                           "budget.reconcile", "security.exception", "question.answer",
+                           "repository.decide", "repository.launch"]
 ConfirmationState = Literal["pending", "applying", "applied", "rejected", "failed", "expired"]
 
 
@@ -56,7 +65,7 @@ class OwnerConfirmation(StrictContract):
     version: Literal[1] = 1
     id: str
     kind: ConfirmationKind
-    work_id: str
+    work_id: str | None
     source: Literal["mcp"]
     state: ConfirmationState
     summary: str
@@ -82,6 +91,13 @@ class ConfirmationDecision(StrictContract):
     request_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
+class RepositoryApproval(StrictContract):
+    """The owner's approval of one repository proposal, exactly as it would be recorded."""
+
+    proposal_id: str = Field(min_length=1, max_length=128)
+    decision: RepoCreationDecision
+
+
 class Operation(NamedTuple):
     model: type[Contract]
     apply: Callable[[Any, str, Any], Awaitable[Any]]
@@ -97,6 +113,11 @@ def _amendment(request: BudgetAmendment) -> str:
     if policy.reserve:
         limit += f" plus a reserve of {policy.reserve:,}"
     return f"Change the {_METRICS[request.metric]} budget to {limit}" + (", then resume the run" if request.resume else "")
+
+
+def _short(text: str, limit: int) -> str:
+    text = " ".join(text.split())
+    return text if len(text) <= limit else text[:limit - 1].rstrip() + "…"
 
 
 def _reconciliation(request: BudgetReconciliation) -> str:
@@ -116,6 +137,14 @@ OPERATIONS: dict[str, Operation] = {
         _reconciliation),
     "security.exception": Operation(SecurityExceptionCreate, lambda service, work_id, request: service.approve_security_exception(work_id, request),
         lambda request: f"Accept security finding {request.fingerprint} until {request.expires_at.astimezone(UTC):%Y-%m-%d}"),
+    "question.answer": Operation(Answer, lambda service, work_id, request: service.answer(work_id, request),
+        lambda request: f'Answer an owner decision with "{_short(request.answer, 120)}"'),
+    "repository.decide": Operation(RepositoryApproval,
+        lambda service, work_id, request: service.repository_proposals().decide(request.proposal_id, request.decision),
+        lambda request: f"Approve creating the repository of proposal {request.proposal_id}"),
+    "repository.launch": Operation(CreateFlowLaunch, lambda service, work_id, request: launch_create(service, request),
+        lambda request: f"Create the {request.repository.visibility} repository {request.repository.owner}/{request.repository.name} "
+                        f"and start a create run: {_short(request.objective, 200)}"),
 }
 
 
@@ -131,7 +160,7 @@ class PostgresConfirmations:
             await conn.execute("SELECT pg_advisory_xact_lock(813775)")
             await conn.execute("UPDATE owner_confirmations SET state='expired' WHERE state='pending' AND expires_at<=clock_timestamp()")
             prior = await (await conn.execute(
-                "SELECT * FROM owner_confirmations WHERE state='pending' AND kind=%s AND work_id=%s AND request_digest=%s",
+                "SELECT * FROM owner_confirmations WHERE state='pending' AND kind=%s AND work_id IS NOT DISTINCT FROM %s AND request_digest=%s",
                 (kind, work_id, request_digest))).fetchone()
             if prior:
                 return prior, False
@@ -183,8 +212,9 @@ class OwnerConfirmations:
             values["state"] = "expired"
         return OwnerConfirmation(**values)
 
-    async def request(self, kind: ConfirmationKind, work_id: str, request: Contract, source: Literal["mcp"] = "mcp") -> OwnerConfirmation:
-        """Store a proposal. Nothing about the run changes here."""
+    async def request(self, kind: ConfirmationKind, work_id: str | None, request: Contract, source: Literal["mcp"] = "mcp",
+                      *, summary: str | None = None) -> OwnerConfirmation:
+        """Store a proposal. Nothing about the run or the repository changes here."""
         from sabre.repository import digest
 
         operation = OPERATIONS[kind]
@@ -192,15 +222,38 @@ class OwnerConfirmations:
             raise DomainError("CONFIRMATION_INVALID", "The request does not match this operation", 422)
         data = request.model_dump(mode="json")
         self.service.guard.check(data)
-        work = await self.service.repository.work(work_id)
-        if work.status in {Status.COMPLETED, Status.CANCELLED}:
-            raise DomainError("WORK_TERMINAL", "The work order has already finished")
-        summary = operation.summary(request)
+        work = None
+        if work_id is not None:
+            work = await self.service.repository.work(work_id)
+            if work.status in {Status.COMPLETED, Status.CANCELLED}:
+                raise DomainError("WORK_TERMINAL", "The work order has already finished")
+        summary = summary or operation.summary(request)
         row, created = await self.store.add(kind, work_id, source, data, digest({"kind": kind, "work_id": work_id, "request": data}), summary)
-        if created:
+        if created and work is not None:
             await self.service.repository.event(work, "owner_confirmation_requested",
                 f"An MCP client asked the owner to confirm: {summary}. Decide it in the console")
         return self._view(row)
+
+    async def request_answer(self, work_id: str, answer: Answer) -> OwnerConfirmation:
+        """File an answer to a pending owner decision, showing the owner the question it answers."""
+        work = await self.service.repository.work(work_id)
+        question = next((item for item in work.questions if item.id == answer.question_id), None)
+        if work.status != Status.WAITING_INPUT or question is None or question.answer is not None \
+                or question.plan_revision != answer.plan_revision or work.plan_revision != answer.plan_revision:
+            raise DomainError("QUESTION_CLOSED", "The question is no longer pending in this revision")
+        if question.kind not in OWNER_DECISIONS:
+            raise DomainError("OWNER_DECISION_NOT_REQUIRED", "This is a clarification; answer it with sabre_answer_question", 422)
+        summary = f'Answer "{_short(answer.answer, 120)}" to the {question.kind} decision: {_short(question.prompt, 300)}'
+        return await self.request("question.answer", work_id, answer, summary=summary)
+
+    async def request_repository(self, proposal_id: str, decision: RepoCreationDecision) -> OwnerConfirmation:
+        """File the approval of a repository proposal. A rejection needs no confirmation."""
+        if decision.decision != "approve":
+            raise DomainError("OWNER_DECISION_NOT_REQUIRED", "Reject the proposal with sabre_decide_repository", 422)
+        proposal = await self.service.repository_proposals().get(proposal_id)
+        target = proposal.request
+        summary = f"Approve creating the {target.visibility} repository {target.owner}/{target.name}"
+        return await self.request("repository.decide", None, RepositoryApproval(proposal_id=proposal_id, decision=decision), summary=summary)
 
     async def list(self) -> OwnerConfirmationPage:
         rows, pending = await self.store.page()

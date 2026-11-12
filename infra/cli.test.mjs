@@ -58,3 +58,29 @@ test('destructive and empty commands stop before contacting the factory', async 
   assert.equal(await main(['bogus'], { write: (text) => lines.push(text) }), 2);
   assert.equal(lines.at(-1), usage);
 });
+
+test('an owner decision is filed for the console and a clarification is answered directly', async () => {
+  const calls = [];
+  const pending = run();
+  pending.questions[0].plan_revision = 2;
+  const call = async (tool, args = {}) => {
+    calls.push([tool, args]);
+    if (tool === 'sabre_list_work') return { result: [pending] };
+    if (tool === 'sabre_get_work') return pending;
+    if (tool === 'sabre_propose_answer') return { id: 'c0ffee00-0000-4000-8000-000000000001', state: 'pending' };
+    return { ...pending, status: 'queued' };
+  };
+  const lines = [];
+  const io = { write: (text) => lines.push(text), call };
+  assert.equal(await main(['answer', 'a1b2', 'q-new', 'Approve'], io), 0);
+  assert.match(lines.at(-1), /owner decision\. Nothing changed: confirm it in the console \(request 00000001\)/);
+  assert.deepEqual(calls.at(-1), ['sabre_propose_answer', {
+    work_id: pending.id, answer: { question_id: 'q-new-0002', plan_revision: 2, answer: 'Approve' },
+  }]);
+  assert.equal(calls.some(([tool]) => tool === 'sabre_answer_question'), false);
+  assert.equal(await main(['answer', 'a1b2', 'q-old', 'It', 'returns', 'zero'], io), 0);
+  assert.match(lines.at(-1), /^Answer recorded\. Run 0000abcd is queued\.$/);
+  assert.deepEqual(calls.at(-1), ['sabre_answer_question', {
+    work_id: pending.id, answer: { question_id: 'q-old-0001', plan_revision: 2, answer: 'It returns zero' },
+  }]);
+});

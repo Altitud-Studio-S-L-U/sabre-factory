@@ -15,6 +15,9 @@ const kinds: Record<OwnerConfirmation['kind'], string> = {
   'budget.amend': 'Budget',
   'budget.reconcile': 'Budget',
   'security.exception': 'Security exception',
+  'question.answer': 'Owner decision',
+  'repository.decide': 'Repository',
+  'repository.launch': 'Repository',
 };
 
 const clock = (value: string) =>
@@ -122,13 +125,18 @@ export default function PendingConfirmations({
                     <div className="grid min-w-0 flex-1 basis-72 gap-1">
                       <p className="font-medium [overflow-wrap:anywhere]">{item.summary}</p>
                       <p className="text-sm text-muted-foreground [overflow-wrap:anywhere]">
-                        {kinds[item.kind]} ·{' '}
-                        <Link
-                          className="text-foreground underline underline-offset-2"
-                          to={runPath(item.work_id)}
-                        >
-                          {order?.objective ?? `Run ${item.work_id.slice(0, 8)}`}
-                        </Link>{' '}
+                        {kinds[item.kind]}
+                        {item.work_id && (
+                          <>
+                            {' · '}
+                            <Link
+                              className="text-foreground underline underline-offset-2"
+                              to={runPath(item.work_id)}
+                            >
+                              {order?.objective ?? `Run ${item.work_id.slice(0, 8)}`}
+                            </Link>
+                          </>
+                        )}{' '}
                         · asked {clock(item.created_at)} · expires {clock(item.expires_at)}
                       </p>
                     </div>
