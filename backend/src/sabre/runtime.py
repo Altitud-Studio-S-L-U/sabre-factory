@@ -153,7 +153,7 @@ class Runtime:
             from sabre.models import Budget, Task, WorkOrder
             for project in await self.repository.projects():
                 work = WorkOrder(project_id=project.id, mode="maintain", objective="Security review scheduled",
-                    acceptance=["Proponer remediaciones; no iniciar parches"], budget=Budget(max_cost_usd=0.01),
+                    acceptance=["Propose remediations; do not start patches"], budget=Budget(max_cost_usd=0.01),
                     idempotency_key=f"security:{project.id}:{timestamp}", phase="security_watch", created_at=now())
                 # A watch run scans and reports only; it never enters the development graph.
                 async def no_enqueue(conn, work_id):
@@ -175,7 +175,7 @@ class Runtime:
                         work.tasks = [Task(title=f"[{finding.severity}] {finding.title}"[:300], result=finding.remediation)
                             for finding in sorted(report.findings, key=lambda item: (priorities[item.severity], item.fingerprint))]
                         work.status = Status.BLOCKED if any(item.category == "scanner_error" for item in report.findings) else Status.COMPLETED
-                        work.summary = f"Vigilancia finalizada: {len(work.tasks)} prioritized proposals. Select the work to commission; development has not started"
+                        work.summary = f"Security watch finished: {len(work.tasks)} prioritized proposals. Select the work to commission; development has not started"
                         await self.repository.report_security(work)
                         await self.repository.save(work)
                         await self.repository.event(work, "security", work.summary)

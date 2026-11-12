@@ -19,13 +19,13 @@ def chat_model(config):
     if provider == "claude_cli":
         from sabre.claude_model import ClaudeChatModel
         if config.model_base_url:
-            raise DomainError("PROVIDER_POLICY", "Claude CLI requiere el ejecutor aislado autorizado")
+            raise DomainError("PROVIDER_POLICY", "Claude CLI requires the authorized isolated runner")
         return ClaudeChatModel(model_name=config.model_name, runner_url=config.claude_cli_url,
             token_file=config.claude_cli_token_file)
     if provider == "codex_cli":
         from sabre.codex_model import CodexChatModel
         if config.model_base_url:
-            raise DomainError("PROVIDER_POLICY", "Codex CLI requiere el ejecutor aislado autorizado")
+            raise DomainError("PROVIDER_POLICY", "Codex CLI requires the authorized isolated runner")
         return CodexChatModel(model_name=config.model_name, runner_url=config.codex_cli_url,
             token_file=config.codex_cli_token_file)
     if provider not in {"openai", "local", "anthropic", "google"}:

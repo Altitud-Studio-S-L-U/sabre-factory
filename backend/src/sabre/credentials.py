@@ -62,7 +62,7 @@ class Credentials:
         self.static_mcp_servers = {name: server.model_copy(deep=True) for name, server in config.mcp_servers.items()}
         self.dynamic_mcp_names: frozenset[str] = frozenset()
         self.targets: dict[str, str] = {
-            "github.read": "GitHub · lectura de repositorios", "github.publish": "GitHub · rama y PR draft",
+            "github.read": "GitHub · repository read", "github.publish": "GitHub · branch and draft PR",
             "github.create": "GitHub · repository creation approved by the owner",
             "slack.bot": "Slack · bot", "slack.app": "Slack · Socket Mode",
         }

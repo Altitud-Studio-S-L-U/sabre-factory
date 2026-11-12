@@ -61,9 +61,9 @@ describe('System information', () => {
     const telemetry = screen.getByRole('heading', { name: 'OpenTelemetry' }).closest('li')!;
     expect(within(telemetry).getByText('Configured')).toBeVisible();
     expect(within(telemetry).getByText('Not checked')).toBeVisible();
-    expect(within(telemetry).queryByText('Responde')).not.toBeInTheDocument();
+    expect(within(telemetry).queryByText('Responding')).not.toBeInTheDocument();
     const cli = screen.getByRole('heading', { name: 'Codex CLI' }).closest('li')!;
-    expect(within(cli).getByText('Ocupado')).toBeVisible();
+    expect(within(cli).getByText('Busy')).toBeVisible();
     expect(within(cli).queryByText('Not configured')).not.toBeInTheDocument();
     expect(screen.getByText(/the Codex runner processes one invocation at a time/)).toBeVisible();
     expect(screen.getByText('Developer')).toBeVisible();
@@ -96,4 +96,15 @@ describe('System information', () => {
     expect(screen.queryByRole('heading', { name: 'Services and connections' })).not.toBeInTheDocument();
     expect(screen.queryByText('private-error')).not.toBeInTheDocument();
   });
+});
+
+it('shows the running console build and flags a newer build served by the factory', async () => {
+  vi.stubEnv('VITE_SABRE_BUILD', 'aaaaaaaaaaaaaaaa');
+  vi.resetModules();
+  vi.stubGlobal('fetch', vi.fn(async () => Response.json({ build: 'bbbbbbbbbbbbbbbb' })));
+  const { default: FreshAbout } = await import('../About');
+  render(<FreshAbout api={{ system: async () => info }} />);
+  expect(await screen.findByText('aaaaaaaaaaaaaaaa')).toBeVisible();
+  expect(await screen.findByText(/The server now serves build/)).toHaveTextContent('bbbbbbbbbbbbbbbb');
+  vi.unstubAllEnvs();
 });

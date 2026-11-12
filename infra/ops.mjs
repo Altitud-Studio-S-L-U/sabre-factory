@@ -146,7 +146,7 @@ export async function openPanelAccess({ platform = process.platform, input = pro
   output = process.stdout, requestGrant, launchBrowser }) {
   const requireOwnerTerminal = () => {
     if (input.isTTY !== true || output.isTTY !== true) {
-      throw panelFailure('PANEL_OWNER_TERMINAL_REQUIRED', 'En Windows, ejecuta node infra/ops.mjs open en una terminal interactiva propia, sin redirigir la entrada ni la salida.');
+      throw panelFailure('PANEL_OWNER_TERMINAL_REQUIRED', 'On Windows, run node bin/sabre.mjs open in your own interactive terminal without redirecting input or output.');
     }
   };
   // Owner-terminal action. Agents must not allocate a PTY to request or capture this link.

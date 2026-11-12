@@ -74,7 +74,7 @@ def serialize_turn(messages: list[BaseMessage], tools: list, choice: Any, provid
             texts = []
             for block in content:
                 if not isinstance(block, dict) or block.get("type") != "text" or not isinstance(block.get("text"), str):
-                    raise DomainError(f"{provider.upper()}_UNSUPPORTED_CONTENT", f"This adapter for {provider} solo admite contenido textual")
+                    raise DomainError(f"{provider.upper()}_UNSUPPORTED_CONTENT", f"This adapter for {provider} accepts text content only")
                 texts.append(block["text"])
             content = "\n".join(texts)
         entry: dict[str, Any] = {"role": message.type, "content": content}

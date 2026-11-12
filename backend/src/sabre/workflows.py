@@ -292,7 +292,7 @@ class Factory:
         work.phase, work.status, work.updated_at, work.error_code = phase, Status.RUNNING, now(), None
         work.budget_denial, work.limiting_metric = None, None
         await self.repository.save(work)
-        await self.repository.event(work, "phase", f"Etapa: {phase}")
+        await self.repository.event(work, "phase", f"Phase: {phase}")
         return work
 
     async def finish(self, work, **updates):
@@ -496,7 +496,7 @@ class Factory:
             if previous and previous.answer and previous.answer.strip().casefold() not in {"aprobar", "approve"}:
                 raise DomainError("SCOPE_NOT_APPROVED", "Material changes require scope review")
             if not previous:
-                work.questions.append(HumanQuestion(work_id=work.id, plan_revision=work.plan_revision, prompt=prompt, kind="permission", subject_digest=subject_digest, options=["Aprobar", "Revisar alcance"]))
+                work.questions.append(HumanQuestion(work_id=work.id, plan_revision=work.plan_revision, prompt=prompt, kind="permission", subject_digest=subject_digest, options=["Approve", "Review scope"]))
         return await self.finish(work)
 
     async def scope_approval(self, state):
@@ -747,7 +747,7 @@ class Factory:
                     else:
                         work.status = Status.WAITING_INPUT
                         pending = next((q for q in work.questions if q.answer is None and q.plan_revision == work.plan_revision), None)
-                        work.summary = pending.prompt if pending else "Esperando tu respuesta"
+                        work.summary = pending.prompt if pending else "Waiting for your answer"
                 await self.repository.save(work)
                 if answer and any(q.id == answer["question_id"] and q.answer is not None for q in work.questions):
                     await self.repository.clear_answer(work_id, answer["question_id"])

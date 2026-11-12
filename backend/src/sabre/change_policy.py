@@ -283,8 +283,8 @@ def material_changes(before: dict[str, str], after: dict[str, str]) -> list[str]
         old = parser(before[path]) if parser and path in before else None
         new = parser(after[path]) if parser and path in after else None
         if path not in before or path not in after:
-            verb = "added" if path in after else "retirado"
-            changes.append(f"Completed: {verb} un archivo de {'infraestructura/CI' if kind == 'infra' else 'project configuration'}: {_label(path)}.")
+            verb = "added" if path in after else "removed"
+            changes.append(f"Completed: {verb} a {'infrastructure/CI' if kind == 'infra' else 'project configuration'} file: {_label(path)}.")
             continue
         if kind == "infra":
             if before[path].replace("\r\n", "\n") != after[path].replace("\r\n", "\n"):

@@ -44,11 +44,11 @@ if (action === 'up') {
   await assertOwned('container', api);
   await docker(['rm', '-f', api]);
   await launchApi();
-  console.log('API QA actualizada; base de datos, bootstrap y master preservados.');
+  console.log('QA API refreshed; database, bootstrap and master key preserved.');
 } else if (action === 'restart') {
   await assertOwned('container', api);
   await docker(['restart', api]);
-  console.log('API QA reiniciada; la base de datos y la clave maestra se conservaron.');
+  console.log('QA API restarted; database and master key preserved.');
 } else if (action === 'down') {
   const inventories = { container: ['ps', '-a', '--format', '{{.Names}}'], network: ['network', 'ls', '--format', '{{.Name}}'], volume: ['volume', 'ls', '--format', '{{.Name}}'] };
   const planned = [['container', api], ['container', `${owner}-postgres`], ['network', owner],
@@ -59,5 +59,5 @@ if (action === 'up') {
   // Check all ownership before removing anything, and allow cleanup to resume after an interruption.
   for (const [kind, name] of selected) await assertOwned(kind, name);
   for (const [kind, name] of selected) await docker(kind === 'container' ? ['rm', '-f', name] : [kind, 'rm', name]);
-  console.log('QA aislada retirada; la instancia principal permanece intacta.');
+  console.log('Isolated QA removed; the main instance is untouched.');
 } else throw new Error('Use up, refresh, restart or down');
