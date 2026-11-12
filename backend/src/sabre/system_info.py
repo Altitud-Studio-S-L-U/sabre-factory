@@ -5,7 +5,7 @@ from importlib import metadata
 from typing import Any, Literal, Protocol
 from urllib.parse import urlsplit
 
-from pydantic import Field
+from pydantic import ConfigDict, Field
 
 from sabre.models import AwareTimestamp, Contract, now
 from sabre.settings import Settings
@@ -64,6 +64,8 @@ class RoleModelInfo(Contract):
 
 
 class SystemInfo(Contract):
+    # runtime_settings is newer than existing clients; keep it optional in the response schema.
+    model_config = ConfigDict(json_schema_serialization_defaults_required=False)
     checked_at: AwareTimestamp
     application: ApplicationInfo
     runtime: RuntimeInfo

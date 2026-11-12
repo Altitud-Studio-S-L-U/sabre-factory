@@ -342,7 +342,8 @@ class MemoryCreate(Contract):
     source_commit: str
     source_work_id: str
     evidence_digest: str | None = None
-    scope: Literal["commit", "project"] = Field(default="commit", description=(
+    # A factory keeps "default" out of the request schema, so generated clients may omit the field.
+    scope: Literal["commit", "project"] = Field(default_factory=lambda: "commit", description=(
         "commit: recalled only at its source commit. project: also recalled at later indexed commits "
         "while every cited file keeps its content digest"))
     citations: list[str] = Field(default_factory=list, max_length=MAX_MEMORY_CITATIONS, description=(

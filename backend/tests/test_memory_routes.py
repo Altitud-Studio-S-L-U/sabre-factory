@@ -86,3 +86,12 @@ def test_validity_explains_every_reason_a_memory_is_or_is_not_recalled():
     stale = validity_at(project, later, {"state": "stale", "basis": "citations_changed", "checked_at": ITEM.created_at,
                                          "changed_paths": [{"path": "src/app.py", "change": "deleted"}]})
     assert stale.state == "stale" and stale.changed_paths[0].change == "deleted"
+
+
+def test_new_request_and_response_fields_stay_optional_for_existing_clients():
+    schema = client(SimpleNamespace())._transport.app.openapi()["components"]["schemas"]
+    create = schema["MemoryCreate"]
+    assert {"scope", "citations", "supersedes"}.isdisjoint(create["required"])
+    assert "default" not in create["properties"]["scope"]
+    assert "runtime_settings" not in schema["SystemInfo"]["required"]
+    assert {"scope", "citations", "proposed_by"} <= set(schema["MemoryItem"]["required"])
