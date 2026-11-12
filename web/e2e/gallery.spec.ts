@@ -7,6 +7,7 @@ import {
   memoryRecalls,
   memoryReview,
 } from '../src/test/memoryFixture';
+import { configurationHistory, runtimeSettings } from '../src/test/runtimeFixture';
 
 // Visual evidence for design work: SABRE_GALLERY=<label> pnpm test:browser gallery
 // writes one full-page capture per section and viewport to work/gallery/<label>/.
@@ -22,6 +23,8 @@ const sections = [
   { name: 'memory-recalls', path: '/memory', ready: 'Memory', tab: 'Recall log' },
   { name: 'config', path: '/config', ready: 'Config' },
   { name: 'config-access', path: '/config?section=access', ready: 'Paired browsers' },
+  { name: 'config-environment', path: '/config?section=environment', ready: 'Set by the environment' },
+  { name: 'config-history', path: '/config?section=history', ready: 'Revision history' },
 ];
 
 test.describe('gallery', () => {
@@ -45,6 +48,12 @@ test.describe('gallery', () => {
       }),
     );
     await page.route('**/api/v1/work/synthetic-run', (route) => route.fulfill({ json: order }));
+    await page.route('**/api/v1/configuration/history*', (route) =>
+      route.fulfill({ json: configurationHistory() }),
+    );
+    await page.route('**/api/v1/system', (route) =>
+      route.fulfill({ json: { runtime_settings: runtimeSettings() } }),
+    );
     // Realistic project memory so the knowledge map, review queue and recall log can be reviewed.
     await page.route('**/api/v1/projects/*/memory/graph*', (route) => route.fulfill({ json: memoryGraph() }));
     await page.route('**/api/v1/projects/*/memory/review', (route) =>

@@ -18,6 +18,7 @@ import {
 import { providers, SelectionFields } from './ModelConfiguration';
 import Credentials from './Credentials';
 import PairedBrowsers from './PairedBrowsers';
+import { ConfigurationHistoryPanel, RuntimeSettingsPanel } from './features/config/RuntimeSettingsPanel';
 import Dialog, { DialogActions } from './components/Dialog';
 import Field from './components/FormField';
 import Select from './components/Select';
@@ -61,9 +62,9 @@ const encode = (value: FactoryConfiguration) => JSON.stringify(value, null, 2);
 const modeGroups = [
   {
     label: 'Factory · versioned',
-    modes: ['Guided setup', 'Policies & limits', 'Context & storage', 'YAML / JSON'],
+    modes: ['Guided setup', 'Policies & limits', 'Context & storage', 'YAML / JSON', 'History'],
   },
-  { label: 'Runtime', modes: ['Access'] },
+  { label: 'Runtime', modes: ['Environment', 'Access'] },
 ];
 const budgetModes = ['patch', 'maintain', 'create', 'audit'] as const;
 const compactNumber = new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 });
@@ -108,8 +109,11 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
   const [saved, setSaved] = useState<ConfigurationView | null>(null);
   const [draft, setDraft] = useState<FactoryConfiguration | null>(null);
   const [document, setDocument] = useState('');
-  const [mode, setMode] = useState(() =>
-    new URLSearchParams(window.location.search).get('section') === 'access' ? 'Access' : 'Guided setup',
+  const [mode, setMode] = useState(
+    () =>
+      (({ access: 'Access', environment: 'Environment', history: 'History' }) as Record<string, string>)[
+        new URLSearchParams(window.location.search).get('section') ?? ''
+      ] ?? 'Guided setup',
   );
   const [step, setStep] = useState(() =>
     new URLSearchParams(window.location.search).get('section') === 'models' ? 1 : 0,
@@ -1113,6 +1117,8 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
                 </>
               )}
               {mode === 'Access' && <PairedBrowsers api={api} />}
+              {mode === 'Environment' && <RuntimeSettingsPanel api={api} />}
+              {mode === 'History' && <ConfigurationHistoryPanel api={api} revision={saved.revision} />}
               {mode === 'Context & storage' && (
                 <div className="grid min-w-0 items-start gap-5 @4xl:grid-cols-2">
                   <Card aria-labelledby="config-context-title">
@@ -1178,7 +1184,7 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
                   </Card>
                 </div>
               )}
-              {mode !== 'Access' && (
+              {!['Access', 'Environment', 'History'].includes(mode) && (
                 <Card aria-labelledby="config-validate-title">
                   <CardHeader>
                     <PanelHeading
