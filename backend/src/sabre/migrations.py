@@ -40,7 +40,7 @@ ALTER TABLE model_usage ADD COLUMN settled_at timestamptz;
 async def migrate(conn, baseline: str):
     from sabre.console_configuration import CONSOLE_CONFIGURATION_SCHEMA
     from sabre.delegation import DELEGATION_SCHEMA
-    from sabre.memory_store import MEMORY_GRAPH_SCHEMA
+    from sabre.memory_store import MEMORY_GRAPH_SCHEMA, MEMORY_RECALL_SCHEMA
     from sabre.release_candidates import RELEASE_SCHEMA
     from sabre.repository_ingestion import INGESTION_SCHEMA
     await conn.execute("SELECT pg_advisory_xact_lock(813774)")
@@ -81,7 +81,7 @@ async def migrate(conn, baseline: str):
             revision integer NOT NULL, data jsonb NOT NULL,
             created_at timestamptz NOT NULL DEFAULT clock_timestamp(), PRIMARY KEY(work_id,revision));
         """, 10: INGESTION_SCHEMA, 11: RELEASE_SCHEMA, 12: PANEL_SESSION_DIRECTORY,
-        13: USAGE_BREAKDOWN, 14: MEMORY_GRAPH_SCHEMA}
+        13: USAGE_BREAKDOWN, 14: MEMORY_GRAPH_SCHEMA, 15: MEMORY_RECALL_SCHEMA}
     if set(applied) - set(migrations):
         raise DomainError("SCHEMA_NEWER_THAN_RUNTIME", "Restore the matching application version before opening this database", 503)
     for version, statement in migrations.items():

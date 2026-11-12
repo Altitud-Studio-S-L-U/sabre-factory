@@ -416,11 +416,11 @@ class Factory:
     async def role(self, role, work, project, instruction, *, snapshot=None, analysis_handoff=None, state=None, task=None, evidence=None):
         snapshot = snapshot if snapshot is not None else await self.executor.snapshot(work.id)
         source_context = await self.project_context.for_role(work.project_id, work.id, snapshot, role, work.objective + "\n" + instruction, mode=work.mode)
-        memories = await self.memory.context_for_role(work.project_id, work.objective, instruction, snapshot["base_commit"], work=work)
+        memories = await self.memory.context_for_role(work.project_id, work.objective, instruction, snapshot["base_commit"], work=work, role=role)
         baseline = json.loads(self.artifacts.get(state["baseline_source_index"])) if state and state.get("baseline_source_index") else None
         context = task_context(work, snapshot, role, self.guard, task=task, baseline=baseline, evidence=evidence)
         extra = {"analysis_handoff": analysis_handoff} if analysis_handoff is not None else {}
-        memory_tools = {"validate_context": self.memory.context_validator(work.project_id, snapshot["base_commit"])}
+        memory_tools = {"validate_context": self.memory.context_validator(work.project_id, snapshot["base_commit"], work=work, role=role)}
         if memories:
             memory_tools["read_memory"] = self.memory.reader(work.project_id, snapshot["base_commit"])
         scope = note_scope(role, task)

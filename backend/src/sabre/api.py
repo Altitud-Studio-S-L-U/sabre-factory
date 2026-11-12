@@ -34,7 +34,13 @@ from sabre.integrations import (
     IntegrationStateChange,
 )
 from sabre.mcp_connections import MCPConnectionInfo, MCPConnectionSave, MCPDiscovery
-from sabre.memory_contracts import MemoryApproval, MemoryCarryForward, MemoryGraph, MemoryValidityRecord
+from sabre.memory_contracts import (
+    MemoryApproval,
+    MemoryCarryForward,
+    MemoryGraph,
+    MemoryRecallPage,
+    MemoryValidityRecord,
+)
 from sabre.model_configuration import ModelConfiguration, ModelConfigurationChange
 from sabre.models import (
     MEMORY_ID_PATTERN,
@@ -555,6 +561,12 @@ def create_app(service=None, config=None) -> FastAPI:
     async def memory_graph(project_id: str, focus: str | None = Query(default=None, pattern=MEMORY_ID_PATTERN),
                            depth: int = Query(default=1, ge=1, le=2), limit: int = Query(default=100, ge=1, le=300)):
         return await svc().memory.graph(project_id, focus, depth, limit)
+
+    @application.get("/api/v1/projects/{project_id}/memory/recalls", response_model=MemoryRecallPage)
+    async def memory_recalls(project_id: str, work_id: str | None = Query(default=None, max_length=128),
+                             memory_id: str | None = Query(default=None, pattern=MEMORY_ID_PATTERN),
+                             cursor: str | None = Query(default=None, max_length=19), limit: int = Query(default=50, ge=1, le=200)):
+        return await svc().memory.recalls(project_id, work_id=work_id, memory_id=memory_id, cursor=cursor, limit=limit)
 
     @application.get("/api/v1/secret-targets", response_model=list[SecretTarget])
     async def secret_targets():

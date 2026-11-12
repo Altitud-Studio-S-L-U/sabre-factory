@@ -197,3 +197,38 @@ async def test_overlaps_are_recorded_against_active_and_pending_memories_only(re
     targets = {row["target_id"]: row["attrs"] for row in rows}
     assert set(targets) == {approved.id, pending.id}
     assert targets[approved.id]["only_source"] == ["keep", "must"] and targets[approved.id]["method"] == "shingle_jaccard_v1"
+
+
+async def test_recall_log_pages_filters_and_stays_in_its_project(repository):
+    repo, project, work = await delivered(repository)
+    _, other, other_work = await delivered(repository)
+    service = MemoryService(repo, SecretGuard())
+    first = await service.update((await service.propose(proposal(project, work, "Recall arithmetic carefully"))).id, True)
+    second = await service.update((await service.propose(proposal(project, work, "Recall boundaries for arithmetic overflow"))).id, True)
+    work.phase = "analysis"
+    for role in ("analyst", "architect", "developer"):
+        selected = await service.context_for_role(project.id, "Arithmetic", "Recall arithmetic", A, work=work, role=role)
+        assert {value["id"] for value in selected} == {first.id, second.id}
+    reference = {"id": first.id, "content_digest": hashlib.sha256(first.content.encode()).hexdigest(), "source_commit": A}
+    with pytest.raises(DomainError):
+        await service.context_validator(project.id, B, work=work, role="qa")([reference])
+    await MemoryService(repo, SecretGuard()).context_for_role(other.id, "Arithmetic", "Recall arithmetic", A, work=other_work, role="analyst")
+
+    page = await service.recalls(project.id, limit=2)
+    assert [item.role for item in page.items] == ["qa", "developer"] and page.next_cursor is not None
+    assert page.items[0].outcome == "refused" and page.items[0].error_code == "MEMORY_CONTEXT_CHANGED" and page.items[0].refused_memory_ids == [first.id]
+    recalled = page.items[1]
+    assert recalled.stage == "analysis" and recalled.candidates == 2 and recalled.omitted == 0 and recalled.bytes > 0
+    assert {entry.memory_id for entry in recalled.selected} == {first.id, second.id}
+    assert all(entry.lexical_rank in {1, 2} and entry.vector_rank is None and entry.fused_score > 0 for entry in recalled.selected)
+    rest = await service.recalls(project.id, cursor=page.next_cursor, limit=2)
+    assert [item.role for item in rest.items] == ["architect", "analyst"] and rest.next_cursor is None
+    assert len((await service.recalls(project.id, work_id=work.id)).items) == 4
+    assert len((await service.recalls(project.id, memory_id=second.id)).items) == 3
+    assert len((await service.recalls(other.id)).items) == 1
+    assert (await service.recalls(project.id, work_id=other_work.id)).items == []
+    stats = await repo.memory_recall_stats([first.id, second.id])
+    assert stats[first.id]["recall_count"] == 3 and stats[first.id]["refused_count"] == 1 and stats[second.id]["refused_count"] == 0
+    with pytest.raises(DomainError) as cursor:
+        await service.recalls(project.id, cursor="0")
+    assert cursor.value.code == "INVALID_CURSOR"

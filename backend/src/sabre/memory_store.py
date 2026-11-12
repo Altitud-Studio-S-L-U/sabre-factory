@@ -42,6 +42,25 @@ CREATE UNIQUE INDEX memory_validity_once ON memory_validity(memory_id,commit,(ba
 CREATE INDEX memory_validity_commit ON memory_validity(project_id,commit);
 """
 
+# One row per context_for_role call (outcome recalled, possibly with nothing selected) and per refusal of
+# saved memory context by the validator. memory_ids holds the selected or refused memories for lookup.
+MEMORY_RECALL_SCHEMA = """
+CREATE TABLE memory_recalls(
+ seq bigserial PRIMARY KEY,
+ id text NOT NULL UNIQUE,
+ project_id text NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+ work_id text REFERENCES work_orders(id) ON DELETE CASCADE,
+ role text, stage text, commit text NOT NULL,
+ outcome text NOT NULL CHECK(outcome IN ('recalled','refused')),
+ error_code text,
+ memory_ids text[] NOT NULL DEFAULT '{}',
+ data jsonb NOT NULL,
+ created_at timestamptz NOT NULL DEFAULT clock_timestamp());
+CREATE INDEX memory_recalls_project ON memory_recalls(project_id,seq DESC);
+CREATE INDEX memory_recalls_work ON memory_recalls(work_id,seq DESC);
+CREATE INDEX memory_recalls_memory ON memory_recalls USING gin(memory_ids);
+"""
+
 MAX_VALIDITY_BATCH = 500
 
 # Approved, not invalidated and either recorded at this commit or a project memory valid here.
@@ -58,6 +77,14 @@ def index_version() -> int:
 
 def item_from(data) -> MemoryItem:
     return MemoryItem.model_validate(data)
+
+
+class RecalledMemory(MemoryItem):
+    """A retrieved memory with its ranks: 1/(60+rank) per list, summed (reciprocal rank fusion)."""
+
+    lexical_rank: int | None = None
+    vector_rank: int | None = None
+    fused_score: float | None = None
 
 
 def lifecycle(item: MemoryItem) -> str:
@@ -344,6 +371,7 @@ class MemoryStore:
         return item_from(row["data"])
 
     async def search_memory(self, project_id: str, query: str, commit: str, embedding: list[float] | None = None, *, match_any=False):
+        """Up to eight recallable memories with their lexical and vector ranks and fused RRF score."""
         query_function = sql.Identifier("websearch_to_tsquery" if match_any else "plainto_tsquery")
         values = {"project": project_id, "commit": commit, "query": query, "vector": str(embedding) if embedding else None}
         async with self.connection() as conn:
@@ -363,15 +391,19 @@ class MemoryStore:
                             SELECT id,position FROM semantic UNION ALL SELECT id,position FROM lexical
                         ) candidates GROUP BY id
                     )
-                    SELECT scoped.data FROM scores JOIN scoped USING(id) ORDER BY scores.score DESC,id LIMIT 8
+                    SELECT scoped.data,scores.score AS fused_score,lexical.position AS lexical_rank,semantic.position AS vector_rank
+                    FROM scores JOIN scoped USING(id) LEFT JOIN lexical USING(id) LEFT JOIN semantic USING(id)
+                    ORDER BY scores.score DESC,id LIMIT 8
                 """).format(recallable=sql.SQL(RECALLABLE), query_function=query_function)
             else:
-                statement = sql.SQL("""SELECT m.data FROM memories m WHERE {recallable}
-                    AND m.document @@ {query_function}('simple',%(query)s)
-                    ORDER BY ts_rank(m.document,{query_function}('simple',%(query)s)) DESC,m.id LIMIT 8""").format(
-                    recallable=sql.SQL(RECALLABLE), query_function=query_function)
-            cursor = await conn.execute(statement, values)
-            return [item_from(r["data"]) async for r in cursor]
+                statement = sql.SQL("""SELECT m.data,row_number() OVER (ORDER BY ts_rank(m.document,{query_function}('simple',%(query)s)) DESC,m.id) AS lexical_rank,
+                        NULL::bigint AS vector_rank,NULL::numeric AS fused_score
+                    FROM memories m WHERE {recallable} AND m.document @@ {query_function}('simple',%(query)s)
+                    ORDER BY lexical_rank LIMIT 8""").format(recallable=sql.SQL(RECALLABLE), query_function=query_function)
+            rows = await (await conn.execute(statement, values)).fetchall()
+        return [RecalledMemory(**item_from(row["data"]).model_dump(), lexical_rank=row["lexical_rank"], vector_rank=row["vector_rank"],
+                               fused_score=round(float(row["fused_score"]) if row["fused_score"] is not None else 1 / (60 + row["lexical_rank"]), 6))
+                for row in rows]
 
     async def memory_graph(self, project_id: str, focus: str | None, depth: int, limit: int) -> dict:
         memory_kinds = ["supersedes", "related", "overlaps"]
@@ -450,3 +482,27 @@ class MemoryStore:
             if item.proposed_by is not None:
                 connect(source, agent_node(item.proposed_by), "proposed_by")
         return {"focus": focus, "depth": depth, "nodes": list(nodes.values()), "edges": edges, "truncated": truncated}
+
+    async def record_memory_recall(self, recall: dict):
+        async with self.connection() as conn:
+            await conn.execute("""INSERT INTO memory_recalls(id,project_id,work_id,role,stage,commit,outcome,error_code,memory_ids,data)
+                VALUES(%(id)s,%(project_id)s,%(work_id)s,%(role)s,%(stage)s,%(commit)s,%(outcome)s,%(error_code)s,%(memory_ids)s,%(data)s)
+                ON CONFLICT(id) DO NOTHING""", {**recall, "data": Jsonb(recall["data"])})
+
+    async def memory_recalls(self, project_id: str, *, work_id: str | None = None, memory_id: str | None = None,
+                             cursor: int | None = None, limit: int = 50) -> tuple[list[dict], int | None]:
+        async with self.connection() as conn:
+            rows = await (await conn.execute("""SELECT seq,id,project_id,work_id,role,stage,commit,outcome,error_code,memory_ids,data,created_at
+                FROM memory_recalls WHERE project_id=%(project)s AND (%(work)s::text IS NULL OR work_id=%(work)s)
+                AND (%(memory)s::text IS NULL OR memory_ids @> ARRAY[%(memory)s::text]) AND (%(cursor)s::bigint IS NULL OR seq<%(cursor)s)
+                ORDER BY seq DESC LIMIT %(limit)s""", {"project": project_id, "work": work_id, "memory": memory_id,
+                                                      "cursor": cursor, "limit": limit + 1})).fetchall()
+        return rows[:limit], rows[limit - 1]["seq"] if len(rows) > limit else None
+
+    async def memory_recall_stats(self, memory_ids: list[str]) -> dict[str, dict]:
+        async with self.connection() as conn:
+            rows = await (await conn.execute("""SELECT memory_id,count(*) FILTER(WHERE outcome='recalled') AS recall_count,
+                    max(created_at) FILTER(WHERE outcome='recalled') AS last_recalled_at,count(*) FILTER(WHERE outcome='refused') AS refused_count
+                FROM memory_recalls r CROSS JOIN LATERAL unnest(r.memory_ids) AS memory_id
+                WHERE r.memory_ids && %s GROUP BY memory_id""", (memory_ids,))).fetchall()
+        return {row["memory_id"]: row for row in rows if row["memory_id"] in memory_ids}

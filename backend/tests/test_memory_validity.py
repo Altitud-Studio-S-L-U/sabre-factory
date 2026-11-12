@@ -119,3 +119,36 @@ def test_overlap_is_deterministic_bounded_and_explains_the_differing_terms():
     bounded = overlap(long, long + " extra")
     assert len(bounded["only_source"]) == 0 and bounded["only_target"] == ["extra"]
     assert overlap(long, long.replace("word1 ", "")) == overlap(long, long.replace("word1 ", ""))
+
+
+async def test_role_recall_and_validator_refusal_are_logged_with_ranks_and_without_content():
+    from sabre.memory_store import RecalledMemory
+    items = [RecalledMemory(**stored("project").model_dump() | {"id": f"memory-{index}"}, lexical_rank=index + 1, vector_rank=None,
+                            fused_score=round(1 / (61 + index), 6)) for index in range(6)]
+    record = AsyncMock()
+    repository = SimpleNamespace(search_memory=AsyncMock(return_value=items), has_embedded_memory=AsyncMock(return_value=False),
+                                 memory_for_context=AsyncMock(side_effect=DomainError("MEMORY_NOT_AVAILABLE", "Stale here", 404)),
+                                 record_memory_recall=record)
+    service = MemoryService(repository, SecretGuard())
+    work = SimpleNamespace(id="work-1", phase="analysis")
+    selected = await service.context_for_role("project-one", "Keep empty input", "Inspect the parser", LATER, work=work, role="analyst")
+    recall = record.await_args.args[0]
+    assert (recall["work_id"], recall["role"], recall["stage"], recall["commit"], recall["outcome"]) == ("work-1", "analyst", "analysis", LATER, "recalled")
+    assert recall["memory_ids"] == [f"memory-{index}" for index in range(4)]
+    data = recall["data"]
+    assert data["candidates"] == 6 and data["omitted"] == 2 and data["query_terms"] == ["Inspect", "the", "parser", "Keep", "empty", "input"]
+    assert data["selected"][0] == {"memory_id": "memory-0", "lexical_rank": 1, "vector_rank": None, "fused_score": round(1 / 61, 6),
+                                   "bytes": len(__import__("json").dumps(selected[0], ensure_ascii=False).encode()), "truncated": False}
+    assert "Keep empty input" not in str(data["selected"])
+    with pytest.raises(DomainError) as refused:
+        await service.context_validator("project-one", LATER, work=work, role="developer")([{"id": "memory-0", "content_digest": "a" * 64}, "junk"])
+    assert refused.value.code == "MEMORY_CONTEXT_CHANGED"
+    refusal = record.await_args.args[0]
+    assert (refusal["outcome"], refusal["error_code"], refusal["memory_ids"], refusal["role"]) == ("refused", "MEMORY_CONTEXT_CHANGED", ["memory-0"], "developer")
+
+
+async def test_recalls_without_a_run_are_not_logged():
+    record = AsyncMock()
+    repository = SimpleNamespace(search_memory=AsyncMock(return_value=[]), has_embedded_memory=AsyncMock(return_value=False), record_memory_recall=record)
+    await MemoryService(repository, SecretGuard()).context_for_role("project-one", "Objective", "Task", LATER, work=object())
+    record.assert_not_awaited()

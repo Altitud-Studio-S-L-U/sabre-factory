@@ -2,13 +2,30 @@ import hashlib
 import json
 import re
 
-from sabre.memory_contracts import MemoryApproval, MemoryCarryForward, MemoryGraph, MemoryValidityRecord
-from sabre.models import DomainError, MemoryCreate, MemoryItem, ProposedBy, WorkOrder, memory_identity, now
+from sabre.memory_contracts import (
+    MemoryApproval,
+    MemoryCarryForward,
+    MemoryGraph,
+    MemoryRecall,
+    MemoryRecallPage,
+    MemoryValidityRecord,
+)
+from sabre.models import (
+    DomainError,
+    MemoryCreate,
+    MemoryItem,
+    ProposedBy,
+    WorkOrder,
+    memory_identity,
+    new_id,
+    now,
+)
 from sabre.repository import digest
 
 MAX_CONTEXT_BYTES = 6144
 MAX_CONTEXT_ITEMS = 4
 MAX_READ_CHARS = 2048
+MAX_RECALL_TERMS = 32
 
 
 def encoded_size(value):
@@ -73,6 +90,18 @@ class MemoryService:
         return await self.repository.set_memory_state(memory_id, approve, scope=decision.scope, supersedes=decision.supersedes,
                                                       related=decision.related)
 
+    async def recalls(self, project_id: str, *, work_id: str | None = None, memory_id: str | None = None,
+                      cursor: str | None = None, limit: int = 50) -> MemoryRecallPage:
+        if cursor is not None and not re.fullmatch(r"[1-9][0-9]{0,18}", cursor):
+            raise DomainError("INVALID_CURSOR", "Use the next_cursor of a previous page", 422)
+        await self.repository.project(project_id)
+        rows, following = await self.repository.memory_recalls(project_id, work_id=work_id, memory_id=memory_id,
+                                                               cursor=int(cursor) if cursor else None, limit=limit)
+        items = [MemoryRecall(id=row["id"], project_id=row["project_id"], work_id=row["work_id"], role=row["role"], stage=row["stage"],
+                              commit=row["commit"], outcome=row["outcome"], error_code=row["error_code"], created_at=row["created_at"],
+                              **row["data"]) for row in rows]
+        return MemoryRecallPage(items=items, next_cursor=str(following) if following is not None else None)
+
     async def graph(self, project_id: str, focus: str | None = None, depth: int = 1, limit: int = 100) -> MemoryGraph:
         await self.repository.project(project_id)
         return MemoryGraph.model_validate(await self.repository.memory_graph(project_id, focus, depth, limit))
@@ -93,7 +122,12 @@ class MemoryService:
             return await self.embeddings.aembed_query(query, work=work)
         return None
 
-    async def context_for_role(self, project_id: str, objective: str, instruction: str, commit: str, *, work: WorkOrder):
+    async def _record_recall(self, recall: dict):
+        recorder = getattr(self.repository, "record_memory_recall", None)
+        if recorder is not None and recall["work_id"] is not None:
+            await recorder(recall)
+
+    async def context_for_role(self, project_id: str, objective: str, instruction: str, commit: str, *, work: WorkOrder, role: str | None = None):
         self.guard.check([objective, instruction])
         query = bounded_text(instruction, 512) + "\n" + bounded_text(objective, 512)
         embedding = await self._embedding(project_id, query, commit, work)
@@ -112,6 +146,15 @@ class MemoryService:
             result.append(value)
         if encoded_size(result) > MAX_CONTEXT_BYTES:
             raise DomainError("MEMORY_CONTEXT_LIMIT", "Memories exceed the context limit")
+        await self._record_recall({
+            "id": new_id(), "project_id": project_id, "work_id": getattr(work, "id", None), "role": role, "stage": getattr(work, "phase", None),
+            "commit": commit, "outcome": "recalled", "error_code": None, "memory_ids": [item.id for item in selected],
+            "data": {"query_terms": terms[:MAX_RECALL_TERMS], "candidates": len(items), "omitted": len(items) - len(selected),
+                     "bytes": encoded_size(result), "refused_memory_ids": [],
+                     "selected": [{"memory_id": item.id, "lexical_rank": getattr(item, "lexical_rank", None),
+                                   "vector_rank": getattr(item, "vector_rank", None), "fused_score": getattr(item, "fused_score", None),
+                                   "bytes": encoded_size(value), "truncated": value["truncated"]} for item, value in zip(selected, result, strict=True)]},
+        })
         return result
 
     def reader(self, project_id: str, commit: str):
@@ -137,8 +180,22 @@ class MemoryService:
                 result["content"] = result["content"][:len(result["content"]) // 2]
         return read_memory
 
-    def context_validator(self, project_id: str, commit: str):
+    def context_validator(self, project_id: str, commit: str, *, work: WorkOrder | None = None, role: str | None = None):
         async def validate(references: list[dict]):
+            try:
+                await check(references)
+            except DomainError as error:
+                # A refusal is part of the recall log: which saved memories could not be revalidated and why.
+                identifiers = [reference["id"] for reference in references if isinstance(reference, dict) and isinstance(reference.get("id"), str)
+                               and re.fullmatch(r"[A-Za-z0-9_-]{1,128}", reference["id"])] if isinstance(references, list) else []
+                identifiers = list(dict.fromkeys(identifiers))[:MAX_CONTEXT_ITEMS * 8]
+                await self._record_recall({
+                    "id": new_id(), "project_id": project_id, "work_id": getattr(work, "id", None), "role": role, "stage": getattr(work, "phase", None),
+                    "commit": commit, "outcome": "refused", "error_code": error.code, "memory_ids": identifiers,
+                    "data": {"query_terms": [], "candidates": 0, "omitted": 0, "bytes": 0, "selected": [], "refused_memory_ids": identifiers}})
+                raise
+
+        async def check(references: list[dict]):
             def changed():
                 return DomainError("MEMORY_CONTEXT_CHANGED", "Saved memory is no longer verifiable; explicitly replan context before continuing", 409)
             if not isinstance(references, list):

@@ -69,3 +69,37 @@ class MemoryGraph(Contract):
     nodes: list[GraphNode]
     edges: list[GraphEdge]
     truncated: bool
+
+
+class RecallSelection(Contract):
+    memory_id: str
+    lexical_rank: int | None = Field(description="Position in the lexical (ts_rank) list, 1-based; null when not matched lexically")
+    vector_rank: int | None = Field(description="Position in the pgvector list, 1-based; null without embeddings or match")
+    fused_score: float | None = Field(description="Reciprocal rank fusion score: sum of 1/(60+rank) over both lists")
+    bytes: int = Field(description="UTF-8 size of the excerpt placed in context")
+    truncated: bool = Field(description="True when the excerpt is shorter than the memory")
+
+
+class MemoryRecall(Contract):
+    """What one role call retrieved from memory and why, or which saved memories the validator refused."""
+
+    id: str
+    project_id: str
+    work_id: str | None
+    role: str | None
+    stage: str | None
+    commit: str
+    outcome: Literal["recalled", "refused"]
+    error_code: str | None
+    query_terms: list[str] = Field(description="Bounded lexical terms (at most 32) derived from the instruction and objective")
+    candidates: int = Field(description="Memories retrieved before selection (at most 8)")
+    selected: list[RecallSelection]
+    omitted: int = Field(description="Retrieved memories left out by the four-item context limit")
+    refused_memory_ids: list[str]
+    bytes: int = Field(description="UTF-8 size of the memory context placed in the prompt")
+    created_at: datetime
+
+
+class MemoryRecallPage(Contract):
+    items: list[MemoryRecall]
+    next_cursor: str | None = Field(description="Pass as cursor to read older recalls; null on the last page")

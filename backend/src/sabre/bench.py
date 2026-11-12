@@ -419,7 +419,7 @@ class NoMemory:
             return {}
         return read_memory
 
-    def context_validator(self, *args):
+    def context_validator(self, *args, **kwargs):
         async def validate(references):
             return None
         return validate
