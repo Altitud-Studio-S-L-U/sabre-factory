@@ -36,6 +36,12 @@ from sabre.security import SecretGuard, parse_findings, scanner_error
 from sabre.settings import load_bootstrap, reject_secret_environment
 
 CONTAINER_TEMP = "/tmp"  # noqa: S108 - private bounded tmpfs inside each disposable container
+# Fixed resource limits of every workspace and gate container; they are not configurable.
+SANDBOX_MEMORY = "2g"
+SANDBOX_NANO_CPUS = 1_000_000_000
+SANDBOX_PIDS = 256
+COMMAND_TIMEOUT_DEFAULT_S = 300
+COMMAND_TIMEOUT_MAX_S = 1800
 
 
 class ExecutionResult(Contract):
@@ -56,7 +62,7 @@ class FileWrite(Contract):
 
 class Command(Contract):
     argv: list[str] = Field(min_length=1, max_length=100)
-    timeout_s: int = Field(default=300, ge=1, le=1800)
+    timeout_s: int = Field(default=COMMAND_TIMEOUT_DEFAULT_S, ge=1, le=COMMAND_TIMEOUT_MAX_S)
 
 
 class ScanRequest(Contract):
@@ -366,7 +372,7 @@ class DockerBroker:
             image=image, command=command, entrypoint=entrypoint, working_dir="/workspace" if include_workspace else "/",
             user=user, network_disabled=network is None, network=network, read_only=True,
             cap_drop=["ALL"], security_opt=["no-new-privileges:true"],
-            mem_limit="2g", nano_cpus=1_000_000_000, pids_limit=256,
+            mem_limit=SANDBOX_MEMORY, nano_cpus=SANDBOX_NANO_CPUS, pids_limit=SANDBOX_PIDS,
             log_config=docker.types.LogConfig(type="json-file", config={"max-size": "4m", "max-file": "1"}),
             tmpfs={CONTAINER_TEMP: f"rw,noexec,nosuid,size={temporary_size_mb}m,uid=10001,gid=10001"},
             volumes=volumes, labels={"sabre.owner": "factory", "sabre.work_id": work_id, "sabre.kind": "workspace-keeper" if keeper else "command"},

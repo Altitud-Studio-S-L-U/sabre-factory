@@ -89,3 +89,28 @@ async def test_missing_distribution_is_unknown_and_other_provider_has_no_claimed
     assert all(item.version is None for item in result.packages)
     assert result.limits.codex_invocations is None
     assert all(item.id != "codex" for item in result.components)
+
+
+async def test_runtime_settings_report_sources_without_any_secret_value():
+    from pydantic import SecretStr
+
+    from sabre.settings import Settings
+    secrets = ["synthetic-owner-token-0000000000", "synthetic-executor-token-000000", "synthetic-model-key-value",
+               "webhook-path-secret", "collector-user", "collector-pass", "telemetry-query-key"]
+    config = Settings(database_url="postgresql://synthetic-db-user:synthetic-db-pass@db/sabre", auth_token=secrets[0], executor_token=secrets[1],
+                      model_api_key=SecretStr(secrets[2]), webhooks={"alerts": {"endpoint": f"https://hooks.example.com/{secrets[3]}"}},
+                      otlp_endpoint=f"https://{secrets[4]}:{secrets[5]}@collector.example:4318/v1/traces?key={secrets[6]}",
+                      execution_slots=3, monthly_budget_usd=25, chat_budget_usd=0.5)
+    service = source()
+    service.config = config
+    result = await system_info(service)
+    settings = result.runtime_settings
+    assert settings.execution_slots.value == 3 and settings.execution_slots.env_var == "SABRE_EXECUTION_SLOTS"
+    assert settings.webhooks.value == ["alerts"] and settings.otlp.configured and settings.otlp.host == "collector.example:4318"
+    assert settings.monthly_budget_usd.value == 25 and settings.chat_budget_usd.env_var == "SABRE_CHAT_BUDGET_USD"
+    assert settings.sandbox.memory.value == "2g" and settings.sandbox.pids.value == 256 and settings.sandbox.cpus.value == 1
+    assert settings.sandbox.max_timeout_s.value == 1800 and settings.sandbox.network_default.value == "none" and settings.sandbox.memory.env_var is None
+    serialized = result.model_dump_json()
+    for value in [*secrets, "synthetic-db", "hooks.example.com", "/v1/traces"]:
+        assert value not in serialized
+    assert (await system_info(source())).runtime_settings is None
