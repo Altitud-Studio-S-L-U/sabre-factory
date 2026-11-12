@@ -122,6 +122,10 @@ MCP clients differ in support for native elicitation and long-running task exten
 
 `sabre_resolve_question_native` offers native owner elicitation when supported. Declining or cancelling that prompt leaves the decision pending. It cannot resolve a question from an earlier plan revision.
 
+### Docker access
+
+Only the `docker-proxy` service mounts `/var/run/docker.sock`. It has no network and listens on a Unix socket in the `docker-proxy` volume, which the executor mounts read-only and uses as `DOCKER_HOST`. The images, internal networks and scanner volumes the executor may use are declared once in `infra/compose.yml` (`x-executor-docker`) and read by both services, so a new sandbox image or network needs no second edit. A request outside the policy returns `403` with a `SABRE Docker policy:` reason, and the proxy logs the reason without the request body. `node infra/runtime-check.mjs` fails if any other service holds the socket or if the executor can inspect the API container, list unowned containers or read a credential volume.
+
 ### Owner confirmations
 
 An MCP client acts with the owner's authority but is not the owner, so budget changes and security exceptions are not applied over MCP. `sabre_increase_token_budget`, `sabre_increase_call_budget`, `sabre_use_cli_progress_limits`, `sabre_amend_budget`, `sabre_reconcile_budget` and `sabre_approve_security_exception` file a request and return it as `pending`; `sabre_command` refuses budget payloads. Nothing about the run changes, and a run event tells the owner that a request is waiting.
