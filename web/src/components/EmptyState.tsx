@@ -6,8 +6,11 @@ export default function EmptyState({
   children,
   actions,
   className,
+  as: Heading = 'h3',
 }: {
   title: ReactNode;
+  /** Heading level of the title within the page outline. */
+  as?: 'h2' | 'h3' | 'h4';
   children?: ReactNode;
   actions?: ReactNode;
   className?: string;
@@ -20,7 +23,7 @@ export default function EmptyState({
         className,
       )}
     >
-      <p className="text-base font-medium text-foreground">{title}</p>
+      <Heading className="text-base font-medium text-foreground">{title}</Heading>
       {children && <div className="max-w-[56ch] text-sm text-muted-foreground">{children}</div>}
       {actions && <div className="mt-3 flex flex-wrap justify-center gap-2">{actions}</div>}
     </div>

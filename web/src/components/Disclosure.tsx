@@ -46,8 +46,9 @@ export default function Disclosure({
           className="size-4 shrink-0 text-muted-foreground transition-transform group-open/disclosure:rotate-90"
           aria-hidden="true"
         />
-        <span className="min-w-0 flex-1">{summary}</span>
-        {meta && <span className="shrink-0 text-xs font-normal text-muted-foreground">{meta}</span>}
+        {/* Direct child, so the summary text is the element's own text. */}
+        {summary}
+        {meta && <span className="ml-auto shrink-0 pl-2 text-xs font-normal text-muted-foreground">{meta}</span>}
       </summary>
       <div
         className={cn(

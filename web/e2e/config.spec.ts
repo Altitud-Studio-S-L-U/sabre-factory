@@ -1,4 +1,10 @@
 import { test, expect } from '@playwright/test';
+import { mockFactoryApi } from './fixtures';
+
+// Every journey runs against the synthetic API; nothing reaches a real factory.
+test.beforeEach(async ({ page }) => {
+  await mockFactoryApi(page);
+});
 
 test('phase configuration rejects malformed YAML without launching work', async ({ page }) => {
   const effects: string[] = [];
@@ -11,6 +17,7 @@ test('phase configuration rejects malformed YAML without launching work', async 
     .getByRole('button', { name: /New run/ })
     .first()
     .click();
+  await page.getByRole('button', { name: /Flow & limits/ }).click();
   await expect(page.getByRole('group', { name: 'Flow configuration' })).toBeVisible();
   await page.getByText('Import YAML configuration', { exact: true }).click();
   await page.getByLabel('Flow YAML').fill('version: 1\nexecute: arbitrary-command');

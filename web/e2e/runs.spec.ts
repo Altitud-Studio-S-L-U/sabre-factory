@@ -1,7 +1,12 @@
 import { test, expect } from '@playwright/test';
-import { captureSource, syntheticRun } from './fixtures';
+import { captureSource, syntheticRun, mockFactoryApi } from './fixtures';
 import { runUsageSnapshot } from '../src/test/runUsageFixture';
 import type { WorkOrder, SequencedEvent } from '../src/api';
+
+// Every journey runs against the synthetic API; nothing reaches a real factory.
+test.beforeEach(async ({ page }) => {
+  await mockFactoryApi(page);
+});
 
 test('cancelled runs remain inspectable in Closed with a readable final-state badge', async ({ page }) => {
   const order = { ...syntheticRun(), status: 'cancelled', error_code: null };
@@ -15,10 +20,10 @@ test('cancelled runs remain inspectable in Closed with a readable final-state ba
   });
   await page.goto('/work');
   await page.getByRole('button', { name: 'Closed', exact: true }).click();
-  await expect(page.locator('.run-rail-item')).toHaveCount(1);
-  await page.locator('.run-rail-item').click();
+  await expect(page.getByTestId('run-card')).toHaveCount(1);
+  await page.getByTestId('run-card').click();
   await expect(page).toHaveURL(/\/work\/synthetic-run/);
-  const badge = page.locator('.detail-header .badge-cancelled');
+  const badge = page.getByTestId('run-header').getByText('Cancelled', { exact: true });
   await expect(badge).toHaveText('Cancelled');
   await expect(badge.locator('svg.lucide')).toBeVisible();
   const contrast = await badge.evaluate((el) => {
@@ -169,7 +174,7 @@ test('expanded run preserves inspection and exposes review and security without 
     'aria-selected',
     'true',
   );
-  const scroll = workspace.locator('.observed-scroll');
+  const scroll = workspace.getByRole('region', { name: 'Scrollable process timeline' });
   expect(await scroll.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
   await scroll.evaluate((el) => {
     el.scrollLeft = 120;
@@ -384,6 +389,9 @@ test('new run protects dirty input and pending submission from Escape or backdro
   await expect(dialog.getByText('Discard your unsaved changes?')).toBeVisible();
   await dialog.getByRole('button', { name: 'Keep editing' }).click();
   await expect(dialog.getByLabel('What do you need?')).toHaveValue('Synthetic guarded run');
+  await dialog.getByRole('button', { name: 'Next' }).click();
+  await dialog.getByRole('button', { name: 'Next' }).click();
+  await dialog.getByRole('button', { name: 'Next' }).click();
   await dialog.getByRole('button', { name: 'Launch flow' }).click();
   await expect(dialog).toHaveAttribute('aria-busy', 'true');
   await page.keyboard.press('Escape');
