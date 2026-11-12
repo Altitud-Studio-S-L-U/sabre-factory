@@ -54,6 +54,50 @@ test.describe('gallery', () => {
     await page.route('**/api/v1/system', (route) =>
       route.fulfill({ json: { runtime_settings: runtimeSettings() } }),
     );
+    await page.route('**/api/v1/agents/activity*', (route) =>
+      route.fulfill({
+        json: {
+          days: 7,
+          since: '2026-11-05T00:00:00Z',
+          repair_cycles: 2,
+          waiting_for_input: 1,
+          active_runs: [],
+          active_runs_truncated: false,
+          roles: [
+            {
+              role: 'developer',
+              invocations: 18,
+              completed: 15,
+              failed: 1,
+              interrupted: 2,
+              duration_ms: 812000,
+              model_calls: 18,
+              tokens: 412000,
+            },
+            {
+              role: 'analyst',
+              invocations: 9,
+              completed: 9,
+              failed: 0,
+              interrupted: 0,
+              duration_ms: 214000,
+              model_calls: 9,
+              tokens: 98000,
+            },
+            {
+              role: 'qa',
+              invocations: 7,
+              completed: 6,
+              failed: 1,
+              interrupted: 0,
+              duration_ms: 160000,
+              model_calls: 7,
+              tokens: null,
+            },
+          ],
+        },
+      }),
+    );
     // Realistic project memory so the knowledge map, review queue and recall log can be reviewed.
     await page.route('**/api/v1/projects/*/memory/graph*', (route) => route.fulfill({ json: memoryGraph() }));
     await page.route('**/api/v1/projects/*/memory/review', (route) =>

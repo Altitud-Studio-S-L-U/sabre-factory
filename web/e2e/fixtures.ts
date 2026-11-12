@@ -112,6 +112,16 @@ export async function mockFactoryApi(page: Page) {
     if (path.endsWith('/configuration')) json = factoryConfiguration();
     if (path.endsWith('/releases')) json = { version: 1, items: [], truncated: false };
     if (path.endsWith('/a2a-tasks')) json = [];
+    if (path.endsWith('/agents/activity'))
+      json = {
+        days: 7,
+        since: '2026-11-05T00:00:00Z',
+        roles: [],
+        repair_cycles: 0,
+        waiting_for_input: 0,
+        active_runs: [],
+        active_runs_truncated: false,
+      };
     if (path.endsWith('/memory/graph'))
       json = { focus: null, depth: 2, nodes: [], edges: [], truncated: false };
     if (path.endsWith('/memory/review')) json = { commit: null, pending: [], stale: [], truncated: false };
