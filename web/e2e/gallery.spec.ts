@@ -78,4 +78,16 @@ test.describe('gallery', () => {
       test.info().annotations.push({ type: 'horizontal-overflow', description: String(overflow) });
     });
   }
+
+  test('supervisor-open', async ({ page }) => {
+    await page.goto('/work/synthetic-run');
+    await page.getByRole('button', { name: 'Supervisor', exact: true }).click();
+    await expect(page.getByRole('region', { name: 'Supervisor conversation' })).toBeVisible();
+    await page.waitForLoadState('networkidle');
+    await page.screenshot({
+      path: `../work/gallery/${label}/supervisor-open-${test.info().project.name}.png`,
+      scale: 'css',
+    });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  });
 });
