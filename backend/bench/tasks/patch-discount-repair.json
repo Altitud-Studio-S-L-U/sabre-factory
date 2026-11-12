@@ -1,0 +1,23 @@
+{
+  "id": "patch-discount-repair",
+  "repo": "pricing",
+  "mode": "patch",
+  "objective": "apply_discount must reject percentages outside 0..100 with ValueError.",
+  "acceptance": ["apply_discount raises ValueError for percent below 0 or above 100", "0 and 100 remain valid", "Existing pricing tests still pass"],
+  "gate_commands": [["python", "-m", "unittest"]],
+  "grader": {"kind": "tests", "files": {"tests/test_bench_grader.py": "graders/test_bench_discount.py"},
+             "argv": ["python", "-m", "unittest", "tests.test_bench_grader"]},
+  "reference": {
+    "inspect": ["pricing.py"],
+    "plan": {"title": "Validate discount percentage bounds", "scope": ["pricing.py"],
+             "acceptance": ["Out-of-range percentages raise ValueError", "Bounds 0 and 100 are accepted"]},
+    "first_attempt": [
+      {"path": "pricing.py", "old": "    \"\"\"Reduce amount by a percentage.\"\"\"\n",
+       "new": "    \"\"\"Reduce amount by a percentage.\"\"\"\n    if not 0 <= percent <= 1:\n        raise ValueError(\"percent must be a fraction\")\n"}
+    ],
+    "edits": [
+      {"path": "pricing.py", "old": "    if not 0 <= percent <= 1:\n        raise ValueError(\"percent must be a fraction\")\n",
+       "new": "    if not 0 <= percent <= 100:\n        raise ValueError(\"percent must be between 0 and 100\")\n"}
+    ]
+  }
+}

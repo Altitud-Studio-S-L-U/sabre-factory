@@ -61,6 +61,9 @@ class Reference(StrictModel):
     inspect: list[str] = Field(default_factory=list)
     plan: PlanReference | None = None
     edits: list[Edit] = Field(default_factory=list)
+    # A first developer attempt that fails its check. The policy notes the failure; only an
+    # attempt that receives that note applies `edits` (written against the first attempt).
+    first_attempt: list[Edit] = Field(default_factory=list)
     findings: str | None = None
 
 
@@ -94,6 +97,15 @@ def role_of(messages: list[BaseMessage]) -> str:
     return matches[0]
 
 
+def opening_input(messages: list[BaseMessage]) -> dict:
+    human = next((m for m in messages if isinstance(m, HumanMessage)), None)
+    try:
+        value = json.loads(str(human.content)) if human else {}
+    except ValueError:
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
 def tool_payload(message: ToolMessage) -> Any:
     content = message.content
     if isinstance(content, str):
@@ -110,6 +122,8 @@ class Trace:
 
     entries: list[str] = field(default_factory=list)
     first_inputs: dict[str, dict] = field(default_factory=dict)
+    # The opening input of every agent conversation, in order (repair attempts included).
+    openings: list[tuple[str, dict]] = field(default_factory=list)
     summaries: dict[str, str] = field(default_factory=dict)
     calls: list[dict] = field(default_factory=list)
 
@@ -133,11 +147,9 @@ class ReferenceModel(BaseChatModel):
         rounds = sum(isinstance(m, AIMessage) for m in messages)
         if rounds == 0:
             trace.entries.append(f"agent:{role}")
-            human = next((m for m in messages if isinstance(m, HumanMessage)), None)
-            try:
-                trace.first_inputs.setdefault(role, json.loads(str(human.content)) if human else {})
-            except ValueError:
-                trace.first_inputs.setdefault(role, {})
+            opening = opening_input(messages)
+            trace.first_inputs.setdefault(role, opening)
+            trace.openings.append((role, opening))
         calls, result = self.step(role, rounds, messages)
         if result is not None:
             trace.summaries[role] = result.summary
@@ -170,7 +182,10 @@ class ReferenceModel(BaseChatModel):
             return [], AgentResult(accepted=True, summary="Plan prepared", tasks=[Task(title=plan.title, scope=plan.scope,
                 acceptance=plan.acceptance, verification_commands=task.gate_commands)])
         if role == "developer":
-            paths = list(dict.fromkeys(edit.path for edit in reference.edits))
+            # A repair attempt knows what failed only from its own earlier work notes.
+            noted = (opening_input(messages).get("work_notes") or {}).get("notes") or []
+            edits = reference.first_attempt if reference.first_attempt and not noted else reference.edits
+            paths = list(dict.fromkeys(edit.path for edit in edits))
             if rounds == 0:
                 return [call("read_file", {"path": path}, f"read-{i}") for i, path in enumerate(paths)], None
             if rounds == 1:
@@ -179,7 +194,7 @@ class ReferenceModel(BaseChatModel):
                     content = replies.get(f"developer-read-{i}")
                     if not isinstance(content, str):
                         return [], AgentResult(accepted=False, summary=f"Could not read {path}")
-                    for edit in (e for e in reference.edits if e.path == path):
+                    for edit in (e for e in edits if e.path == path):
                         if content.count(edit.old) != 1:
                             return [], AgentResult(accepted=False, summary=f"Reference edit does not apply to {path}")
                         content = content.replace(edit.old, edit.new)
@@ -189,6 +204,10 @@ class ReferenceModel(BaseChatModel):
                 return [call("execute", {"argv": task.gate_commands[0]}, "check")], None
             outcome = replies.get("developer-check")
             passed = isinstance(outcome, dict) and outcome.get("exit_code") == 0
+            if not passed and rounds == 3:
+                # Record the dead end before handing back, so the repair attempt need not rediscover it.
+                return [call("record_note", {"note": f"Attempt failed: {' '.join(task.gate_commands[0])} fails after editing "
+                             f"{', '.join(paths)} with the first approach. Revisit that edit instead of re-reading the repository."}, "note")], None
             return [], AgentResult(accepted=passed, summary="Implemented and checked" if passed else "The check still fails")
         if role == "qa":
             # Recorded gate evidence is enough when present; otherwise run the checks itself.
@@ -458,7 +477,10 @@ def probes(task: BenchTask, trace: Trace) -> dict:
     order = trace.entries
     first_qa = order.index("agent:qa") if "agent:qa" in order else None
     first_gate = order.index("gate") if "gate" in order else None
+    repairs = [opening for role, opening in trace.openings if role == "developer"][1:]
     return {
+        # None: no developer repair attempt ran.
+        "repair_receives_work_notes": all(has_entry(opening, "kind", "agent_work_notes") for opening in repairs) if repairs else None,
         # None: not applicable (no implementation task in this mode).
         "developer_receives_task_acceptance": has_entry(developer, "acceptance", plan.acceptance) if plan else None,
         "developer_receives_task_scope": has_entry(developer, "scope", plan.scope) if plan else None,
@@ -497,7 +519,8 @@ async def run_task(task: BenchTask, suite: Path = SUITE) -> dict:
         from sabre.workflows import Factory
         factory = Factory(repository, team, executor, NoFindings(), publisher, artifacts, guard, NoMemory(), InMemorySaver())
         result = await factory.drive(work.id)
-        final = publisher.snapshot if task.mode != "audit" else (executor.final_snapshot or await executor.snapshot(work.id))
+        saved = (await factory.graph.aget_state(factory.config(work.id))).values.get("work_notes") or {}
+        final =publisher.snapshot if task.mode != "audit" else (executor.final_snapshot or await executor.snapshot(work.id))
         grading = await grade(task, suite, executor, result, trace, final)
     wall_ms = int((time.perf_counter() - started) * 1000)
     tools = [event for event in repository.execution_events if event.kind == "tool" and event.state != "started"]
@@ -521,6 +544,7 @@ async def run_task(task: BenchTask, suite: Path = SUITE) -> dict:
         "tools": {"calls": dict(tool_names), "failed": sum(event.state == "failed" for event in tools),
                   "output_bytes": sum(event.output_bytes or 0 for event in tools),
                   "total_ms": sum(event.duration_ms or 0 for event in tools)},
+        "work_notes": {"scopes": len(saved.get("scopes", {})), "notes": sum(len(notes) for notes in saved.get("scopes", {}).values())},
         "stages": [event.name for event in repository.execution_events if event.kind == "stage" and event.state == "completed"],
         "order": trace.entries,
     }
