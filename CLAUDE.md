@@ -48,3 +48,6 @@ captures every section under `work/gallery/<label>/`.
 `.mcp.json` registers the local stdio bridge (`node bin/sabre.mjs mcp-stdio`), which runs inside the API
 container with the owner's authority. Use it only from a trusted local session. Remote agents use a
 delegated MCP credential instead (see `docs/operations.md#mcp-access`).
+
+Budget changes and security exceptions requested over MCP are only filed: the owner confirms them in the
+console. Read the outcome with `sabre_confirmation` and never assume approval.

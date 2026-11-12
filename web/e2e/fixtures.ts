@@ -111,6 +111,7 @@ export async function mockFactoryApi(page: Page) {
     }
     if (path.endsWith('/configuration')) json = factoryConfiguration();
     if (path.endsWith('/releases')) json = { version: 1, items: [], truncated: false };
+    if (path.endsWith('/confirmations')) json = { version: 1, pending: 0, items: [] };
     if (path.endsWith('/a2a-tasks')) json = [];
     if (path.endsWith('/agents/activity'))
       json = {

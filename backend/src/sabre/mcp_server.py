@@ -8,7 +8,8 @@ from pydantic import Field
 
 from sabre import __version__
 from sabre.audit import AuditView, ProjectKnowledgeReport
-from sabre.commands import CommandEnvelope, CommandResult, dispatch
+from sabre.budget_contracts import BudgetAmendment, BudgetReconciliation
+from sabre.commands import AmendBudget, CommandEnvelope, CommandResult, ReconcileBudget, dispatch
 from sabre.create_flow import CreateFlowLaunch, launch_create
 from sabre.events import EventPage
 from sabre.integrations import (
@@ -45,6 +46,7 @@ from sabre.operator_contracts import (
     OperatorMessageResume,
     OperatorMessageView,
 )
+from sabre.owner_confirmations import OwnerConfirmation, OwnerConfirmationPage
 from sabre.project_tools import ProjectToolsChange, ProjectToolsPolicy
 from sabre.repo_creation import (
     RepoCreationDecision,
@@ -63,12 +65,16 @@ def build_mcp(service):
     server = MCPServer("SABRE", version=__version__, instructions=(
         "SABRE is a software factory. Submit a work order and use its returned id for status, tasks, questions and results. "
         "Work continues after disconnect. Answer only the pending question matching its id and plan revision. "
+        "Budget changes and security exceptions requested here change nothing until the owner confirms them in the SABRE console: "
+        "follow the request with sabre_confirmation and never assume approval. "
         "Never send passwords, API keys or access tokens as tool arguments."
     ))
 
     @server.tool(structured_output=True)
     async def sabre_command(command: CommandEnvelope) -> CommandResult:
-        """Execute a versioned owner command. Preserve its key and correlation ID on retry; never invent approval."""
+        """Execute a versioned owner command. Preserve its key and correlation ID on retry; never invent approval. Budget commands are refused here: use sabre_amend_budget or sabre_reconcile_budget, which wait for the owner."""
+        if isinstance(command.payload, (AmendBudget, ReconcileBudget)):
+            raise DomainError("OWNER_CONFIRMATION_REQUIRED", "Budget commands over MCP wait for the owner: use sabre_amend_budget or sabre_reconcile_budget", 403)
         return await dispatch(service(), command)
 
     @server.tool(structured_output=True)
@@ -255,19 +261,39 @@ def build_mcp(service):
         return (await service().change_scope(work_id, change))
 
     @server.tool(structured_output=True)
-    async def sabre_increase_token_budget(work_id: str, change: TokenBudgetIncrease) -> WorkOrder:
-        """Apply the owner's explicit approval to increase only max_tokens on paused or blocked work. Never approve automatically. Revision and previous limit must match. Usage, reservations and other limits remain unchanged; resume separately."""
-        return (await service().increase_token_budget(work_id, change))
+    async def sabre_increase_token_budget(work_id: str, change: TokenBudgetIncrease) -> OwnerConfirmation:
+        """Ask the owner to increase only max_tokens on paused or blocked work. Nothing changes until the owner confirms it in the SABRE console. Revision and previous limit must still match then. Usage, reservations and other limits remain unchanged; resume separately."""
+        return await service().owner_confirmations().request("budget.tokens", work_id, change)
 
     @server.tool(structured_output=True)
-    async def sabre_increase_call_budget(work_id: str, change: CallBudgetIncrease) -> WorkOrder:
-        """Apply the owner's explicit approval to increase only max_calls on paused or blocked work. Never approve automatically. Revision and previous limit must match. Usage, reservations and other limits remain unchanged; resume separately."""
-        return (await service().increase_call_budget(work_id, change))
+    async def sabre_increase_call_budget(work_id: str, change: CallBudgetIncrease) -> OwnerConfirmation:
+        """Ask the owner to increase only max_calls on paused or blocked work. Nothing changes until the owner confirms it in the SABRE console. Revision and previous limit must still match then. Usage, reservations and other limits remain unchanged; resume separately."""
+        return await service().owner_confirmations().request("budget.calls", work_id, change)
 
     @server.tool(structured_output=True)
-    async def sabre_use_cli_progress_limits(work_id: str, change: CliProgressLimitsChange) -> WorkOrder:
-        """Only after an explicit owner instruction: replace cumulative quotas with CLI progress controls. Preserves usage, requires the current plan and full budget, and does not resume the work."""
-        return (await service().use_cli_progress_limits(work_id, change))
+    async def sabre_use_cli_progress_limits(work_id: str, change: CliProgressLimitsChange) -> OwnerConfirmation:
+        """Ask the owner to replace cumulative quotas with CLI progress controls. Nothing changes until the owner confirms it in the SABRE console. Preserves usage, requires the current plan and full budget, and does not resume the work."""
+        return await service().owner_confirmations().request("budget.cli_progress", work_id, change)
+
+    @server.tool(structured_output=True)
+    async def sabre_amend_budget(work_id: str, request: BudgetAmendment) -> OwnerConfirmation:
+        """Ask the owner to change one metric of the run's budget policy. Nothing changes until the owner confirms it in the SABRE console; the policy revision must still match then."""
+        return await service().owner_confirmations().request("budget.amend", work_id, request)
+
+    @server.tool(structured_output=True)
+    async def sabre_reconcile_budget(work_id: str, request: BudgetReconciliation) -> OwnerConfirmation:
+        """Ask the owner to reconcile uncertain model usage records. Nothing changes until the owner confirms it in the SABRE console."""
+        return await service().owner_confirmations().request("budget.reconcile", work_id, request)
+
+    @server.tool(structured_output=True)
+    async def sabre_confirmations() -> OwnerConfirmationPage:
+        """List requests waiting for the owner's confirmation in the console and the most recent decisions. Read-only."""
+        return await service().owner_confirmations().list()
+
+    @server.tool(structured_output=True)
+    async def sabre_confirmation(confirmation_id: str) -> OwnerConfirmation:
+        """Read one confirmation request: pending, applied, rejected, failed or expired. Read-only; an MCP client cannot decide it."""
+        return await service().owner_confirmations().get(confirmation_id)
 
     @server.tool(structured_output=True)
     async def sabre_security_findings(project_id: str | None = None) -> list[dict]:
@@ -280,9 +306,9 @@ def build_mcp(service):
         return [item for item in await service().repository.security_exceptions(work_id)]
 
     @server.tool(structured_output=True)
-    async def sabre_approve_security_exception(work_id: str, request: SecurityExceptionCreate) -> SecurityException:
-        """Record the owner's explicit risk acceptance for an exact finding/snapshot/rules/revision, for at most 30 days. Never approve automatically. Secrets and scanner failures cannot be waived. Resume separately to review again."""
-        return (await service().approve_security_exception(work_id, request))
+    async def sabre_approve_security_exception(work_id: str, request: SecurityExceptionCreate) -> OwnerConfirmation:
+        """Ask the owner to accept the risk of an exact finding/snapshot/rules/revision, for at most 30 days. Nothing changes until the owner confirms it in the SABRE console. Secrets and scanner failures cannot be waived. Resume separately to review again."""
+        return await service().owner_confirmations().request("security.exception", work_id, request)
 
     @server.tool(structured_output=True)
     async def sabre_revoke_security_exception(work_id: str, exception_id: str) -> SecurityException:

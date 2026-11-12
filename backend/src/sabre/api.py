@@ -637,11 +637,13 @@ def create_app(service=None, config=None) -> FastAPI:
     from sabre.browser_qa import install_browser_routes
     from sabre.console_configuration import install_console_routes
     from sabre.inspection import install_inspection_routes
+    from sabre.owner_confirmations import install_confirmation_routes
     from sabre.release_candidates import install_release_routes
     from sabre.repository_ingestion import install_ingestion_routes
     install_a2a(application, svc)
     install_browser_routes(application, svc)
     install_console_routes(application, svc)
+    install_confirmation_routes(application, svc)
     install_inspection_routes(application, svc)
     install_ingestion_routes(application, svc)
     install_release_routes(application, svc)

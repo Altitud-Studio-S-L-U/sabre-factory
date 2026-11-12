@@ -38,6 +38,8 @@ export type Answer = components['schemas']['Answer'];
 export type ScopeChange = components['schemas']['ScopeChange'];
 export type CliProgressLimitsChange = components['schemas']['CliProgressLimitsChange'];
 export type SecurityException = components['schemas']['SecurityException'];
+export type OwnerConfirmation = components['schemas']['OwnerConfirmation'];
+export type OwnerConfirmationPage = components['schemas']['OwnerConfirmationPage'];
 export type SecurityExceptionCreate = components['schemas']['SecurityExceptionCreate'];
 export type SecretTarget = components['schemas']['SecretTarget'];
 export type SecretMetadata = components['schemas']['SecretMetadata'];
@@ -564,6 +566,17 @@ export function createApi(csrfToken: string, onUnauthorized?: (message: string) 
         `/work/${encodeURIComponent(id)}/security-exceptions/${encodeURIComponent(exceptionId)}/revoke`,
         { method: 'POST' },
       ),
+    confirmations: () => request<OwnerConfirmationPage>('/confirmations'),
+    confirmRequest: (id: string, requestDigest: string) =>
+      request<OwnerConfirmation>(`/confirmations/${encodeURIComponent(id)}/confirm`, {
+        method: 'POST',
+        body: JSON.stringify({ version: 1, request_digest: requestDigest }),
+      }),
+    rejectRequest: (id: string, requestDigest: string) =>
+      request<OwnerConfirmation>(`/confirmations/${encodeURIComponent(id)}/reject`, {
+        method: 'POST',
+        body: JSON.stringify({ version: 1, request_digest: requestDigest }),
+      }),
     secretTargets: () => request<SecretTarget[]>('/secret-targets', {}, true),
     secrets: () => request<SecretMetadata[]>('/secrets', {}, true),
     upsertSecret: (id: string, value: SecretUpsert) =>

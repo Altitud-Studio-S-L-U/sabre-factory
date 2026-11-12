@@ -13,6 +13,7 @@ import {
   ApiError,
   createApi,
   openPanelSession,
+  type OwnerConfirmation,
   type PanelSession,
   type Project,
   type WorkOrder,
@@ -44,6 +45,7 @@ import CreateRunWizard from './features/runs/CreateRunWizard';
 import ProjectsView from './features/projects/ProjectsView';
 import SecurityView from './features/security/SecurityView';
 import WorkAreaNav from './features/runs/WorkAreaNav';
+import PendingConfirmations from './features/confirmations/PendingConfirmations';
 import { ErrorNotice, message, statusLabels, usesOnlyCliModels } from './features/runs/shared';
 
 // Sections load on first visit; Runs stays in the main bundle.
@@ -193,6 +195,7 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
   const [detail, setDetail] = useState<{ id: string; order?: WorkOrder; error?: string } | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [orders, setOrders] = useState<WorkOrder[]>([]);
+  const [confirmations, setConfirmations] = useState<OwnerConfirmation[]>([]);
   const [status, setStatus] = useState<Record<string, unknown>>({});
   const cliMode = usesOnlyCliModels(status);
   const [loading, setLoading] = useState(true);
@@ -245,26 +248,29 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
   };
 
   // Reads first and sets state after the response, so the mount effect does not set state synchronously.
-  const fetchAll = useCallback(
-    () =>
-      Promise.all([api.projects(), api.work(), api.status()])
-        .then(([nextProjects, nextOrders, nextStatus]) => {
-          setProjects(nextProjects);
-          setOrders(nextOrders);
-          setStatus(nextStatus);
-          setError('');
-          setUpdated(new Date());
-        })
-        .catch((err: unknown) => {
-          if (err instanceof ApiError && err.status === 401) onLogout(err.message);
-          else setError(message(err));
-        })
-        .finally(() => {
-          setLoading(false);
-          setRefreshing(false);
-        }),
-    [api, onLogout],
-  );
+  const fetchAll = useCallback(() => {
+    // Separate from the main load: a failure here must not hide the runs, and the list is retried on the next tick.
+    void api
+      .confirmations()
+      .then((page) => setConfirmations(Array.isArray(page.items) ? page.items : []))
+      .catch(() => undefined);
+    return Promise.all([api.projects(), api.work(), api.status()])
+      .then(([nextProjects, nextOrders, nextStatus]) => {
+        setProjects(nextProjects);
+        setOrders(nextOrders);
+        setStatus(nextStatus);
+        setError('');
+        setUpdated(new Date());
+      })
+      .catch((err: unknown) => {
+        if (err instanceof ApiError && err.status === 401) onLogout(err.message);
+        else setError(message(err));
+      })
+      .finally(() => {
+        setLoading(false);
+        setRefreshing(false);
+      });
+  }, [api, onLogout]);
   const reload = useCallback(() => {
     setRefreshing(true);
     return fetchAll();
@@ -427,6 +433,15 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
             >
               <p>{error} Visible data may be outdated.</p>
             </Notice>
+          )}
+          {!loading && (
+            <PendingConfirmations
+              api={api}
+              items={confirmations}
+              orders={orders}
+              connected={!error}
+              onChanged={reload}
+            />
           )}
           {loading ? (
             viewSkeleton
