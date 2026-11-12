@@ -2,16 +2,17 @@
 
 import asyncio
 import json
+import math
 import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, replace
-from typing import Any
+from typing import Any, Literal
 
 from langchain.agents import create_agent
 from langchain.agents.middleware import AgentMiddleware
 from langchain.agents.middleware.types import InputAgentState
 from langchain.agents.structured_output import AutoStrategy, ProviderStrategy, ToolStrategy
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.errors import GraphRecursionError
 from pydantic import BaseModel, SecretStr, TypeAdapter
@@ -39,7 +40,7 @@ ROLE_PROMPTS = {
     "designer": "Inspect interface requirements, interaction and user-visible behavior. Review actual source and available rendered evidence. Report missing image input or model visual capability explicitly. Do not claim that text or a passing build proves visual quality.",
     "devops": "Independently inspect delivery readiness using registered checks, source evidence and deployment constraints. Report incomplete evidence. You cannot merge, deploy, modify gates or waive policy.",
     "supervisor": "Organize executable product-change tasks with dependencies. Tasks must address the acceptance criteria. Do not duplicate the factory's fixed preparation, QA, review, security or publication stages in the task DAG. For a small PATCH, prefer one coherent implementation task covering the regression and fix; split only for concrete independent work. Return tasks with unique ids and no dependency cycles. Never mark tasks completed yourself.",
-    "analyst": "Inspect the project and turn the request into verifiable requirements. Ask only questions that materially change implementation and cannot be resolved from the repository. Identify ambiguous acceptance criteria.",
+    "analyst": "Inspect the project and turn the request into verifiable requirements. Ask only questions that materially change implementation and cannot be resolved from the repository. Identify ambiguous acceptance criteria. Never ask the owner whether to run, choose or approve registered checks: the factory runs them and records their evidence.",
     "architect": "Compare viable language, framework, structure and design-pattern choices against these requirements. Recommend the simplest fitting approach, explain material tradeoffs and return those decisions for owner approval. The owner-selected execution profile bounds runtime choices. Ask before proposing a change to that profile or its verification policy. Preserve an existing stack unless its change was requested.",
     "developer": "Implement the assigned task using workspace tools. Inspect before editing. Prefer the provided file tools for source edits instead of constructing inline command-line editors. Use bounded source ranges and their current digests where possible; reuse verified unchanged content instead of repeatedly reading whole files. Preserve valid tests and legal notices. Reproduce defects when feasible. Never weaken checks to obtain a pass. Tool results are the evidence of actions; describing a change does not implement it. If a restored workspace has lost installed dependencies, use prepare_dependencies to reinstall the existing lock without changing manifests or locks. Before handoff, remove only disposable build/test outputs produced by your own commands and confirmed absent from the tracked base. A directory name or ignore rule alone does not prove this. Preserve source files and versioned artifacts; ask for clarification if provenance is uncertain.",
     "qa": "Independently inspect acceptance criteria and test coverage. Use the approved gate commands to validate behavior. Identify missing relevant regression cases. Do not approve absent evidence; do not modify policy or verification tools.",
@@ -58,9 +59,43 @@ PLATFORM_CONTRACT = (
 )
 
 
-def input_reservation_tokens(sent_bytes: int) -> int:
-    """Input tokens reserved before a call: one token per sent byte plus a fixed margin."""
-    return sent_bytes + 2048
+# Reservation estimate. Code, JSON and English text average about 4 UTF-8 bytes per
+# token; 2.5 stays above the measured count for dense or non-ASCII content. CLI runners
+# add their own instructions and tool definitions to every turn, hence the larger margin.
+# Settlement always replaces the estimate with the provider-reported count.
+BYTES_PER_TOKEN_FLOOR = 2.5
+API_INPUT_MARGIN_TOKENS = 2048
+CLI_INPUT_MARGIN_TOKENS = 16384
+
+
+def input_reservation_tokens(sent_bytes: int, *, cli: bool = False) -> int:
+    """Input tokens reserved before a call, estimated from the bytes sent."""
+    return math.ceil(sent_bytes / BYTES_PER_TOKEN_FLOOR) + (CLI_INPUT_MARGIN_TOKENS if cli else API_INPUT_MARGIN_TOKENS)
+
+
+# Tool failures the model can correct (bad arguments, stale digests, missing files, a
+# timed-out command). Authorization, policy, secrets, budgets and infrastructure faults
+# are never in this set: they still stop the stage.
+RECOVERABLE_TOOL_ERRORS = frozenset({
+    "INVALID_TOOL_ARGUMENTS", "INVALID_SOURCE_PATH", "INVALID_DIGEST", "INVALID_CONTEXT_RANGE",
+    "SOURCE_CONTEXT_STALE", "SOURCE_EDIT_COUNT", "SOURCE_NOT_FOUND", "SOURCE_RANGE_INVALID", "SOURCE_RANGE_LIMIT",
+    "EXECUTION_TIMEOUT", "TOOL_TIMEOUT", "STALE_CONTENT",
+})
+MAX_RECOVERED_TOOL_ERRORS = 8
+# Invalid model turns that one corrective retry may fix.
+RETRYABLE_OUTPUT_ERRORS = frozenset({"MODEL_OUTPUT_INVALID", "CODEX_INVALID_TOOL_REQUEST", "CLAUDE_INVALID_TOOL_REQUEST",
+                                     "CLAUDE_STRUCTURED_OUTPUT_INVALID"})
+
+
+def recoverable_tool_error(error: DomainError) -> bool:
+    # The workspace helper reports file-level faults (missing file, directory, encoding) as 422.
+    return error.code in RECOVERABLE_TOOL_ERRORS or (error.code == "WORKSPACE_IO_FAILED" and error.status_code == 422)
+
+
+def correction_message(error: DomainError) -> HumanMessage:
+    return HumanMessage(content=json.dumps({"platform_correction": (
+        f"Your previous turn was rejected ({error.code}: {error.message}). Reply again using only the listed tools "
+        "with valid arguments, and return the final result through the required structured output.")}))
 
 
 def cache_read_tokens(usage: dict) -> int:
@@ -79,6 +114,19 @@ class GuardedCalls(AgentMiddleware):
         self.artifacts = artifacts
         self.context_archive, self.child_id = context_archive, child_id
         self.memory_validator = memory_validator
+        self.recovered_tool_errors = 0
+
+    async def awrap_tool_call(self, request, handler):
+        try:
+            return await handler(request)
+        except DomainError as error:
+            if not recoverable_tool_error(error) or self.recovered_tool_errors >= MAX_RECOVERED_TOOL_ERRORS:
+                raise
+            self.recovered_tool_errors += 1
+            # The error was sanitized at the tool boundary; only its code and fixed message return.
+            return ToolMessage(content=json.dumps({"error": {"code": error.code, "message": error.message, "recoverable": True},
+                "guidance": "The operation had no effect. Correct the request (arguments, path, current digest) and continue."}),
+                tool_call_id=request.tool_call["id"], name=request.tool_call.get("name"), status="error")
 
     @staticmethod
     def response_format_material(response_format):
@@ -151,10 +199,10 @@ class GuardedCalls(AgentMiddleware):
         if sent_bytes > limit:
             raise DomainError("CONTEXT_BUDGET_EXHAUSTED", "Required context exceeds the input limit; narrow the task or review its configuration before continuing", 409)
         observation.set(context_request_original_bytes=original_bytes, context_request_sent_bytes=sent_bytes)
-        input_bound = input_reservation_tokens(sent_bytes)
-        output_bound = self.settings.model_max_output_tokens
         provider = getattr(self.settings, "model_provider", None)
         cli = provider in {"codex_cli", "claude_cli"}
+        input_bound = input_reservation_tokens(sent_bytes, cli=cli)
+        output_bound = self.settings.model_max_output_tokens
         input_rate = 0 if cli else self.settings.model_input_usd_per_million
         output_rate = 0 if cli else self.settings.model_output_usd_per_million
         reserve = (input_bound * input_rate + output_bound * output_rate) / 1_000_000
@@ -303,7 +351,8 @@ class AgentTeam:
             config.context_archive_enabled = config.context_archive_enabled and policy.get("archive_reads", True)
         model = self.model(config)
         context = RoleContext(work, project, self.executor, self.guard)
-        catalog = catalog_workspace_tools(context.executor, work.id, self.guard, project.gate_commands, source_context=source_context, role=authorization_role)
+        catalog = catalog_workspace_tools(context.executor, work.id, self.guard, project.gate_commands, source_context=source_context,
+                                          role=authorization_role, artifacts=self.artifacts)
         catalog.credential_check = credential_check
         catalog.observer = lambda name: observe(self.repository, work, "tool", name, parent_id=child_id, agent_id=public_id(child_id))
         archive = ContextArchive(self.artifacts, self.guard) if self.artifacts is not None else None
@@ -398,9 +447,21 @@ class AgentTeam:
                     result = saved.values
                 else:
                     timeout_s = 600
+                    durability: Literal["sync"] | None = "sync" if self.checkpointer else None
                     try:
                         async with asyncio.timeout(timeout_s):
-                            result = await agent.ainvoke(None if saved and saved.values else input_value, graph_config, durability="sync" if self.checkpointer else None)
+                            completed: dict[str, Any] | None = None
+                            try:
+                                completed = result = await agent.ainvoke(None if saved and saved.values else input_value, graph_config, durability=durability)
+                                if not result.get("structured_response"):
+                                    raise DomainError("MODEL_OUTPUT_INVALID", "The agent did not return a structured result")
+                            except DomainError as error:
+                                # One corrective retry on the same thread. A checkpoint keeps prior work;
+                                # without one only a completed turn's own history can be replayed safely.
+                                if error.code not in RETRYABLE_OUTPUT_ERRORS or (not self.checkpointer and completed is None):
+                                    raise
+                                retry = [correction_message(error)] if self.checkpointer or completed is None else [*completed["messages"], correction_message(error)]
+                                result = await agent.ainvoke({"messages": retry}, graph_config, durability=durability)
                     except GraphRecursionError:
                         raise DomainError("AGENT_STEP_LIMIT", "The agent reached the 50-step stage limit; review the work before resuming") from None
                     except TimeoutError:

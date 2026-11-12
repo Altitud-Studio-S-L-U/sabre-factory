@@ -36,6 +36,12 @@ async def test_reference_policy_completes_every_task_through_the_real_factory_an
         assert all(isinstance(value, bool) if applicable or not name.startswith("developer_") else value is None
                    for name, value in result["probes"].items())
         assert set(result["budget_feasibility"]) == {"reservation_at_context_limit", "budget_max_tokens", "fits"}
+        # Loop-correctness properties: the planned task reaches the developer, deterministic gates
+        # run before model QA and reach it, and one call at the context ceiling fits the budget.
+        assert result["probes"]["deterministic_gates_before_model_qa"] and result["probes"]["qa_receives_gate_results"]
+        assert applicable is False or (result["probes"]["developer_receives_task_acceptance"] and result["probes"]["developer_receives_task_scope"])
+        assert result["budget_feasibility"]["fits"]
+        assert result["calls"]["by_role"]["qa"] == 1
     audit = next(result for result in report["tasks"] if result["mode"] == "audit")
     assert audit["grade"]["source_unchanged"] and "developer" not in audit["calls"]["by_role"]
     patch = next(result for result in report["tasks"] if result["task"] == "patch-rounding")

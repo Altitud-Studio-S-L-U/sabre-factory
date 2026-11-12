@@ -108,6 +108,16 @@ class ChatGuard(AgentMiddleware):
         return response
 
 
+# Questions whose answer grants or withholds authority. The Supervisor may relay the
+# owner's decision but never compose it: the answer must appear in the owner's message.
+OWNER_DECISIONS = frozenset({"permission", "architecture", "scope", "exception"})
+
+
+def owner_said(answer: str, text: str) -> bool:
+    normalized = " ".join(answer.casefold().split())
+    return bool(normalized) and normalized in " ".join(text.casefold().split())
+
+
 def explicit_budgets(text: str) -> set[Decimal]:
     values = re.findall(r"(?:USD|US\$|\$)\s*(\d+(?:[.,]\d+)?)|(\d+(?:[.,]\d+)?)\s*(?:USD|d[oó]lares)", text, re.IGNORECASE)
     result = set()
@@ -206,11 +216,13 @@ def conversation_tools(service, store, event: ConversationMessage | OperatorCont
 
     @tool
     async def answer_question(work_id: str, answer: Answer) -> dict:
-        """Answer the specific human question using the owner's response and its current plan revision."""
+        """Answer the specific human question using the owner's response and its current plan revision. Approvals and permission decisions must quote the owner's own words."""
         work = await bound_work(work_id)
         question = next((q for q in work.questions if q.id == answer.question_id), None)
         if question and question.answer == answer.answer and question.plan_revision == answer.plan_revision:
             return await checked(work)
+        if question and question.kind in OWNER_DECISIONS and not owner_said(answer.answer, event.text):
+            raise DomainError("OWNER_DECISION_REQUIRED", "This question is an owner decision; reply with the exact answer to record it", 403)
         pending = await repository.pending_answer(work_id)
         if pending == answer.model_dump():
             return await checked(work)
