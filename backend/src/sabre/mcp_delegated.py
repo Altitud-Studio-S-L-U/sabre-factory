@@ -9,13 +9,13 @@ and budget, exception and policy commands do not exist on this surface.
 from collections.abc import Callable
 from typing import Any
 
-from mcp.server import MCPServer
 from mcp.server.mcpserver import Context
 
 from sabre import __version__
 from sabre.commands import CommandEnvelope, CommandResult
 from sabre.contracts import StrictContract
 from sabre.delegation import Delegations, GrantLimits
+from sabre.mcp_errors import DomainMCPServer
 from sabre.models import Project, WorkOrder
 
 
@@ -37,7 +37,7 @@ def bearer(ctx: Context) -> str:
 def build_delegated_mcp(service: Callable[[], Any], *, delegations: Callable[[], Any] | None = None,
                         credential: Callable[[Context], str] = bearer):
     grants = delegations or (lambda: Delegations(service()))
-    server = MCPServer("SABRE delegated", version=__version__, instructions=(
+    server = DomainMCPServer("SABRE delegated", version=__version__, instructions=(
         "Delegated access to a SABRE software factory. Submit work only for the projects and limits of your grant, "
         "follow the runs you submitted, answer their clarification questions and cancel them. "
         "Owner decisions, publication, budgets and security exceptions stay with the owner in the SABRE console. "

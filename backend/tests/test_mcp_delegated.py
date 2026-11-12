@@ -76,7 +76,8 @@ async def test_revocation_applies_to_the_next_call_and_owner_tokens_are_refused(
     async with Client(server(grants, token)) as client:
         assert not (await client.call_tool("sabre_grant", {})).is_error
         grants.revoked = True
-        assert (await client.call_tool("sabre_command", {"command": submit("delegated-key-2")})).is_error
+        refused = await client.call_tool("sabre_command", {"command": submit("delegated-key-2")})
+        assert refused.is_error and refused.content[0].text == "DELEGATION_EXPIRED: The delegated credential is expired or revoked"
         grants.revoked = False
         token["value"] = "Bearer owner-test-token-at-least-24"
         assert (await client.call_tool("sabre_get_work", {"work_id": "work-1"})).is_error

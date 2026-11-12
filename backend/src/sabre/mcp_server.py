@@ -2,7 +2,6 @@
 
 from typing import Annotated, Any, Literal
 
-from mcp.server import MCPServer
 from mcp.server.mcpserver import Elicit, ElicitationResult, Resolve
 from pydantic import Field
 
@@ -19,6 +18,7 @@ from sabre.integrations import (
     IntegrationInfo,
 )
 from sabre.mcp_connections import MCPConnectionInfo, MCPConnectionSave, MCPDiscovery
+from sabre.mcp_errors import DomainMCPServer
 from sabre.memory_contracts import MemoryGraph, MemoryRecallPage, MemoryReview
 from sabre.model_configuration import ModelConfiguration, ModelConfigurationChange
 from sabre.models import (
@@ -62,7 +62,7 @@ class NativeAnswer(Contract):
 
 
 def build_mcp(service):
-    server = MCPServer("SABRE", version=__version__, instructions=(
+    server = DomainMCPServer("SABRE", version=__version__, instructions=(
         "SABRE is a software factory. Submit a work order and use its returned id for status, tasks, questions and results. "
         "Work continues after disconnect. Answer only the pending question matching its id and plan revision. "
         "Budget changes and security exceptions requested here change nothing until the owner confirms them in the SABRE console: "

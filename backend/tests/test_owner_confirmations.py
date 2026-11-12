@@ -292,7 +292,7 @@ async def test_mcp_cannot_decide_a_request_or_change_a_budget_through_a_command(
         ):
             response = await client.call_tool("sabre_command", {"command": {"version": 1, "idempotency_key": "budget-command-1",
                 "correlation_id": "budget-command-1", "payload": payload}})
-            assert response.is_error
+            assert response.is_error and response.content[0].text.startswith("OWNER_CONFIRMATION_REQUIRED: ")
     assert applied == [] and dispatched == [] and store.rows == {}
 
 
