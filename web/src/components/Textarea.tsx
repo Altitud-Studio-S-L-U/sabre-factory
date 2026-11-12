@@ -1,7 +1,8 @@
-import type { ComponentProps } from 'react';
+import { forwardRef, type ComponentProps } from 'react';
 import { Textarea as UiTextarea } from './ui/textarea';
-import './Controls.css';
 
-export default function Textarea({ className = '', ...props }: ComponentProps<'textarea'>) {
-  return <UiTextarea {...props} className={`control-textarea ${className}`} />;
-}
+const Textarea = forwardRef<HTMLTextAreaElement, ComponentProps<'textarea'>>(function Textarea(props, ref) {
+  return <UiTextarea ref={ref} {...props} />;
+});
+
+export default Textarea;

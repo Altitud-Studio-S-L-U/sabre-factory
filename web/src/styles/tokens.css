@@ -67,6 +67,9 @@
   --timeline-repair: oklch(0.78 0.12 70);
   --timeline-planned: oklch(0.5 0.02 260);
 
+  /* Meter and progress tracks. */
+  --track: #303743;
+
   --radius: 0.5rem;
 
   /* Legacy aliases; removed with the last legacy sheet. */
@@ -129,6 +132,7 @@
   --neutral-bg: oklch(0.95 0.005 260);
   --neutral-border: oklch(0.85 0.01 260);
   --glass: oklch(1 0 0 / 0.85);
+  --track: oklch(0.9 0.008 260);
 }
 
 @theme inline {
@@ -177,6 +181,7 @@
   --color-neutral: var(--neutral);
   --color-neutral-bg: var(--neutral-bg);
   --color-neutral-border: var(--neutral-border);
+  --color-track: var(--track);
   --color-timeline-agent: var(--timeline-agent);
   --color-timeline-tool: var(--timeline-tool);
   --color-timeline-memory: var(--timeline-memory);

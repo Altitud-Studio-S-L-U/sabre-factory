@@ -68,7 +68,8 @@ export default function AppShell({
   usePaletteShortcut(openPalette);
   const build = shortBuild();
   return (
-    <div className="min-h-dvh bg-background text-foreground lg:grid lg:grid-cols-[15rem_minmax(0,1fr)]">
+    // The sidebar column keeps its surface below the sticky aside on long pages.
+    <div className="min-h-dvh bg-background text-foreground lg:grid lg:grid-cols-[15rem_minmax(0,1fr)] lg:bg-[linear-gradient(to_right,var(--sidebar)_15rem,var(--background)_15rem)]">
       <a
         className="sr-only z-50 rounded-md bg-primary px-3 py-2 text-primary-foreground focus:not-sr-only focus:fixed focus:top-3 focus:left-3"
         href="#main-content"

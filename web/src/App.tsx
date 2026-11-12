@@ -1442,7 +1442,7 @@ function WorkDetail({
           <strong>{blocker}</strong>
           <p>{order.summary}</p>
           {budgetDecision && (
-            <div className="budget-next-step">
+            <div className="mt-3 grid justify-items-start gap-3">
               <p>
                 The run is waiting for your budget decision. Set a new ceiling or remove a ceiling, then
                 choose whether to resume. Other permissions and checks remain in force.
