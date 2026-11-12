@@ -3,14 +3,15 @@
 import hmac
 from contextlib import asynccontextmanager
 from datetime import timedelta
-from typing import Any
+from typing import Any, Literal
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Path, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 from pydantic.json_schema import models_json_schema
 
 from sabre import __version__
+from sabre.agent_activity import AgentActivity, agent_activity
 from sabre.agent_contracts import (
     AgentCatalog,
     AgentCatalogEntry,
@@ -34,8 +35,19 @@ from sabre.integrations import (
     IntegrationStateChange,
 )
 from sabre.mcp_connections import MCPConnectionInfo, MCPConnectionSave, MCPDiscovery
+from sabre.memory_contracts import (
+    MemoryApproval,
+    MemoryCarryForward,
+    MemoryDetail,
+    MemoryGraph,
+    MemoryItemPage,
+    MemoryRecallPage,
+    MemoryReview,
+    MemoryValidityRecord,
+)
 from sabre.model_configuration import ModelConfiguration, ModelConfigurationChange
 from sabre.models import (
+    MEMORY_ID_PATTERN,
     Answer,
     CallBudgetIncrease,
     CliProgressLimitsChange,
@@ -44,6 +56,7 @@ from sabre.models import (
     MemoryItem,
     Project,
     ProjectCreate,
+    ProposedBy,
     ScopeChange,
     SecretDeactivate,
     SecretMetadata,
@@ -288,6 +301,11 @@ def create_app(service=None, config=None) -> FastAPI:
     async def agent_catalog():
         return await svc().agent_catalog().list()
 
+    # Registered before /api/v1/agents/{agent_id} so "activity" is never read as an agent identifier.
+    @application.get("/api/v1/agents/activity", response_model=AgentActivity)
+    async def agents_activity(days: int = Query(default=7, ge=1, le=90)):
+        return await agent_activity(svc().repository, days)
+
     @application.get("/api/v1/agents/{agent_id}", response_model=AgentCatalogEntry)
     async def agent_definition(agent_id: str):
         return await svc().agent_catalog().get(agent_id)
@@ -530,19 +548,48 @@ def create_app(service=None, config=None) -> FastAPI:
 
     @application.post("/api/v1/memory", response_model=MemoryItem, status_code=201)
     async def propose_memory(body: MemoryCreate):
-        return await svc().memory.propose(body)
+        return await svc().memory.propose(body, proposed_by=ProposedBy(channel="owner_console"))
 
     @application.get("/api/v1/memory/search")
     async def memory_search(project_id: str, query: str, commit: str):
         return await svc().memory.search(project_id, query, commit)
 
     @application.post("/api/v1/memory/{memory_id}/approve", response_model=MemoryItem)
-    async def approve_memory(memory_id: str):
-        return await svc().memory.update(memory_id, True)
+    async def approve_memory(memory_id: str, body: MemoryApproval | None = None):
+        return await svc().memory.update(memory_id, True, body)
+
+    @application.post("/api/v1/memory/{memory_id}/carry-forward", response_model=MemoryValidityRecord)
+    async def carry_memory_forward(memory_id: str, body: MemoryCarryForward):
+        return await svc().memory.carry_forward(memory_id, body)
 
     @application.post("/api/v1/memory/{memory_id}/invalidate", response_model=MemoryItem)
     async def invalidate_memory(memory_id: str):
         return await svc().memory.update(memory_id, False)
+
+    @application.get("/api/v1/projects/{project_id}/memory/graph", response_model=MemoryGraph)
+    async def memory_graph(project_id: str, focus: str | None = Query(default=None, pattern=MEMORY_ID_PATTERN),
+                           depth: int = Query(default=1, ge=1, le=2), limit: int = Query(default=100, ge=1, le=300)):
+        return await svc().memory.graph(project_id, focus, depth, limit)
+
+    @application.get("/api/v1/projects/{project_id}/memory/recalls", response_model=MemoryRecallPage)
+    async def memory_recalls(project_id: str, work_id: str | None = Query(default=None, max_length=128),
+                             memory_id: str | None = Query(default=None, pattern=MEMORY_ID_PATTERN),
+                             cursor: str | None = Query(default=None, max_length=19), limit: int = Query(default=50, ge=1, le=200)):
+        return await svc().memory.recalls(project_id, work_id=work_id, memory_id=memory_id, cursor=cursor, limit=limit)
+
+    @application.get("/api/v1/projects/{project_id}/memory/items", response_model=MemoryItemPage)
+    async def memory_items(project_id: str, state: Literal["active", "pending", "invalidated", "stale"] | None = None,
+                           kind: Literal["fact", "lesson"] | None = None, q: str | None = Query(default=None, max_length=200),
+                           cursor: str | None = Query(default=None, max_length=512), limit: int = Query(default=50, ge=1, le=100)):
+        return await svc().memory.items(project_id, state=state, kind=kind, query=q, cursor=cursor, limit=limit)
+
+    @application.get("/api/v1/projects/{project_id}/memory/review", response_model=MemoryReview)
+    async def memory_review(project_id: str):
+        return await svc().memory.review(project_id)
+
+    @application.get("/api/v1/memory/{memory_id}", response_model=MemoryDetail)
+    async def memory_detail(memory_id: str = Path(pattern=MEMORY_ID_PATTERN)):
+        return await svc().memory.detail(memory_id)
 
     @application.get("/api/v1/secret-targets", response_model=list[SecretTarget])
     async def secret_targets():

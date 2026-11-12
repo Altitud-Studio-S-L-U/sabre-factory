@@ -317,6 +317,24 @@ class CallBudgetIncrease(Contract):
         return self
 
 
+MEMORY_ID_PATTERN = r"^[A-Za-z0-9_-]{1,128}$"
+MAX_MEMORY_CITATIONS = 20
+
+
+def citation_parts(value: str) -> tuple[str, int | None]:
+    """Split ``path`` or ``path#L<line>`` into a repository-relative path and an optional line."""
+    path, separator, anchor = value.partition("#L")
+    line = None
+    if separator:
+        if not anchor.isdigit() or not 1 <= int(anchor) <= 1_000_000:
+            raise ValueError("A citation line must be written as #L<positive number>")
+        line = int(anchor)
+    if (not path or len(path) > 1024 or "\\" in path or path.startswith("/") or "#" in path
+            or any(part in {"", ".", ".."} for part in path.split("/")) or any(ord(char) < 32 for char in path)):
+        raise ValueError("A citation must be a safe repository-relative file path")
+    return path, line
+
+
 class MemoryCreate(Contract):
     project_id: str
     kind: Literal["fact", "lesson"]
@@ -324,6 +342,43 @@ class MemoryCreate(Contract):
     source_commit: str
     source_work_id: str
     evidence_digest: str | None = None
+    # A factory keeps "default" out of the request schema, so generated clients may omit the field.
+    scope: Literal["commit", "project"] = Field(default_factory=lambda: "commit", description=(
+        "commit: recalled only at its source commit. project: also recalled at later indexed commits "
+        "while every cited file keeps its content digest"))
+    citations: list[str] = Field(default_factory=list, max_length=MAX_MEMORY_CITATIONS, description=(
+        "Repository-relative file paths, optionally suffixed with #L<line>, checked against the "
+        "repository index at the source commit"))
+    supersedes: str | None = Field(default=None, pattern=MEMORY_ID_PATTERN, description=(
+        "A memory of the same project that this one replaces; approval invalidates it"))
+
+    @field_validator("citations")
+    @classmethod
+    def safe_citations(cls, values: list[str]) -> list[str]:
+        for value in values:
+            citation_parts(value)
+        return list(dict.fromkeys(values))
+
+
+# Fields added after memory identities were first derived; at their defaults they stay out of the
+# identity so an unchanged proposal keeps the identifier it had before these fields existed.
+MEMORY_IDENTITY_DEFAULTS: dict[str, Any] = {"scope": "commit", "citations": [], "supersedes": None}
+
+
+def memory_identity(request: MemoryCreate) -> dict:
+    value = request.model_dump(mode="json", include=set(MemoryCreate.model_fields))
+    for key, default in MEMORY_IDENTITY_DEFAULTS.items():
+        if value.get(key) == default:
+            value.pop(key)
+    return value
+
+
+class ProposedBy(Contract):
+    """Entry point that proposed a memory. The server sets it; request bodies cannot supply it."""
+
+    channel: Literal["owner_console", "owner_mcp", "supervisor_chat", "factory"]
+    role: str | None = Field(default=None, max_length=64)
+    work_id: str | None = Field(default=None, max_length=128)
 
 
 class MemoryItem(MemoryCreate):
@@ -332,6 +387,7 @@ class MemoryItem(MemoryCreate):
     created_at: datetime = Field(default_factory=now)
     approved_at: datetime | None = None
     invalidated_at: datetime | None = None
+    proposed_by: ProposedBy | None = Field(default=None, description="Absent on memories recorded before attribution; show as unknown")
 
 
 class DomainError(Exception):

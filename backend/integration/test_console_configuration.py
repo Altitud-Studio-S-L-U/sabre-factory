@@ -116,3 +116,20 @@ async def test_configured_github_credential_is_not_claimed_as_verified_repositor
     view = await service.get()
     delivery = next(item for item in view.readiness if item.id == "delivery")
     assert delivery.status == "unavailable" and "not been verified" in delivery.message
+
+
+async def test_configuration_history_summarizes_changed_paths_newest_first(configuration_service):
+    from sabre.console_configuration import configuration_history_page
+    service, _, owner = configuration_service
+    assert (await configuration_history_page(owner.repository, 5)).items == []
+    revision, current = await service.snapshot()
+    await service.save(save_request(revision, current))
+    revision, current = await service.snapshot()
+    current.flows["patch"].repair_cycles = 0
+    await service.save(save_request(revision, current))
+    history = await configuration_history_page(owner.repository, 5)
+    assert [item.revision for item in history.items] == [2, 1] and not history.truncated
+    assert history.items[0].changed_paths == ["flows.patch.repair_cycles"] and history.items[0].summary == "Changed flows.patch.repair_cycles"
+    assert history.items[1].summary == "Initial saved configuration" and history.items[0].actor == "owner"
+    page = await configuration_history_page(owner.repository, 1)
+    assert [item.revision for item in page.items] == [2] and page.truncated and page.items[0].changed_paths == ["flows.patch.repair_cycles"]

@@ -3,10 +3,12 @@
 import platform
 from importlib import metadata
 from typing import Any, Literal, Protocol
+from urllib.parse import urlsplit
 
-from pydantic import Field
+from pydantic import ConfigDict, Field
 
 from sabre.models import AwareTimestamp, Contract, now
+from sabre.settings import Settings
 from sabre.workflows import GRAPH_VERSION
 
 PACKAGES = (
@@ -62,6 +64,8 @@ class RoleModelInfo(Contract):
 
 
 class SystemInfo(Contract):
+    # runtime_settings is newer than existing clients; keep it optional in the response schema.
+    model_config = ConfigDict(json_schema_serialization_defaults_required=False)
     checked_at: AwareTimestamp
     application: ApplicationInfo
     runtime: RuntimeInfo
@@ -69,6 +73,7 @@ class SystemInfo(Contract):
     components: list[SystemComponent]
     limits: SystemLimits
     models: list[RoleModelInfo]
+    runtime_settings: RuntimeSettings | None = Field(default=None, description="Non-secret runtime configuration; null when unavailable")
 
 
 def installed_version(distribution: str) -> str | None:
@@ -138,4 +143,88 @@ async def system_info(service: StatusSource) -> SystemInfo:
                               configured=None if runners.get(value["provider"], {}).get("busy") is True else value["configured"])
                 for role in ("supervisor", "analyst", "architect", "developer", "qa", "reviewer", "security")
                 if (value := status["roles"].get(role))],
+        runtime_settings=runtime_settings(config) if isinstance(config := getattr(service, "config", None), Settings) else None,
     )
+
+
+class IntegerSetting(Contract):
+    value: int
+    env_var: str | None = Field(description="Environment variable that sets it; null when fixed in code")
+
+
+class NumberSetting(Contract):
+    value: float
+    env_var: str | None
+
+
+class TextSetting(Contract):
+    value: str
+    env_var: str | None
+
+
+class TextListSetting(Contract):
+    value: list[str]
+    env_var: str | None
+
+
+class TelemetrySetting(Contract):
+    configured: bool
+    host: str | None = Field(description="Host and port of the OTLP destination; never its path, query or credentials")
+    env_var: str
+
+
+class SandboxLimits(Contract):
+    memory: TextSetting
+    cpus: NumberSetting
+    pids: IntegerSetting
+    default_timeout_s: IntegerSetting
+    max_timeout_s: IntegerSetting
+    network_default: TextSetting
+
+
+class RuntimeSettings(Contract):
+    """Non-secret runtime configuration and where each value comes from."""
+
+    execution_slots: IntegerSetting
+    panel_session_days: IntegerSetting
+    allowed_origins: TextListSetting
+    monthly_budget_usd: NumberSetting
+    chat_budget_usd: NumberSetting
+    webhooks: TextListSetting = Field(description="Configured webhook names only; endpoints are never returned")
+    otlp: TelemetrySetting
+    sandbox: SandboxLimits
+
+
+def endpoint_host(endpoint: str | None) -> str | None:
+    if not endpoint:
+        return None
+    try:
+        parts = urlsplit(endpoint)
+        host = parts.hostname
+        port = parts.port
+    except ValueError:
+        return None
+    if not host:
+        return None
+    return f"[{host}]:{port}" if port and ":" in host else f"{host}:{port}" if port else host
+
+
+def runtime_settings(config) -> RuntimeSettings:
+    from sabre import executor
+    return RuntimeSettings(
+        execution_slots=IntegerSetting(value=config.execution_slots, env_var="SABRE_EXECUTION_SLOTS"),
+        panel_session_days=IntegerSetting(value=config.panel_session_days, env_var="SABRE_PANEL_SESSION_DAYS"),
+        allowed_origins=TextListSetting(value=list(config.allowed_origins), env_var="SABRE_ALLOWED_ORIGINS"),
+        monthly_budget_usd=NumberSetting(value=config.monthly_budget_usd, env_var="SABRE_MONTHLY_BUDGET_USD"),
+        chat_budget_usd=NumberSetting(value=config.chat_budget_usd, env_var="SABRE_CHAT_BUDGET_USD"),
+        webhooks=TextListSetting(value=sorted(config.webhooks), env_var="SABRE_WEBHOOKS"),
+        otlp=TelemetrySetting(configured=bool(config.otlp_endpoint), host=endpoint_host(config.otlp_endpoint), env_var="SABRE_OTLP_ENDPOINT"),
+        sandbox=SandboxLimits(
+            memory=TextSetting(value=executor.SANDBOX_MEMORY, env_var=None),
+            cpus=NumberSetting(value=executor.SANDBOX_NANO_CPUS / 1_000_000_000, env_var=None),
+            pids=IntegerSetting(value=executor.SANDBOX_PIDS, env_var=None),
+            default_timeout_s=IntegerSetting(value=executor.COMMAND_TIMEOUT_DEFAULT_S, env_var=None),
+            max_timeout_s=IntegerSetting(value=executor.COMMAND_TIMEOUT_MAX_S, env_var=None),
+            network_default=TextSetting(value="none", env_var=None)),
+    )
+SystemInfo.model_rebuild()

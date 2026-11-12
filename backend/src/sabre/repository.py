@@ -7,7 +7,6 @@ from datetime import timedelta
 from typing import Any, Literal, TypedDict
 
 import psycopg
-from psycopg import sql
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 from psycopg_pool import AsyncConnectionPool
@@ -18,6 +17,7 @@ from sabre.context_receipts import ContextReceipt, ContextUsageSummary, aggregat
 from sabre.events import EventPage, ExecutionEvent, SequencedEvent
 from sabre.integrations import INTEGRATIONS_SCHEMA
 from sabre.mcp_connections import MCP_CONNECTIONS_SCHEMA
+from sabre.memory_store import MemoryStore
 from sabre.migrations import migrate
 from sabre.model_configuration import MODEL_CONFIGURATION_SCHEMA
 from sabre.models import (
@@ -25,7 +25,6 @@ from sabre.models import (
     CallBudgetIncrease,
     CliProgressLimitsChange,
     DomainError,
-    MemoryItem,
     Project,
     ScopeChange,
     SecurityException,
@@ -123,7 +122,7 @@ def digest(value: Any) -> str:
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()).hexdigest()
 
 
-class Repository:
+class Repository(MemoryStore):
     def __init__(self, dsn: str, *, pool_size: int = 0, execution_slots: int = 2):
         self.dsn = dsn
         self.execution_slots = execution_slots
@@ -840,81 +839,6 @@ class Repository:
     async def finish_effect(self, key: str, result: dict):
         async with self.connection() as conn:
             await conn.execute("UPDATE effects SET state='completed',result=%s WHERE operation_key=%s", (Jsonb(result), key))
-
-    async def create_memory(self, item: MemoryItem, embedding: list[float] | None = None):
-        async with self.connection() as conn:
-            await conn.execute("INSERT INTO memories(id,project_id,data,embedding) VALUES(%s,%s,%s,%s) ON CONFLICT(id) DO NOTHING", (item.id, item.project_id, Jsonb(payload(item)), str(embedding) if embedding else None))
-            row = await (await conn.execute("SELECT data FROM memories WHERE id=%s", (item.id,))).fetchone()
-            return MemoryItem.model_validate(row["data"])
-
-    async def set_memory_state(self, memory_id: str, approve: bool):
-        async with self.connection() as conn:
-            row = await (await conn.execute("SELECT data FROM memories WHERE id=%s FOR UPDATE", (memory_id,))).fetchone()
-            if not row:
-                raise DomainError("MEMORY_NOT_FOUND", "Recuerdo no encontrado", 404)
-            item = MemoryItem.model_validate(row["data"])
-            if item.invalidated_at:
-                raise DomainError("MEMORY_INVALIDATED", "The memory is invalidated; create a new proposal")
-            if approve:
-                item.active, item.approved_at = True, now()
-            else:
-                item.active, item.invalidated_at = False, now()
-            await conn.execute("UPDATE memories SET data=%s WHERE id=%s", (Jsonb(payload(item)), memory_id))
-        return item
-
-    async def memories(self, project_id: str) -> list[MemoryItem]:
-        async with self.connection() as conn:
-            cursor = await conn.execute("SELECT data FROM memories WHERE project_id=%s ORDER BY data->>'created_at' DESC", (project_id,))
-            return [MemoryItem.model_validate(r["data"]) async for r in cursor]
-
-    async def memory(self, memory_id: str) -> MemoryItem:
-        async with self.connection() as conn:
-            row = await (await conn.execute("SELECT data FROM memories WHERE id=%s", (memory_id,))).fetchone()
-        if not row:
-            raise DomainError("MEMORY_NOT_FOUND", "Recuerdo no encontrado", 404)
-        return MemoryItem.model_validate(row["data"])
-
-    async def has_embedded_memory(self, project_id: str, commit: str) -> bool:
-        async with self.connection() as conn:
-            row = await (await conn.execute("""SELECT EXISTS(SELECT 1 FROM memories WHERE project_id=%s
-                AND (data->>'active')::boolean AND data->>'invalidated_at' IS NULL
-                AND data->>'source_commit'=%s AND embedding IS NOT NULL) AS found""", (project_id, commit))).fetchone()
-        return row["found"]
-
-    async def memory_for_context(self, project_id: str, commit: str, memory_id: str) -> MemoryItem:
-        async with self.connection() as conn:
-            row = await (await conn.execute("""SELECT data FROM memories WHERE id=%s AND project_id=%s
-                AND (data->>'active')::boolean AND data->>'invalidated_at' IS NULL
-                AND data->>'source_commit'=%s""", (memory_id, project_id, commit))).fetchone()
-        if row is None:
-            raise DomainError("MEMORY_NOT_AVAILABLE", "The memory is not active for this project and commit", 404)
-        return MemoryItem.model_validate(row["data"])
-
-    async def search_memory(self, project_id: str, query: str, commit: str, embedding: list[float] | None = None, *, match_any=False):
-        query_function = "websearch_to_tsquery" if match_any else "plainto_tsquery"
-        async with self.connection() as conn:
-            if embedding:
-                cursor = await conn.execute(sql.SQL("""
-                    WITH scoped AS (
-                        SELECT id,data,document,embedding FROM memories
-                        WHERE project_id=%s AND (data->>'active')::boolean
-                        AND data->>'invalidated_at' IS NULL AND data->>'source_commit'=%s
-                    ), semantic AS (
-                        SELECT id,row_number() OVER (ORDER BY embedding <=> %s::vector) AS position
-                        FROM scoped WHERE embedding IS NOT NULL ORDER BY position LIMIT 8
-                    ), lexical AS (
-                        SELECT id,row_number() OVER (ORDER BY ts_rank(document,{query_function}('simple',%s)) DESC,id) AS position
-                        FROM scoped WHERE document @@ {query_function}('simple',%s) ORDER BY position LIMIT 8
-                    ), scores AS (
-                        SELECT id,sum(1.0/(60+position)) AS score FROM (
-                            SELECT * FROM semantic UNION ALL SELECT * FROM lexical
-                        ) candidates GROUP BY id
-                    )
-                    SELECT scoped.data FROM scores JOIN scoped USING(id) ORDER BY scores.score DESC,id LIMIT 8
-                """).format(query_function=sql.Identifier(query_function)), (project_id, commit, str(embedding), query, query))
-            else:
-                cursor = await conn.execute(sql.SQL("SELECT data FROM memories WHERE project_id=%s AND (data->>'active')::boolean AND data->>'invalidated_at' IS NULL AND data->>'source_commit'=%s AND document @@ {query_function}('simple',%s) ORDER BY ts_rank(document,{query_function}('simple',%s)) DESC,id LIMIT 8").format(query_function=sql.Identifier(query_function)), (project_id, commit, query, query))
-            return [MemoryItem.model_validate(r["data"]) async for r in cursor]
 
     async def report_security(self, work: WorkOrder):
         async with self.connection() as conn:

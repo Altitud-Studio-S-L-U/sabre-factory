@@ -1,10 +1,11 @@
 """One versioned, secret-free configuration for the console and YAML editor."""
 
 import json
+from datetime import datetime
 from typing import Literal
 
 import yaml
-from fastapi import FastAPI
+from fastapi import FastAPI, Query
 from psycopg.types.json import Jsonb
 from pydantic import Field, ValidationError, model_validator
 
@@ -169,6 +170,45 @@ def differences(before, after, path=""):
     return result
 
 
+MAX_HISTORY_PATHS = 20
+
+
+class ConfigurationRevision(StrictContract):
+    revision: int
+    actor: Literal["owner"] = Field(default="owner", description="Saving requires the owner's authentication; the channel is not recorded")
+    created_at: datetime
+    changed_paths: list[str] = Field(description="Dotted paths changed from the previous revision, at most 20")
+    changed_paths_truncated: bool
+    summary: str
+
+
+class ConfigurationHistory(StrictContract):
+    items: list[ConfigurationRevision]
+    truncated: bool = Field(description="True when older revisions exist beyond the limit")
+
+
+async def configuration_history_page(repository, limit: int) -> ConfigurationHistory:
+    """Newest saved factory configuration revisions, each compared with the one before it."""
+    async with repository.connection() as conn:
+        rows = await (await conn.execute("SELECT revision,data,created_at FROM factory_configuration_events ORDER BY revision DESC LIMIT %s",
+                                         (limit + 1,))).fetchall()
+    previous = {row["revision"]: row["data"] for row in rows}
+    items = []
+    for row in rows[:limit]:
+        before = previous.get(row["revision"] - 1)
+        if before is None and row["revision"] > 1:
+            async with repository.connection() as conn:
+                found = await (await conn.execute("SELECT data FROM factory_configuration_events WHERE revision=%s", (row["revision"] - 1,))).fetchone()
+            before = found["data"] if found else None
+        paths = [change.path for change in differences(before, row["data"])] if before is not None else []
+        summary = (("Initial saved configuration" if row["revision"] == 1 else "Previous revision unavailable") if before is None else
+                   "No changes" if not paths else
+                   "Changed " + ", ".join(paths[:5]) + (f" and {len(paths) - 5} more" if len(paths) > 5 else ""))
+        items.append(ConfigurationRevision(revision=row["revision"], created_at=row["created_at"], changed_paths=paths[:MAX_HISTORY_PATHS],
+                                           changed_paths_truncated=len(paths) > MAX_HISTORY_PATHS, summary=summary))
+    return ConfigurationHistory(items=items, truncated=len(rows) > limit)
+
+
 class ConsoleConfigurationService:
     def __init__(self, service):
         self.service = service
@@ -289,3 +329,7 @@ def install_console_routes(app: FastAPI, service):
     @app.put("/api/v1/configuration", response_model=ConfigurationView)
     async def save_configuration(body: ConfigurationSave):
         return await ConsoleConfigurationService(service()).save(body)
+
+    @app.get("/api/v1/configuration/history", response_model=ConfigurationHistory)
+    async def configuration_history(limit: int = Query(default=20, ge=1, le=100)):
+        return await configuration_history_page(service().repository, limit)

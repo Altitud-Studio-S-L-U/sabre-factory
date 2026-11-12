@@ -173,12 +173,12 @@ class TestMemory:
             return {}
         return read_memory
 
-    def context_validator(self, *args):
+    def context_validator(self, *args, **kwargs):
         async def validate(references):
             return None
         return validate
 
-    async def propose(self, item):
+    async def propose(self, item, **kwargs):
         return item
 
 
@@ -575,7 +575,7 @@ async def test_recovery_finishes_memory_and_cleanup_after_delivery_checkpoint(bu
     fail_once = True
     remembered = []
 
-    async def interrupted_memory(item):
+    async def interrupted_memory(item, **kwargs):
         nonlocal fail_once
         if fail_once:
             fail_once = False

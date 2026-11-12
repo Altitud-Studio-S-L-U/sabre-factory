@@ -1,13 +1,82 @@
+import base64
 import hashlib
 import json
 import re
+from datetime import datetime
 
-from sabre.models import DomainError, MemoryCreate, MemoryItem, WorkOrder, now
+from sabre.memory_contracts import (
+    MemoryApproval,
+    MemoryCarryForward,
+    MemoryDetail,
+    MemoryGraph,
+    MemoryItemPage,
+    MemoryLink,
+    MemoryLinkCounts,
+    MemoryListItem,
+    MemoryProvenance,
+    MemoryRecall,
+    MemoryRecallPage,
+    MemoryRecallStats,
+    MemoryReview,
+    MemoryValidityAt,
+    MemoryValidityRecord,
+    OverlapEntry,
+    PendingReview,
+    StaleReview,
+)
+from sabre.memory_store import lifecycle
+from sabre.models import (
+    DomainError,
+    MemoryCreate,
+    MemoryItem,
+    ProposedBy,
+    WorkOrder,
+    memory_identity,
+    new_id,
+    now,
+)
 from sabre.repository import digest
 
 MAX_CONTEXT_BYTES = 6144
 MAX_CONTEXT_ITEMS = 4
 MAX_READ_CHARS = 2048
+MAX_RECALL_TERMS = 32
+REVIEW_LIMIT = 100
+
+
+def validity_at(item: MemoryItem, commit: str | None, record: dict | None) -> MemoryValidityAt:
+    """Explain whether ``item`` would be recalled at ``commit`` from its scope and stored evaluation."""
+    def result(state, reason, changed=(), checked=None):
+        return MemoryValidityAt(commit=commit, state=state, reason=reason, changed_paths=list(changed), checked_at=checked)
+    if not item.active or item.invalidated_at is not None:
+        return result("unavailable", "not_active")
+    if commit is None:
+        return result("unavailable", "index_missing")
+    if commit == item.source_commit:
+        return result("valid", "source_commit", checked=item.approved_at)
+    if item.scope != "project":
+        return result("unavailable", "commit_scope")
+    if record is None:
+        return result("unavailable", "not_evaluated")
+    return result(record["state"], record["basis"], record["changed_paths"], record["checked_at"])
+
+
+def encode_cursor(item: MemoryItem) -> str:
+    raw = json.dumps([item.created_at.isoformat(), item.id], separators=(",", ":")).encode()
+    return base64.urlsafe_b64encode(raw).decode().rstrip("=")
+
+
+def decode_cursor(cursor: str | None) -> tuple[str, str] | None:
+    if cursor is None:
+        return None
+    try:
+        created_at, identifier = json.loads(base64.urlsafe_b64decode(cursor + "=" * (-len(cursor) % 4)))
+        datetime.fromisoformat(created_at)
+        if not isinstance(identifier, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", identifier):
+            raise ValueError
+    except (ValueError, TypeError):
+        raise DomainError("INVALID_CURSOR", "Use the next_cursor of a previous page", 422) from None
+    return created_at, identifier
 
 
 def encoded_size(value):
@@ -40,7 +109,7 @@ def memory_excerpt(item, query, limit):
 
 
 def verified_fact(work) -> str:
-    return f"Commit {work.evidence.commit}: {len(work.evidence.gates)} comprobaciones aprobadas; snapshot {work.evidence.snapshot_digest}."
+    return f"Commit {work.evidence.commit}: {len(work.evidence.gates)} checks passed; snapshot {work.evidence.snapshot_digest}."
 
 
 class MemoryService:
@@ -49,20 +118,116 @@ class MemoryService:
         self.guard = guard
         self.embeddings = embeddings
 
-    async def propose(self, request: MemoryCreate) -> MemoryItem:
+    async def propose(self, request: MemoryCreate, *, proposed_by: ProposedBy | None = None) -> MemoryItem:
+        """``proposed_by`` names the calling entry point; it is never taken from the request body."""
         self.guard.check(request.model_dump())
         work = await self.repository.work(request.source_work_id)
         if work.project_id != request.project_id or not work.evidence or work.evidence.commit != request.source_commit:
             raise DomainError("MEMORY_PROVENANCE", "Provenance does not match a project delivery")
         # Recovery may queue a published order before replaying its final memory write.
         delivered = work.status == "completed" or bool(work.evidence.branch and work.evidence.pr_url)
-        verifiable = request.kind == "fact" and delivered and request.content == verified_fact(work) and request.evidence_digest == work.evidence.snapshot_digest
-        item = MemoryItem(**request.model_dump(), id=digest(request.model_dump()), active=verifiable, approved_at=now() if verifiable else None)
+        # Only the mechanically derived delivery fact activates itself, and it stays commit-scoped.
+        verifiable = (request.kind == "fact" and delivered and request.content == verified_fact(work)
+                      and request.evidence_digest == work.evidence.snapshot_digest and request.scope == "commit"
+                      and not request.citations and request.supersedes is None)
+        item = MemoryItem(**request.model_dump(), id=digest(memory_identity(request)), active=verifiable,
+                          approved_at=now() if verifiable else None, proposed_by=proposed_by)
         embedding = await self.embeddings.aembed_query(item.content) if self.embeddings and not verifiable else None
         return await self.repository.create_memory(item, embedding)
 
-    async def update(self, memory_id: str, approve: bool):
-        return await self.repository.set_memory_state(memory_id, approve)
+    async def update(self, memory_id: str, approve: bool, decision: MemoryApproval | None = None):
+        if decision is None or not approve:
+            return await self.repository.set_memory_state(memory_id, approve)
+        return await self.repository.set_memory_state(memory_id, approve, scope=decision.scope, supersedes=decision.supersedes,
+                                                      related=decision.related)
+
+    async def recalls(self, project_id: str, *, work_id: str | None = None, memory_id: str | None = None,
+                      cursor: str | None = None, limit: int = 50) -> MemoryRecallPage:
+        if cursor is not None and not re.fullmatch(r"[1-9][0-9]{0,18}", cursor):
+            raise DomainError("INVALID_CURSOR", "Use the next_cursor of a previous page", 422)
+        await self.repository.project(project_id)
+        rows, following = await self.repository.memory_recalls(project_id, work_id=work_id, memory_id=memory_id,
+                                                               cursor=int(cursor) if cursor else None, limit=limit)
+        items = [MemoryRecall(id=row["id"], project_id=row["project_id"], work_id=row["work_id"], role=row["role"], stage=row["stage"],
+                              commit=row["commit"], outcome=row["outcome"], error_code=row["error_code"], created_at=row["created_at"],
+                              **row["data"]) for row in rows]
+        return MemoryRecallPage(items=items, next_cursor=str(following) if following is not None else None)
+
+    async def graph(self, project_id: str, focus: str | None = None, depth: int = 1, limit: int = 100) -> MemoryGraph:
+        await self.repository.project(project_id)
+        return MemoryGraph.model_validate(await self.repository.memory_graph(project_id, focus, depth, limit))
+
+    async def _list_items(self, rows: list[dict], commit: str | None) -> list[MemoryListItem]:
+        stats = await self.repository.memory_recall_stats([row["id"] for row in rows]) if rows else {}
+        result = []
+        for row in rows:
+            item = MemoryItem.model_validate(row["data"])
+            recall = stats.get(item.id) or {}
+            result.append(MemoryListItem(**item.model_dump(), state=lifecycle(item), validity=validity_at(item, commit, row["validity"]),
+                                         recall_count=int(recall.get("recall_count") or 0), last_recalled_at=recall.get("last_recalled_at"),
+                                         link_counts=MemoryLinkCounts(**dict(row["link_counts"] or {}))))
+        return result
+
+    async def items(self, project_id: str, *, state: str | None = None, kind: str | None = None, query: str | None = None,
+                    cursor: str | None = None, limit: int = 50) -> MemoryItemPage:
+        after = decode_cursor(cursor)
+        await self.repository.project(project_id)
+        commit = await self.repository.newest_indexed_commit(project_id)
+        rows = await self.repository.memory_page(project_id, commit=commit, state=state, kind=kind, query=query or None, after=after, limit=limit + 1)
+        items = await self._list_items(rows[:limit], commit)
+        self.guard.check([item.model_dump(mode="json") for item in items])
+        return MemoryItemPage(commit=commit, items=items, next_cursor=encode_cursor(items[-1]) if len(rows) > limit else None)
+
+    async def detail(self, memory_id: str) -> MemoryDetail:
+        item = await self.repository.memory(memory_id)
+        commit = await self.repository.newest_indexed_commit(item.project_id)
+        listed = (await self._list_items(await self.repository.memory_page(item.project_id, commit=commit, memory_id=memory_id, limit=1), commit))[0]
+        outgoing, incoming = await self.repository.memory_links_of(memory_id)
+        work = await self.repository.memory_work_summary(item.project_id, item.source_work_id)
+        stats = (await self.repository.memory_recall_stats([memory_id])).get(memory_id) or {}
+        detail = MemoryDetail(
+            item=listed,
+            provenance=MemoryProvenance(work_id=item.source_work_id, work_objective=work["objective"] if work else None,
+                                        work_status=work["status"] if work else None, commit=item.source_commit,
+                                        evidence_digest=item.evidence_digest, proposed_by=item.proposed_by,
+                                        approved_at=item.approved_at, invalidated_at=item.invalidated_at),
+            links=[MemoryLink.model_validate(row) for row in outgoing],
+            backlinks=[MemoryLink.model_validate(row) for row in incoming],
+            validity_history=[MemoryValidityRecord.model_validate(row) for row in await self.repository.memory_validity_history(memory_id)],
+            recalls=MemoryRecallStats(recall_count=int(stats.get("recall_count") or 0), last_recalled_at=stats.get("last_recalled_at"),
+                                      refused_count=int(stats.get("refused_count") or 0)))
+        self.guard.check(detail.model_dump(mode="json"))
+        return detail
+
+    async def review(self, project_id: str) -> MemoryReview:
+        await self.repository.project(project_id)
+        commit = await self.repository.newest_indexed_commit(project_id)
+        pending_rows = await self.repository.memory_page(project_id, commit=commit, state="pending", limit=REVIEW_LIMIT + 1)
+        stale_rows = await self.repository.memory_page(project_id, commit=commit, state="stale", limit=REVIEW_LIMIT + 1) if commit else []
+        pending = await self._list_items(pending_rows[:REVIEW_LIMIT], commit)
+        stale = await self._list_items(stale_rows[:REVIEW_LIMIT], commit)
+        overlaps: dict[str, list[OverlapEntry]] = {item.id: [] for item in pending}
+        links = await self.repository.memory_overlaps(project_id, list(overlaps)) if overlaps else []
+        for row in links:
+            attrs = dict(row["attrs"])
+            for this, other, own, theirs in ((row["source_id"], row["target"], "only_source", "only_target"),
+                                             (row["target_id"], row["source"], "only_target", "only_source")):
+                if this not in overlaps:
+                    continue
+                other_item = MemoryItem.model_validate(other)
+                overlaps[this].append(OverlapEntry(memory_id=other_item.id, state=lifecycle(other_item), content=other_item.content[:240],
+                                                   score=attrs["score"], lexical=attrs["lexical"], cosine=attrs.get("cosine"),
+                                                   only_this=attrs.get(own, []), only_other=attrs.get(theirs, [])))
+        review = MemoryReview(
+            commit=commit,
+            pending=[PendingReview(item=item, overlaps=sorted(overlaps[item.id], key=lambda entry: (-entry.score, entry.memory_id))) for item in pending],
+            stale=[StaleReview(item=item, changed_paths=item.validity.changed_paths) for item in stale],
+            truncated=len(pending_rows) > REVIEW_LIMIT or len(stale_rows) > REVIEW_LIMIT)
+        self.guard.check(review.model_dump(mode="json"))
+        return review
+
+    async def carry_forward(self, memory_id: str, request: MemoryCarryForward):
+        return MemoryValidityRecord.model_validate(await self.repository.carry_memory_forward(memory_id, request.commit))
 
     async def search(self, project_id: str, query: str, commit: str, *, work: WorkOrder | None = None):
         self.guard.check(query)
@@ -77,7 +242,12 @@ class MemoryService:
             return await self.embeddings.aembed_query(query, work=work)
         return None
 
-    async def context_for_role(self, project_id: str, objective: str, instruction: str, commit: str, *, work: WorkOrder):
+    async def _record_recall(self, recall: dict):
+        recorder = getattr(self.repository, "record_memory_recall", None)
+        if recorder is not None and recall["work_id"] is not None:
+            await recorder(recall)
+
+    async def context_for_role(self, project_id: str, objective: str, instruction: str, commit: str, *, work: WorkOrder, role: str | None = None):
         self.guard.check([objective, instruction])
         query = bounded_text(instruction, 512) + "\n" + bounded_text(objective, 512)
         embedding = await self._embedding(project_id, query, commit, work)
@@ -96,6 +266,15 @@ class MemoryService:
             result.append(value)
         if encoded_size(result) > MAX_CONTEXT_BYTES:
             raise DomainError("MEMORY_CONTEXT_LIMIT", "Memories exceed the context limit")
+        await self._record_recall({
+            "id": new_id(), "project_id": project_id, "work_id": getattr(work, "id", None), "role": role, "stage": getattr(work, "phase", None),
+            "commit": commit, "outcome": "recalled", "error_code": None, "memory_ids": [item.id for item in selected],
+            "data": {"query_terms": terms[:MAX_RECALL_TERMS], "candidates": len(items), "omitted": len(items) - len(selected),
+                     "bytes": encoded_size(result), "refused_memory_ids": [],
+                     "selected": [{"memory_id": item.id, "lexical_rank": getattr(item, "lexical_rank", None),
+                                   "vector_rank": getattr(item, "vector_rank", None), "fused_score": getattr(item, "fused_score", None),
+                                   "bytes": encoded_size(value), "truncated": value["truncated"]} for item, value in zip(selected, result, strict=True)]},
+        })
         return result
 
     def reader(self, project_id: str, commit: str):
@@ -121,8 +300,22 @@ class MemoryService:
                 result["content"] = result["content"][:len(result["content"]) // 2]
         return read_memory
 
-    def context_validator(self, project_id: str, commit: str):
+    def context_validator(self, project_id: str, commit: str, *, work: WorkOrder | None = None, role: str | None = None):
         async def validate(references: list[dict]):
+            try:
+                await check(references)
+            except DomainError as error:
+                # A refusal is part of the recall log: which saved memories could not be revalidated and why.
+                identifiers = [reference["id"] for reference in references if isinstance(reference, dict) and isinstance(reference.get("id"), str)
+                               and re.fullmatch(r"[A-Za-z0-9_-]{1,128}", reference["id"])] if isinstance(references, list) else []
+                identifiers = list(dict.fromkeys(identifiers))[:MAX_CONTEXT_ITEMS * 8]
+                await self._record_recall({
+                    "id": new_id(), "project_id": project_id, "work_id": getattr(work, "id", None), "role": role, "stage": getattr(work, "phase", None),
+                    "commit": commit, "outcome": "refused", "error_code": error.code, "memory_ids": identifiers,
+                    "data": {"query_terms": [], "candidates": 0, "omitted": 0, "bytes": 0, "selected": [], "refused_memory_ids": identifiers}})
+                raise
+
+        async def check(references: list[dict]):
             def changed():
                 return DomainError("MEMORY_CONTEXT_CHANGED", "Saved memory is no longer verifiable; explicitly replan context before continuing", 409)
             if not isinstance(references, list):
@@ -134,7 +327,7 @@ class MemoryService:
                 identifier, signature = reference.get("id"), reference.get("content_digest")
                 if not isinstance(identifier, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", identifier) or not isinstance(signature, str) or not re.fullmatch(r"[a-f0-9]{64}", signature):
                     raise changed()
-                if reference.get("project_id", project_id) != project_id or reference.get("source_commit", commit) != commit:
+                if reference.get("project_id", project_id) != project_id:
                     raise changed()
                 key = (identifier, signature)
                 if key in checked:
@@ -146,7 +339,11 @@ class MemoryService:
                         raise changed() from None
                     raise
                 self.guard.check(item.model_dump(mode="json"))
-                if item.project_id != project_id or item.source_commit != commit or not item.active or item.invalidated_at is not None or hashlib.sha256(item.content.encode()).hexdigest() != signature:
+                # The repository admits the memory only while it is valid at this commit; the reference
+                # must still name the same source commit, and a commit-scoped memory only its own commit.
+                if (item.project_id != project_id or reference.get("source_commit", item.source_commit) != item.source_commit
+                        or (item.scope != "project" and item.source_commit != commit) or not item.active
+                        or item.invalidated_at is not None or hashlib.sha256(item.content.encode()).hexdigest() != signature):
                     raise changed()
                 checked.add(key)
         return validate
