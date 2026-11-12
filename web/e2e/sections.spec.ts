@@ -224,7 +224,7 @@ test('the colour theme is chosen per browser and applied before the first paint'
   await expect(html).not.toHaveClass(/light/);
   await page.getByRole('button', { name: 'Use light theme' }).click();
   await expect(html).toHaveClass(/light/);
-  await page.reload();
+  await page.reload({ waitUntil: 'domcontentloaded' });
   // The inline script in index.html sets the class before the app renders.
   expect(await page.evaluate(() => document.documentElement.classList.contains('light'))).toBe(true);
   await page.getByRole('button', { name: 'Use dark theme' }).click();
