@@ -270,11 +270,12 @@ it('shows memory provenance by project and keeps proposals separate from approve
     ),
   );
   render(<MemoryConsole api={createApi('synthetic-csrf')} projects={[project]} connected={false} />);
+  await user.click(await screen.findByRole('tab', { name: 'Facts' }));
   expect(await screen.findByText('Synthetic reviewed lesson')).toBeVisible();
   expect(screen.queryByText('Synthetic proposal')).not.toBeInTheDocument();
   expect(screen.queryByText('Other project must not appear')).not.toBeInTheDocument();
-  await user.click(screen.getByRole('tab', { name: 'Proposals' }));
-  expect(screen.getByRole('tab', { name: 'Proposals' })).toHaveAttribute('aria-selected', 'true');
+  await user.click(screen.getByRole('tab', { name: 'Review queue' }));
+  expect(screen.getByRole('tab', { name: 'Review queue' })).toHaveAttribute('aria-selected', 'true');
   await user.click(screen.getByRole('button', { name: 'Inspect memory proposal' }));
   const dialog = screen.getByRole('dialog', { name: 'Memory provenance' });
   expect(within(dialog).getByText('synthetic-run')).toBeVisible();
@@ -321,7 +322,7 @@ it('queues real repository ingestion without claiming completion and displays re
     }),
   );
   render(<MemoryConsole api={createApi('synthetic-csrf')} projects={[project]} />);
-  await screen.findByText('No approved knowledge');
+  await screen.findByRole('button', { name: 'Index repository' });
   await user.click(screen.getByRole('button', { name: 'Index repository' }));
   expect(await screen.findByRole('button', { name: 'Indexing queued' })).toBeDisabled();
   expect(screen.getByText(/Indexing queued. Source admission scanning/)).toBeVisible();

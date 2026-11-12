@@ -1,5 +1,12 @@
 import { test, expect } from '@playwright/test';
 import { mockFactoryApi, syntheticRun } from './fixtures';
+import {
+  memoryDetail,
+  memoryGraph,
+  memoryItem,
+  memoryRecalls,
+  memoryReview,
+} from '../src/test/memoryFixture';
 
 // Visual evidence for design work: SABRE_GALLERY=<label> pnpm test:browser gallery
 // writes one full-page capture per section and viewport to work/gallery/<label>/.
@@ -11,6 +18,8 @@ const sections = [
   { name: 'agents', path: '/agents', ready: 'Agents' },
   { name: 'tools', path: '/tools', ready: 'Tools' },
   { name: 'memory', path: '/memory', ready: 'Memory' },
+  { name: 'memory-review', path: '/memory', ready: 'Memory', tab: 'Review queue' },
+  { name: 'memory-recalls', path: '/memory', ready: 'Memory', tab: 'Recall log' },
   { name: 'config', path: '/config', ready: 'Config' },
   { name: 'config-access', path: '/config?section=access', ready: 'Paired browsers' },
 ];
@@ -36,6 +45,23 @@ test.describe('gallery', () => {
       }),
     );
     await page.route('**/api/v1/work/synthetic-run', (route) => route.fulfill({ json: order }));
+    // Realistic project memory so the knowledge map, review queue and recall log can be reviewed.
+    await page.route('**/api/v1/projects/*/memory/graph*', (route) => route.fulfill({ json: memoryGraph() }));
+    await page.route('**/api/v1/projects/*/memory/review', (route) =>
+      route.fulfill({ json: memoryReview() }),
+    );
+    await page.route('**/api/v1/projects/*/memory/recalls*', (route) =>
+      route.fulfill({ json: memoryRecalls() }),
+    );
+    await page.route('**/api/v1/memory/m27', (route) => route.fulfill({ json: memoryDetail() }));
+    await page.route('**/api/v1/memory?*', (route) =>
+      route.fulfill({
+        json: [
+          memoryItem(),
+          memoryItem({ id: 'l05', kind: 'lesson', content: 'Seed the pricing suite before running it' }),
+        ],
+      }),
+    );
     await page.route('**/api/v1/panel/browsers', (route) =>
       route.fulfill({
         json: {
@@ -67,6 +93,10 @@ test.describe('gallery', () => {
     test(section.name, async ({ page }) => {
       await page.goto(section.path);
       await expect(page.getByText(section.ready, { exact: false }).first()).toBeVisible();
+      if ('tab' in section && section.tab)
+        await page.getByRole('tab', { name: section.tab, exact: true }).click();
+      if (section.name === 'memory')
+        await page.getByRole('button', { name: "Memory: Discount uses banker's rounding" }).click();
       await page.waitForLoadState('networkidle');
       await page.mouse.move(0, 0);
       await page.screenshot({
