@@ -19,21 +19,21 @@ const info: SystemInfo = {
       label: 'PostgreSQL',
       configured: true,
       state: 'available',
-      detail: 'Consulta de conexión completada.',
+      detail: 'Connection query completed.',
     },
     {
       id: 'telemetry',
       label: 'OpenTelemetry',
       configured: true,
       state: 'unknown',
-      detail: 'El destino está configurado; la recepción de trazas no está comprobada.',
+      detail: 'The destination is configured; trace delivery is not verified.',
     },
     {
       id: 'codex',
       label: 'Codex CLI',
       configured: null,
       state: 'busy',
-      detail: 'El ejecutor está ocupado; no se vuelve a comprobar la sesión durante la inferencia.',
+      detail: 'The runner is busy; the session is not rechecked during inference.',
     },
   ],
   limits: {
@@ -47,7 +47,7 @@ const info: SystemInfo = {
 };
 
 describe('System information', () => {
-  it('consulta una vez en StrictMode y muestra versiones y capacidad sin atribuir salud a configuration', async () => {
+  it('queries once in StrictMode and shows versions and capacity without attributing health to configuration', async () => {
     const api = { system: vi.fn().mockResolvedValue(info) };
     render(
       <StrictMode>
@@ -70,7 +70,7 @@ describe('System information', () => {
     expect(screen.getByText('Session not checked: runner busy')).toBeVisible();
   });
 
-  it('conserva la fecha anterior al fallar la actualización y permite reintentar sin exponer el error remoto', async () => {
+  it('keeps the previous date when the refresh fails and allows a retry without exposing the remote error', async () => {
     const api = {
       system: vi
         .fn()
@@ -90,7 +90,7 @@ describe('System information', () => {
     expect(api.system).toHaveBeenCalledTimes(3);
   });
 
-  it('no presenta datos ficticios cuando falla la primera consulta', async () => {
+  it('presents no made-up data when the first query fails', async () => {
     render(<About api={{ system: vi.fn().mockRejectedValue(new Error('private-error')) }} />);
     expect(await screen.findByRole('alert')).toHaveTextContent('The system could not be queried');
     expect(screen.queryByRole('heading', { name: 'Services and connections' })).not.toBeInTheDocument();

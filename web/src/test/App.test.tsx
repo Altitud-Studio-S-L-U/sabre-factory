@@ -25,9 +25,9 @@ const order = {
   id: 'work-one',
   project_id: project.id,
   mode: 'patch',
-  objective: 'Corregir la validación de importaciones',
-  acceptance: ['Rechaza entradas inválidas'],
-  constraints: ['Conservar la API'],
+  objective: 'Fix import validation',
+  acceptance: ['Rejects invalid input'],
+  constraints: ['Keep the API unchanged'],
   budget: { max_calls: 40, max_tokens: 100000, max_cost_usd: 5, active_seconds: 3600, policy: null },
   idempotency_key: 'synthetic-request-000000',
   channel: 'web',
@@ -60,7 +60,7 @@ const order = {
   tasks: [
     {
       id: 'task-one',
-      title: 'Reproducir el defecto',
+      title: 'Reproduce the defect',
       role: 'developer',
       specialty: 'general',
       scope: [],
@@ -77,9 +77,9 @@ const order = {
       id: 'question-one',
       work_id: 'work-one',
       plan_revision: 2,
-      prompt: '¿Debe conservarse el formato anterior?',
+      prompt: 'Should the previous format be kept?',
       kind: 'clarification',
-      options: ['Sí, conservarlo', 'No, sustituirlo'],
+      options: ['Yes, keep it', 'No, replace it'],
       subject_digest: null,
       answer: null,
       answered_at: null,
@@ -89,7 +89,7 @@ const order = {
   security_snapshot_digest: null,
   security_rules_version: null,
   evidence: null,
-  summary: 'Esperando tu decisión',
+  summary: 'Waiting for your decision',
   error_code: null,
   calls_used: 1,
   tokens_used: 250,
@@ -240,14 +240,14 @@ function mockApi(overrides: Record<string, { status: number; body: unknown }> = 
         {
           id: 'github.read',
           kind: 'github',
-          title: 'GitHub · repositorios',
-          description: 'Explora repositorios.',
+          title: 'GitHub · repositories',
+          description: 'Browses repositories.',
           enabled: true,
           revision: 0,
           toggleable: true,
           credential_ids: ['github.read'],
           credential_configured: false,
-          access: 'Acceso público',
+          access: 'Public access',
           tools: [],
         },
       ]);
@@ -268,7 +268,7 @@ function mockApi(overrides: Record<string, { status: number; body: unknown }> = 
             label: 'Codex CLI',
             configured: false,
             state: 'available',
-            detail: 'El ejecutor responde; la sesión no está conectada.',
+            detail: 'The runner responds; the session is not connected.',
           },
         ],
       });
@@ -323,7 +323,7 @@ function mockApi(overrides: Record<string, { status: number; body: unknown }> = 
     }
     if (path.endsWith('/events'))
       return Response.json([
-        { id: 1, kind: 'order.created', message: 'Run recibido', created_at: '2026-11-05T10:00:00Z' },
+        { id: 1, kind: 'order.created', message: 'Run received', created_at: '2026-11-05T10:00:00Z' },
       ]);
     if (path.endsWith('/answer')) {
       orders = orders.map((item) => ({
@@ -384,7 +384,7 @@ function mockApi(overrides: Record<string, { status: number; body: unknown }> = 
     }
     if (path === '/security') return Response.json([]);
     if (path === '/secrets' || path === '/secret-targets') return Response.json([]);
-    return Response.json({ message: 'Ruta no preparada en la prueba' }, { status: 404 });
+    return Response.json({ message: 'Route not prepared in this test' }, { status: 404 });
   });
   vi.stubGlobal('fetch', mock);
   return mock;
@@ -524,7 +524,7 @@ describe('Control room', () => {
     expect(window.location.pathname).toBe('/runs');
     expect(writes).toEqual([]);
   });
-  it('expone rutas reales y conserva vista y encargo con Atrás, Adelante y recarga', async () => {
+  it('exposes real routes and keeps the view and run across Back, Forward and reload', async () => {
     mockApi();
     const user = userEvent.setup();
     const mounted = render(<App />);
@@ -564,7 +564,7 @@ describe('Control room', () => {
     expect(writes).toEqual([]);
   });
 
-  it('abre un enlace profundo fuera del listado y retira el ticket antes de cualquier consulta', async () => {
+  it('opens a deep link to a run outside the list and removes the ticket before any request', async () => {
     orders = [];
     window.history.replaceState(null, '', '/runs/work-one#ticket=synthetic-deep-link');
     const fetchMock = mockApi({ 'GET /work/work-one': { status: 200, body: order } });
@@ -587,9 +587,9 @@ describe('Control room', () => {
     expect(writes).toEqual([]);
   });
 
-  it('muestra el error del enlace de encargo inexistente sin sustituirlo por el listado', async () => {
+  it('shows the error for a link to a missing run without replacing it with the list', async () => {
     window.history.replaceState(null, '', '/runs/missing');
-    mockApi({ 'GET /work/missing': { status: 404, body: { message: 'No existe' } } });
+    mockApi({ 'GET /work/missing': { status: 404, body: { message: 'Not found' } } });
     const user = userEvent.setup();
     render(<App />);
     expect(await screen.findByRole('heading', { level: 1, name: 'Run unavailable' })).toBeVisible();
@@ -626,19 +626,19 @@ describe('Control room', () => {
     expect(writes).toEqual([]);
   });
 
-  it('mantiene los runs fallidos en Open y permite revisarlos fuera de Closed', async () => {
+  it('keeps failed runs in Open and lets them be reviewed outside Closed', async () => {
     orders = [
       {
         ...order,
         status: 'failed',
         questions: [],
         error_code: 'TOOL_FAILED',
-        summary: 'La comprobación no pudo completarse.',
+        summary: 'The check could not be completed.',
       },
       {
         ...order,
         id: 'completed-work',
-        objective: 'Run completado de prueba',
+        objective: 'Completed test run',
         status: 'completed',
         questions: [],
       },
@@ -656,11 +656,11 @@ describe('Control room', () => {
     expect(
       within(history).queryByRole('link', { name: new RegExp(order.objective) }),
     ).not.toBeInTheDocument();
-    expect(within(history).getByRole('link', { name: /Run completado de prueba/ })).toBeVisible();
+    expect(within(history).getByRole('link', { name: /Completed test run/ })).toBeVisible();
     expect(writes).toEqual([]);
   });
 
-  it('navega con teclado al encabezado de vista y encargo sin robar el foco al actualizar', async () => {
+  it('moves keyboard focus to the view and run heading without stealing focus on refresh', async () => {
     const fetchMock = mockApi();
     const user = await enter();
     await waitFor(() => expect(screen.getByRole('heading', { level: 1, name: 'Runs' })).toHaveFocus());
@@ -692,7 +692,7 @@ describe('Control room', () => {
     expect(writes).toEqual([]);
   });
 
-  it('gestiona las credenciales de una integración sin iniciar runs', async () => {
+  it('manages integration credentials without starting runs', async () => {
     mockApi();
     const user = await enter();
     await user.click(screen.getByRole('link', { name: 'Tools' }));
@@ -701,7 +701,7 @@ describe('Control room', () => {
     expect(await screen.findByText('No saved credentials yet.')).toBeVisible();
     expect(writes).toEqual([]);
   });
-  it('consulta About sin atribuir autenticación a la disponibilidad del ejecutor', async () => {
+  it('shows About without attributing authentication to runner availability', async () => {
     mockApi();
     await enter();
     await legacyRoute('/projects');
@@ -716,7 +716,7 @@ describe('Control room', () => {
     expect(screen.getByText(/synthetic-graph-version/)).toBeVisible();
     expect(writes).toEqual([]);
   });
-  it('restaura la sesión del navegador sin bearer ni credenciales en storage y revoca al salir', async () => {
+  it('restores the browser session without a bearer or credentials in storage and revokes it on sign-out', async () => {
     const fetchMock = mockApi();
     const user = await enter();
     expect(fetchMock.mock.calls[0][0]).toBe('/api/v1/panel/session');
@@ -738,15 +738,15 @@ describe('Control room', () => {
       redirect: 'error',
     });
     expect(new Headers(logout?.[1]?.headers).get('X-CSRF-Token')).toBe('synthetic-csrf');
-    expect(screen.queryByLabelText('Token de acceso')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/token/i)).not.toBeInTheDocument();
   });
 
-  it('explica cómo abrir el panel cuando no hay sesión sin pedir un token manual', async () => {
+  it('explains how to open the panel when there is no session without asking for a manual token', async () => {
     const fetchMock = mockApi({ 'GET /panel/session': { status: 401, body: { message: 'Unauthorized' } } });
     render(<App />);
     await screen.findByRole('heading', { name: 'Pair this browser' });
     expect(screen.getByText('node bin/sabre.mjs open')).toBeVisible();
-    expect(screen.queryByLabelText('Token de acceso')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/token/i)).not.toBeInTheDocument();
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(writes).toEqual([]);
@@ -773,7 +773,7 @@ describe('Control room', () => {
     expect(writes).toEqual([]);
   });
 
-  it('elimina el ticket del historial antes de enviarlo y lo canjea una sola vez en StrictMode', async () => {
+  it('removes the ticket from history before sending it and exchanges it only once in StrictMode', async () => {
     window.history.replaceState(null, '', '/?view=work#ticket=synthetic-one-use-ticket');
     const fetchMock = mockApi();
     const original = fetchMock.getMockImplementation()!;
@@ -805,7 +805,7 @@ describe('Control room', () => {
     expect(sessionStorage.length).toBe(0);
   });
 
-  it.each(['rejected', 'network'])('borra el ticket también si el canje falla: %s', async (failure) => {
+  it.each(['rejected', 'network'])('also clears the ticket when the exchange fails: %s', async (failure) => {
     const ticket = 'synthetic-failed-ticket';
     window.history.replaceState(null, '', `/#ticket=${ticket}`);
     const fetchMock = mockApi({ 'POST /panel/session/exchange': { status: 401, body: { message: ticket } } });
@@ -820,7 +820,7 @@ describe('Control room', () => {
     expect(sessionStorage.length).toBe(0);
   });
 
-  it('restaura la cookie tras volver a abrir el panel sin reutilizar el ticket', async () => {
+  it('restores the cookie after reopening the panel without reusing the ticket', async () => {
     window.history.replaceState(null, '', '/#ticket=synthetic-reload-ticket');
     const fetchMock = mockApi();
     const first = render(<App />);
@@ -832,7 +832,7 @@ describe('Control room', () => {
     expect(fetchMock.mock.calls.filter(([path]) => path === '/api/v1/panel/session')).toHaveLength(1);
   });
 
-  it('canjea un enlace nuevo en la pestaña ya abierta sin recargar y borra el fragmento antes del fetch', async () => {
+  it('exchanges a new link in the already open tab without reloading and clears the fragment before the fetch', async () => {
     const fetchMock = mockApi({ 'GET /panel/session': { status: 401, body: {} } });
     const implementation = fetchMock.getMockImplementation()!;
     fetchMock.mockImplementation(async (path, options) => {
@@ -857,7 +857,7 @@ describe('Control room', () => {
     expect(writes).toEqual([]);
   });
 
-  it('borra un enlace nuevo rechazado y permite otro enlace sin repetir el anterior', async () => {
+  it('clears a rejected new link and accepts another link without repeating the previous one', async () => {
     const overrides: Record<string, { status: number; body: unknown }> = {
       'POST /panel/session/exchange': { status: 401, body: { message: 'synthetic-expired-link' } },
     };
@@ -884,7 +884,7 @@ describe('Control room', () => {
     expect(writes).toEqual([]);
   });
 
-  it('ignora una restauración antigua que termina después de canjear el nuevo enlace', async () => {
+  it('ignores a stale session restore that finishes after the new link is exchanged', async () => {
     const fetchMock = mockApi();
     let finishRestore!: (response: Response) => void;
     fetchMock.mockImplementationOnce(
@@ -903,7 +903,7 @@ describe('Control room', () => {
     expect(writes).toEqual([]);
   });
 
-  it('una consulta de la sesión anterior no desconecta el nuevo acceso', async () => {
+  it('does not let a request from the previous session disconnect the new one', async () => {
     const fetchMock = mockApi();
     const user = await enter();
     const implementation = fetchMock.getMockImplementation()!;
@@ -925,7 +925,7 @@ describe('Control room', () => {
     expect(writes).toEqual([]);
   });
 
-  it('retira los datos cuando la sesión caduca durante una consulta', async () => {
+  it('withdraws the data when the session expires during a request', async () => {
     const overrides: Record<string, { status: number; body: unknown }> = {};
     mockApi(overrides);
     const user = await enter();
@@ -936,22 +936,22 @@ describe('Control room', () => {
     expect(screen.queryByRole('heading', { name: 'Runs' })).not.toBeInTheDocument();
   });
 
-  it('no abre la fábrica si la respuesta no acredita una sesión válida', async () => {
+  it('does not open the factory when the response does not prove a valid session', async () => {
     mockApi({ 'GET /panel/session': { status: 200, body: { authenticated: false } } });
     render(<App />);
     expect(await screen.findByRole('alert')).toHaveTextContent('The SABRE session could not be verified');
     expect(screen.queryByRole('heading', { name: 'Runs' })).not.toBeInTheDocument();
   });
 
-  it('no anuncia una sesión cerrada si el servidor no pudo revocarla', async () => {
-    mockApi({ 'POST /panel/session/logout': { status: 503, body: { message: 'Revocación no disponible' } } });
+  it('does not announce a signed-out session when the server could not revoke it', async () => {
+    mockApi({ 'POST /panel/session/logout': { status: 503, body: { message: 'Revocation unavailable' } } });
     const user = await enter();
     await user.click(screen.getByRole('button', { name: 'Sign out' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Sign-out could not be confirmed');
     expect(screen.getByRole('heading', { name: 'Runs' })).toBeVisible();
   });
 
-  it('pide recargar si otra pestaña renueva la sesión sin repetir la operación rechazada', async () => {
+  it('asks to reload when another tab renews the session without repeating the rejected operation', async () => {
     const overrides: Record<string, { status: number; body: unknown }> = {
       'POST /panel/session/logout': { status: 403, body: { code: 'PANEL_CSRF_DENIED' } },
     };
@@ -979,15 +979,15 @@ describe('Control room', () => {
     expect(new Headers(logouts[1][1]?.headers).get('X-CSRF-Token')).toBe('synthetic-renewed-csrf');
   });
 
-  it('no presenta un cero de runs como dato real cuando no puede cargar la fábrica', async () => {
-    mockApi({ 'GET /work': { status: 503, body: { message: 'Base de datos no disponible' } } });
+  it('does not present zero runs as real data when the factory cannot be loaded', async () => {
+    mockApi({ 'GET /work': { status: 503, body: { message: 'Database unavailable' } } });
     render(<App />);
     expect(await screen.findByRole('heading', { name: 'The factory could not be loaded' })).toBeVisible();
     expect(screen.queryByText('Your first run starts here')).not.toBeInTheDocument();
-    expect(screen.getByRole('alert')).toHaveTextContent('Base de datos no disponible');
+    expect(screen.getByRole('alert')).toHaveTextContent('Database unavailable');
   });
 
-  it('permite recorrer una fábrica vacía y pide registrar proyecto antes de encargar trabajo', async () => {
+  it('lets the owner browse an empty factory and asks for a project before a run can be created', async () => {
     projects = [];
     orders = [];
     mockApi();
@@ -1006,7 +1006,7 @@ describe('Control room', () => {
     expect(writes).toEqual([]);
   });
 
-  it('cuenta como entrega solo un encargo completado con PR, excluyendo informes de vigilancia', async () => {
+  it('counts only a completed run with a PR as a delivery, excluding monitoring reports', async () => {
     const evidence: NonNullable<WorkOrder['evidence']> = {
       commit: 'a'.repeat(40),
       snapshot_digest: 'b'.repeat(64),
@@ -1014,7 +1014,7 @@ describe('Control room', () => {
       rules_version: 'rules-v3',
       gates: [],
       findings: [],
-      review: 'Fixture de entrega revisada',
+      review: 'Reviewed delivery fixture',
       security_policy_digest: 'd'.repeat(64),
       security_exception_ids: [],
       source_digest: 'e'.repeat(64),
@@ -1051,7 +1051,7 @@ describe('Control room', () => {
     { exitCode: 1, matchingSnapshot: true, verdict: 'Failed' },
     { exitCode: 0, matchingSnapshot: false, verdict: 'Foreign evidence' },
   ])(
-    'presenta evidencia antes del plan sin aprobar gates inválidos: $verdict',
+    'presents evidence before the plan without passing invalid gates: $verdict',
     async ({ exitCode, matchingSnapshot, verdict }) => {
       const evidence: NonNullable<WorkOrder['evidence']> = {
         commit: 'a'.repeat(40),
@@ -1067,7 +1067,7 @@ describe('Control room', () => {
           },
         ],
         findings: [],
-        review: 'Review sintética conservada',
+        review: 'Retained synthetic review',
         security_policy_digest: 'f'.repeat(64),
         security_exception_ids: [],
         source_digest: null,
@@ -1086,7 +1086,7 @@ describe('Control room', () => {
         heading.compareDocumentPosition(screen.getByRole('heading', { name: 'Work plan' })) &
           Node.DOCUMENT_POSITION_FOLLOWING,
       ).toBeTruthy();
-      expect(section.getByText('Review sintética conservada')).toBeVisible();
+      expect(section.getByText('Retained synthetic review')).toBeVisible();
       const gate = within(section.getByRole('list', { name: 'Delivery checks' })).getByRole('listitem');
       expect(gate).toHaveTextContent('npm run check');
       expect(gate).toHaveTextContent(`Exit ${exitCode}`);
@@ -1102,8 +1102,8 @@ describe('Control room', () => {
     },
   );
 
-  it('prioriza el bloqueo sobre un objetivo extenso y conserva el objetivo completo', async () => {
-    const objective = 'Corregir la validación ETag de ImportKit conforme a RFC 9110. '.repeat(12);
+  it('prioritizes the block over a long objective and keeps the full objective', async () => {
+    const objective = 'Fix ImportKit ETag validation to comply with RFC 9110. '.repeat(12);
     orders = [
       {
         ...order,
@@ -1113,22 +1113,24 @@ describe('Control room', () => {
         tasks: [],
         questions: [],
         error_code: 'WORKSPACE_SNAPSHOT_FAILED',
-        summary: 'No se pudo guardar el resultado del espacio de trabajo.',
+        summary: 'The workspace result could not be saved.',
       },
     ];
     mockApi();
     const user = await enter();
     await user.click(
       within(runList()).getByRole('link', {
-        name: /Corregir la validación ETag/,
+        name: /Fix ImportKit ETag validation/,
       }),
     );
     expect(screen.getByRole('heading', { level: 1, name: 'Patch Importkit' })).toBeVisible();
     expect(screen.getByRole('button', { name: 'Resume' })).toBeVisible();
     expect(screen.getByText('WORKSPACE_SNAPSHOT_FAILED')).toBeVisible();
-    const reason = screen.getByText('No se pudo guardar el resultado del espacio de trabajo.');
+    const reason = screen.getByText('The workspace result could not be saved.');
     expect(reason).toBeVisible();
-    expect(screen.queryByText('El supervisor prepara el plan')).not.toBeInTheDocument();
+    expect(
+      screen.queryByText('The run is in progress. Tasks appear when they are recorded.'),
+    ).not.toBeInTheDocument();
     const disclosure = screen.getByText('Full objective').closest('details')!;
     expect(reason.compareDocumentPosition(disclosure) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(disclosure).not.toHaveAttribute('open');
@@ -1138,16 +1140,16 @@ describe('Control room', () => {
     expect(writes).toEqual([]);
   });
 
-  it('resuelve HITL con el identificador y revision de la pregunta', async () => {
+  it('resolves HITL with the question identifier and revision', async () => {
     mockApi();
     const user = await enter();
     await selectRun(user);
-    await user.click(screen.getByRole('button', { name: 'Sí, conservarlo' }));
+    await user.click(screen.getByRole('button', { name: 'Yes, keep it' }));
     await user.click(screen.getByRole('button', { name: 'Answer and continue' }));
     await waitFor(() =>
       expect(writes).toContainEqual({
         path: '/work/work-one/answer',
-        body: { question_id: 'question-one', plan_revision: 2, answer: 'Sí, conservarlo' },
+        body: { question_id: 'question-one', plan_revision: 2, answer: 'Yes, keep it' },
       }),
     );
     await waitFor(() =>
@@ -1157,42 +1159,42 @@ describe('Control room', () => {
     expect(screen.getByRole('heading', { name: 'Work plan' })).toBeVisible();
   });
 
-  it('solo ofrece decisiones pending de la revision actual del plan', async () => {
+  it('offers only pending decisions from the current plan revision', async () => {
     orders = [
       {
         ...order,
         questions: [
-          { ...order.questions[0], id: 'question-old', plan_revision: 1, prompt: 'Decisión caducada' },
+          { ...order.questions[0], id: 'question-old', plan_revision: 1, prompt: 'Expired decision' },
           order.questions[0],
         ],
       },
     ];
     mockApi();
     const user = await enter();
-    expect(screen.queryByText('Decisión caducada')).not.toBeInTheDocument();
+    expect(screen.queryByText('Expired decision')).not.toBeInTheDocument();
     await selectRun(user);
-    expect(screen.queryByText('Decisión caducada')).not.toBeInTheDocument();
+    expect(screen.queryByText('Expired decision')).not.toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: 'Answer and continue' })).toHaveLength(1);
   });
 
-  it('mantiene visible un error al responder una revision obsoleta', async () => {
+  it('keeps the error visible when answering a stale revision', async () => {
     mockApi({
       'POST /work/work-one/answer': {
         status: 409,
         body: {
-          detail: { code: 'STALE_REVISION', message: 'La pregunta pertenece a otra revision del plan' },
+          detail: { code: 'STALE_REVISION', message: 'The question belongs to another revision of the plan' },
         },
       },
     });
     const user = await enter();
     await selectRun(user);
-    await user.type(screen.getByLabelText('Your answer'), 'Conservar el formato anterior');
+    await user.type(screen.getByLabelText('Your answer'), 'Keep the previous format');
     await user.click(screen.getByRole('button', { name: 'Answer and continue' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent('La pregunta pertenece a otra revision');
-    expect(screen.getByLabelText('Your answer')).toHaveValue('Conservar el formato anterior');
+    expect(await screen.findByRole('alert')).toHaveTextContent('The question belongs to another revision');
+    expect(screen.getByLabelText('Your answer')).toHaveValue('Keep the previous format');
   });
 
-  it('pide confirmar la cancelación antes de llamar a la API', async () => {
+  it('asks to confirm the cancellation before calling the API', async () => {
     mockApi();
     const user = await enter();
     await selectRun(user);
@@ -1242,7 +1244,7 @@ describe('Control room', () => {
     expect(screen.queryByText('Your decision unlocks the next step')).not.toBeInTheDocument();
   });
 
-  it('envía un nuevo alcance con control de revision', async () => {
+  it('sends a new scope with revision control', async () => {
     orders[0].status = 'paused';
     mockApi();
     const user = await enter();
@@ -1250,21 +1252,21 @@ describe('Control room', () => {
     await user.click(screen.getByRole('tab', { name: 'Limits & scope' }));
     await user.click(screen.getByText('Change request'));
     await user.clear(screen.getByLabelText('New objective'));
-    await user.type(screen.getByLabelText('New objective'), 'Corregir solo los errores de sintaxis');
+    await user.type(screen.getByLabelText('New objective'), 'Fix only the syntax errors');
     await user.click(screen.getByRole('button', { name: 'Update scope' }));
     await waitFor(() =>
       expect(writes).toContainEqual({
         path: '/work/work-one/scope',
         body: {
           expected_revision: 2,
-          objective: 'Corregir solo los errores de sintaxis',
-          acceptance: ['Rechaza entradas inválidas'],
+          objective: 'Fix only the syntax errors',
+          acceptance: ['Rejects invalid input'],
         },
       }),
     );
   });
 
-  it('exige pausar el encargo antes de aplicar un cambio de alcance', async () => {
+  it('requires pausing the run before applying a scope change', async () => {
     mockApi();
     const user = await enter();
     await selectRun(user);
@@ -1280,7 +1282,7 @@ describe('Control room', () => {
     ['running', true],
     ['queued', true],
     ['paused', false],
-  ] as const)('muestra la solicitud de pausa solo mientras se procesa: %s', async (status, pending) => {
+  ] as const)('shows the pause request only while it is being processed: %s', async (status, pending) => {
     orders = [{ ...order, status, control: 'pause', questions: [] }];
     mockApi();
     const user = await enter();
@@ -1298,13 +1300,13 @@ describe('Control room', () => {
     expect(writes).toEqual([]);
   });
 
-  it('crea un encargo con presupuesto explícito, criterios y canal web', async () => {
+  it('creates a run with an explicit budget, criteria and the web channel', async () => {
     mockApi();
     const user = await enter();
     await user.click(screen.getByRole('button', { name: '+ New run' }));
-    await user.type(screen.getByLabelText('What do you need?'), 'Añadir validación de entradas');
+    await user.type(screen.getByLabelText('What do you need?'), 'Add input validation');
     await user.click(screen.getByRole('button', { name: 'Next' }));
-    await user.type(screen.getByLabelText('Acceptance criteria'), 'Rechaza entradas vacías');
+    await user.type(screen.getByLabelText('Acceptance criteria'), 'Rejects empty input');
     await user.click(screen.getByRole('button', { name: 'Next' }));
     await user.type(screen.getByLabelText('Maximum paid API spend · USD'), '2');
     await user.click(screen.getByRole('button', { name: 'Next' }));
@@ -1314,8 +1316,8 @@ describe('Control room', () => {
     expect(body).toMatchObject({
       mode: 'patch',
       project_id: project.id,
-      objective: 'Añadir validación de entradas',
-      acceptance: ['Rechaza entradas vacías'],
+      objective: 'Add input validation',
+      acceptance: ['Rejects empty input'],
       channel: 'web',
       budget: {
         max_cost_usd: 2,
@@ -1335,7 +1337,7 @@ describe('Control room', () => {
     expect(body.idempotency_key).toMatch(/[a-f0-9-]{36}/);
   });
 
-  it('crea un encargo CLI con métricas sin tope explícito y sin autorización de gasto API', async () => {
+  it('creates a CLI run with uncapped metrics and no API spend authorization', async () => {
     mockApi({ 'GET /status': { status: 200, body: cliStatus } });
     const user = await enter();
     await user.click(screen.getByRole('button', { name: '+ New run' }));
@@ -1356,9 +1358,9 @@ describe('Control room', () => {
     ])
       await user.selectOptions(screen.getByLabelText(label), 'uncapped');
     await wizardStep(user, 'Work');
-    await user.type(screen.getByLabelText('What do you need?'), 'Añadir validación de entradas');
+    await user.type(screen.getByLabelText('What do you need?'), 'Add input validation');
     await wizardStep(user, 'Acceptance');
-    await user.type(screen.getByLabelText('Acceptance criteria'), 'Rechaza entradas vacías');
+    await user.type(screen.getByLabelText('Acceptance criteria'), 'Rejects empty input');
     await wizardStep(user, 'Review');
     await user.click(screen.getByRole('button', { name: 'Launch flow' }));
     await waitFor(() => expect(writes.find((write) => write.path === '/work')).toBeDefined());
@@ -1378,7 +1380,7 @@ describe('Control room', () => {
     });
   });
 
-  it('conserva presupuesto acumulado si un rol utiliza API aunque el modelo principal sea CLI', async () => {
+  it('keeps the cumulative budget when a role uses the API even though the main model is CLI', async () => {
     mockApi({
       'GET /status': {
         status: 200,
@@ -1400,7 +1402,7 @@ describe('Control room', () => {
   });
 
   it.each([false, true])(
-    'cambia el control CLI con revision y presupuesto observados, conflicto=%s',
+    'switches the CLI control with the observed revision and budget, conflict=%s',
     async (conflict) => {
       const budget = { max_calls: 44, max_tokens: 900000, active_seconds: 1800, max_cost_usd: 0 };
       orders = [
@@ -1421,7 +1423,7 @@ describe('Control room', () => {
           ? {
               'POST /work/work-one/cli-progress-limits': {
                 status: 409,
-                body: { message: 'El presupuesto ha cambiado. Actualiza el encargo.' },
+                body: { message: 'The budget has changed. Refresh the run.' },
               },
             }
           : {}),
@@ -1444,7 +1446,7 @@ describe('Control room', () => {
       expect(request.credentials).toBe('same-origin');
       expect(request.headers).toMatchObject({ 'X-CSRF-Token': 'synthetic-csrf', 'X-Sabre-UI': '1' });
       if (conflict) {
-        expect(await screen.findByRole('alert')).toHaveTextContent('El presupuesto ha cambiado');
+        expect(await screen.findByRole('alert')).toHaveTextContent('The budget has changed');
         expect(screen.getByRole('meter', { name: 'Tokens' })).toHaveAttribute('max', '900000');
       } else {
         await waitFor(() =>
@@ -1464,13 +1466,13 @@ describe('Control room', () => {
     },
   );
 
-  it('rechaza comandos no estructurados sin enviarlos al backend', async () => {
+  it('rejects unstructured commands without sending them to the backend', async () => {
     mockApi();
     const user = await enter();
     await legacyRoute('/projects');
     await user.click(screen.getByRole('button', { name: '+ Register project' }));
-    await user.type(screen.getByLabelText('Project name'), 'Otro proyecto');
-    await user.type(screen.getByLabelText('Repository'), 'https://github.com/example/otro');
+    await user.type(screen.getByLabelText('Project name'), 'Another project');
+    await user.type(screen.getByLabelText('Repository'), 'https://github.com/example/another');
     await user.clear(screen.getByLabelText('Delivery checks'));
     await user.type(screen.getByLabelText('Delivery checks'), 'npm test');
     await user.click(screen.getByRole('button', { name: 'Register project' }));
@@ -1478,26 +1480,26 @@ describe('Control room', () => {
     expect(writes).toHaveLength(0);
   });
 
-  it('conserva la clave de idempotencia cuando el envío falla y se reintenta', async () => {
+  it('keeps the idempotency key when the submission fails and is retried', async () => {
     const mock = mockApi();
     const handler = mock.getMockImplementation()!;
     let submissions = 0;
     mock.mockImplementation(async (input, options = {}) => {
       if (input === '/api/v1/work' && options.method === 'POST' && submissions++ === 0) {
-        return Response.json({ message: 'Servicio temporalmente ocupado' }, { status: 503 });
+        return Response.json({ message: 'Service temporarily busy' }, { status: 503 });
       }
       return handler(input, options);
     });
     const user = await enter();
     await user.click(screen.getByRole('button', { name: '+ New run' }));
-    await user.type(screen.getByLabelText('What do you need?'), 'Añadir validación de entradas');
+    await user.type(screen.getByLabelText('What do you need?'), 'Add input validation');
     await user.click(screen.getByRole('button', { name: 'Next' }));
-    await user.type(screen.getByLabelText('Acceptance criteria'), 'Rechaza entradas vacías');
+    await user.type(screen.getByLabelText('Acceptance criteria'), 'Rejects empty input');
     await user.click(screen.getByRole('button', { name: 'Next' }));
     await user.type(screen.getByLabelText('Maximum paid API spend · USD'), '2');
     await user.click(screen.getByRole('button', { name: 'Next' }));
     await user.click(screen.getByRole('button', { name: 'Launch flow' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent('Servicio temporalmente ocupado');
+    expect(await screen.findByRole('alert')).toHaveTextContent('Service temporarily busy');
     await user.click(screen.getByRole('button', { name: 'Launch flow' }));
     await waitFor(() => expect(writes.some((write) => write.path === '/work')).toBe(true));
     const attempts = mock.mock.calls.filter(
@@ -1509,13 +1511,13 @@ describe('Control room', () => {
     );
   });
 
-  it('permite aprobar e invalidar un recuerdo conservando su procedencia', async () => {
+  it('approves and invalidates a memory while keeping its provenance', async () => {
     memory = [
       {
         id: 'memory-one',
         project_id: project.id,
         kind: 'lesson',
-        content: 'Conservar el contrato de importación',
+        content: 'Keep the import contract',
         source_commit: 'abc123',
         source_work_id: order.id,
         evidence_digest: null,
@@ -1542,7 +1544,7 @@ describe('Control room', () => {
     ]);
   });
 
-  it('muestra la cadena de seguridad sin afirmar una aprobación inexistente', async () => {
+  it('shows the security pipeline without claiming an approval that does not exist', async () => {
     mockApi();
     const user = await enter();
     await selectRun(user);
@@ -1551,14 +1553,14 @@ describe('Control room', () => {
     expect(within(security).getByText(/has not produced a result for this delivery/)).toBeVisible();
   });
 
-  it('aprueba una excepción ligada al hallazgo, snapshot, reglas y revision y permite revocarla', async () => {
+  it('approves an exception bound to the finding, snapshot, rules and revision and lets it be revoked', async () => {
     const snapshot = 'a'.repeat(64);
     const finding = {
       fingerprint: 'vulnerability-one',
       scanner: 'trivy',
       category: 'vulnerability',
       severity: 'high',
-      title: 'Vulnerability con mitigación revisada',
+      title: 'Vulnerability with a reviewed mitigation',
       path: 'requirements.lock',
       reference: 'CVE-TEST-0001',
       baseline: false,
@@ -1586,7 +1588,7 @@ describe('Control room', () => {
     await user.click(screen.getByRole('tab', { name: 'Tasks & evidence' }));
     await user.click(screen.getByRole('button', { name: 'Temporary security exception' }));
     await user.selectOptions(screen.getByLabelText('Finding'), finding.fingerprint);
-    const justification = 'Mitigación temporal verificada por el propietario.';
+    const justification = 'Temporary mitigation verified by the owner.';
     await user.type(screen.getByLabelText('Exception justification'), justification);
     const expiry = '2026-11-20T12:30';
     fireEvent.change(screen.getByLabelText('Expiry · local time'), { target: { value: expiry } });
@@ -1616,7 +1618,7 @@ describe('Control room', () => {
     expect(screen.queryByRole('button', { name: 'Revoke exception' })).not.toBeInTheDocument();
   });
 
-  it.each(['secret', 'scanner_error'])('no ofrece excepciones para un hallazgo %s', async (category) => {
+  it.each(['secret', 'scanner_error'])('offers no exceptions for a %s finding', async (category) => {
     orders = [
       {
         ...order,
@@ -1630,7 +1632,7 @@ describe('Control room', () => {
             scanner: 'gitleaks',
             category,
             severity: 'high',
-            title: 'Finding que exige corrección',
+            title: 'Finding that requires a fix',
             path: null,
             reference: null,
             baseline: false,
@@ -1652,7 +1654,7 @@ describe('Control room', () => {
     expect(screen.queryByRole('button', { name: 'Temporary security exception' })).not.toBeInTheDocument();
   });
 
-  it('no ofrece aprobación sin version de reglas de seguridad', async () => {
+  it('offers no approval without a security rules version', async () => {
     orders = [
       {
         ...order,
@@ -1666,7 +1668,7 @@ describe('Control room', () => {
             scanner: 'trivy',
             category: 'vulnerability',
             severity: 'high',
-            title: 'Finding sin reglas vinculadas',
+            title: 'Finding without bound rules',
             path: null,
             reference: null,
             baseline: false,
@@ -1689,7 +1691,7 @@ describe('Control room', () => {
   });
 
   it.each(['blocked', 'failed'])(
-    'muestra vigilancia %s como propuestas de remediación sin reanudar ni cambiar alcance',
+    'shows %s monitoring as remediation proposals without resume or scope change',
     async (status) => {
       orders = [
         {
@@ -1698,7 +1700,7 @@ describe('Control room', () => {
           phase: 'security_watch',
           status,
           questions: [],
-          tasks: [{ ...order.tasks[0], title: 'Refresh la dependencia vulnerable' }],
+          tasks: [{ ...order.tasks[0], title: 'Update the vulnerable dependency' }],
         },
       ];
       mockApi();
@@ -1719,8 +1721,8 @@ describe('Control room', () => {
   );
 });
 
-describe('Cliente API', () => {
-  it('explica errores de red sin esconderlos como una lista vacía', async () => {
+describe('API client', () => {
+  it('explains network errors without hiding them as an empty list', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('fetch failed')));
     await expect(createApi('test').projects()).rejects.toThrow('SABRE is unreachable');
   });

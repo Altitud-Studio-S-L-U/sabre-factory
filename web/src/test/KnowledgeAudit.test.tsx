@@ -4,8 +4,8 @@ import type { AuditView, ProjectKnowledgeReport } from '../api';
 import ProjectKnowledge from '../ProjectKnowledge';
 import WorkAudit from '../WorkAudit';
 
-describe('actividad y contexto guardados', () => {
-  it('distingue reservas desconocidas, comandos fallidos y solicitudes sin respuesta', () => {
+describe('recorded activity and context', () => {
+  it('distinguishes unknown reservations, failed commands and unanswered requests', () => {
     const agent = {
       id: 'agent',
       role: 'developer',
@@ -81,13 +81,13 @@ describe('actividad y contexto guardados', () => {
     expect(tools).not.toHaveAttribute('open');
     expect(within(tools!).getByText('Command finished · exit 1')).toBeInTheDocument();
     expect(within(tools!).getByText('Request with no recorded response')).toBeInTheDocument();
-    expect(screen.queryByText('Aprobado')).not.toBeInTheDocument();
+    expect(screen.queryByText('Response received')).not.toBeInTheDocument();
     expect(
       within(screen.getByRole('region', { name: 'Sent context' })).getByText(/has no measurements/),
     ).toBeVisible();
   });
 
-  it('distingue bytes medidos, cobertura histórica y recuperaciones desconocidas', () => {
+  it('distinguishes measured bytes, historical coverage and unknown recoveries', () => {
     const data = {
       work_id: 'work',
       plan_revision: 2,
@@ -150,7 +150,7 @@ describe('actividad y contexto guardados', () => {
     expect(context.getByText('0 pages · measured in 3 of 3 invocations')).toBeVisible();
   });
 
-  it('muestra checkpoints y código registrado aunque no existan recuerdos, sin afirmar vigencia', () => {
+  it('shows checkpoints and recorded code even with no memories, without claiming it is current', () => {
     const data: ProjectKnowledgeReport = {
       project_id: 'project',
       profile: 'node',

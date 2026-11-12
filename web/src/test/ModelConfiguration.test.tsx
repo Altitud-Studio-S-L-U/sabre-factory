@@ -16,7 +16,7 @@ function setup(conflict = false, scope: 'all' | 'default' | 'agents' = 'all') {
         writes.push(body);
         if (conflict)
           return Response.json(
-            { message: 'La configuration ha cambiado; actualiza antes de guardar.' },
+            { message: 'The configuration has changed; refresh before saving.' },
             { status: 409 },
           );
         const value = configuration();
@@ -49,7 +49,7 @@ async function configureReviewer() {
   return user;
 }
 
-describe('modelos por especialidad', () => {
+describe('models per specialty', () => {
   it('edits one selected agent while retaining the factory default and other assignments', async () => {
     const { writes } = setup(false, 'agents');
     const user = userEvent.setup();
@@ -70,7 +70,7 @@ describe('modelos por especialidad', () => {
     });
     expect(writes[0].roles.qa).toBeNull();
   });
-  it('distingue la conexión de la selección y exige aprobar los destinos antes del cambio CAS', async () => {
+  it('distinguishes the connection from the selection and requires approving the destinations before the CAS change', async () => {
     const { writes, onChanged } = setup();
     const user = await configureReviewer();
     expect(screen.getByText('Session connection required')).toBeInTheDocument();
@@ -95,12 +95,12 @@ describe('modelos por especialidad', () => {
     await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1));
   });
 
-  it('conserva el borrador cuando otro canal ha cambiado la revision y no reintenta', async () => {
+  it('keeps the draft when another channel changed the revision and does not retry', async () => {
     const { writes } = setup(true);
     const user = await configureReviewer();
     await user.click(screen.getByRole('checkbox', { name: /I authorize sending/ }));
     await user.click(screen.getByRole('button', { name: 'Save models' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent('La configuration ha cambiado');
+    expect(await screen.findByRole('alert')).toHaveTextContent('The configuration has changed');
     const details = screen.getByText('Technical review').closest('details')!;
     expect(within(details).getByRole('textbox', { name: 'Model' })).toHaveValue('sonnet');
     expect(writes).toHaveLength(1);

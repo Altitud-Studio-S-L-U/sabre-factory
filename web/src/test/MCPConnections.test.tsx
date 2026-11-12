@@ -31,7 +31,7 @@ function fixture(initial: MCPConnectionInfo[] = [], conflict = false) {
       if (method === 'PUT' && path === '/mcp-connections/docs') {
         if (conflict)
           return Response.json(
-            { message: 'La conexión MCP ha cambiado; actualiza antes de guardar.' },
+            { message: 'The MCP connection has changed; refresh before saving.' },
             { status: 409 },
           );
         const current = items.find((item) => item.name === 'docs');
@@ -60,7 +60,7 @@ function fixture(initial: MCPConnectionInfo[] = [], conflict = false) {
   return { user: userEvent.setup(), calls, onChanged };
 }
 
-it('guarda desactivado y sólo envía contratos y roles seleccionados tras descubrir', async () => {
+it('saves disabled and sends only the selected contracts and roles after discovery', async () => {
   const { user, calls } = fixture();
   await user.click(screen.getByRole('button', { name: 'Add MCP server' }));
   await user.type(screen.getByLabelText('Connection name'), 'docs');
@@ -94,7 +94,7 @@ it('guarda desactivado y sólo envía contratos y roles seleccionados tras descu
   expect(calls.every((call) => !call.path.includes('/state'))).toBe(true);
 });
 
-it('cambiar endpoint descarta permisos y el manifiesto previamente revisado', async () => {
+it('discards permissions and the previously reviewed manifest when the endpoint changes', async () => {
   const { user, calls } = fixture([
     {
       ...original,
@@ -117,11 +117,11 @@ it('cambiar endpoint descarta permisos y el manifiesto previamente revisado', as
   });
 });
 
-it('un conflicto CAS no muestra confirmación ni vuelve a enviar la operación', async () => {
+it('shows no confirmation and does not resend the operation on a CAS conflict', async () => {
   const { user, calls } = fixture([original], true);
   await user.click(await screen.findByRole('button', { name: 'Configure MCP docs' }));
   await user.click(screen.getByRole('button', { name: 'Save disabled connection' }));
-  expect(await screen.findByRole('alert')).toHaveTextContent('La conexión MCP ha cambiado');
+  expect(await screen.findByRole('alert')).toHaveTextContent('The MCP connection has changed');
   expect(calls).toHaveLength(1);
   expect(screen.queryByText(/Connection saved and disabled/)).not.toBeInTheDocument();
 });
