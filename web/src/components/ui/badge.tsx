@@ -5,17 +5,19 @@ import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from '../../lib/utils';
 
 const badgeVariants = cva(
-  'sf:inline-flex sf:items-center sf:rounded-md sf:border sf:px-2.5 sf:py-0.5 sf:text-xs sf:font-semibold sf:transition-colors sf:focus:outline-none sf:focus:ring-2 sf:focus:ring-ring sf:focus:ring-offset-2',
+  'inline-flex items-center gap-1.5 whitespace-nowrap rounded-md border px-2 py-0.5 text-xs font-medium',
   {
     variants: {
       variant: {
-        default:
-          'sf:border-transparent sf:bg-primary sf:text-primary-foreground sf:shadow sf:hover:bg-primary/80',
-        secondary:
-          'sf:border-transparent sf:bg-secondary sf:text-secondary-foreground sf:hover:bg-secondary/80',
-        destructive:
-          'sf:border-transparent sf:bg-destructive sf:text-destructive-foreground sf:shadow sf:hover:bg-destructive/80',
-        outline: 'sf:text-foreground',
+        default: 'border-transparent bg-primary text-primary-foreground',
+        secondary: 'border-transparent bg-secondary text-secondary-foreground',
+        destructive: 'border-transparent bg-destructive text-destructive-foreground',
+        outline: 'border-border text-foreground',
+        neutral: 'border-neutral-border bg-neutral-bg text-neutral',
+        info: 'border-info-border bg-info-bg text-info',
+        warning: 'border-warning-border bg-warning-bg text-warning',
+        danger: 'border-danger-border bg-danger-bg text-danger',
+        success: 'border-success-border bg-success-bg text-success',
       },
     },
     defaultVariants: {

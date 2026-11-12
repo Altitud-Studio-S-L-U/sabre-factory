@@ -5,10 +5,10 @@
   "tsx": true,
   "tailwind": {
     "config": "",
-    "css": "src/components/ui/foundation.css",
-    "baseColor": "slate",
+    "css": "src/styles/index.css",
+    "baseColor": "neutral",
     "cssVariables": true,
-    "prefix": "sf"
+    "prefix": ""
   },
   "aliases": {
     "components": "@/components",

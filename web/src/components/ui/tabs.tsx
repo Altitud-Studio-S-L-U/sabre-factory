@@ -1,6 +1,4 @@
 // Adapted from shadcn/ui New York registry (MIT). See infra/licenses/shadcn-ui.txt.
-'use client';
-
 import * as React from 'react';
 import * as TabsPrimitive from '@radix-ui/react-tabs';
 
@@ -8,6 +6,7 @@ import { cn } from '../../lib/utils';
 
 const Tabs = TabsPrimitive.Root;
 
+/** One tab style: an underlined row that scrolls horizontally when it does not fit. */
 const TabsList = React.forwardRef<
   React.ElementRef<typeof TabsPrimitive.List>,
   React.ComponentPropsWithoutRef<typeof TabsPrimitive.List>
@@ -15,7 +14,7 @@ const TabsList = React.forwardRef<
   <TabsPrimitive.List
     ref={ref}
     className={cn(
-      'sf:inline-flex sf:h-9 sf:items-center sf:justify-center sf:rounded-lg sf:bg-muted sf:p-1 sf:text-muted-foreground',
+      'flex w-full max-w-full items-stretch gap-0.5 overflow-x-auto overscroll-x-contain border-b border-border [scrollbar-width:thin]',
       className,
     )}
     {...props}
@@ -30,7 +29,7 @@ const TabsTrigger = React.forwardRef<
   <TabsPrimitive.Trigger
     ref={ref}
     className={cn(
-      'sf:inline-flex sf:items-center sf:justify-center sf:whitespace-nowrap sf:rounded-md sf:px-3 sf:py-1 sf:text-sm sf:font-medium sf:ring-offset-background sf:transition-all sf:focus-visible:outline-none sf:focus-visible:ring-2 sf:focus-visible:ring-ring sf:focus-visible:ring-offset-2 sf:disabled:pointer-events-none sf:disabled:opacity-50 sf:data-[state=active]:bg-background sf:data-[state=active]:text-foreground sf:data-[state=active]:shadow',
+      '-mb-px inline-flex min-h-9 shrink-0 cursor-pointer items-center gap-1.5 whitespace-nowrap border-b-2 border-transparent px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring disabled:pointer-events-none disabled:opacity-50 data-[state=active]:border-primary data-[state=active]:text-foreground',
       className,
     )}
     {...props}
@@ -45,7 +44,7 @@ const TabsContent = React.forwardRef<
   <TabsPrimitive.Content
     ref={ref}
     className={cn(
-      'sf:mt-2 sf:ring-offset-background sf:focus-visible:outline-none sf:focus-visible:ring-2 sf:focus-visible:ring-ring sf:focus-visible:ring-offset-2',
+      'min-w-0 pt-3 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring',
       className,
     )}
     {...props}

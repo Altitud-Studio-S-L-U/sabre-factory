@@ -1,6 +1,5 @@
 import type { ComponentProps } from 'react';
 import { Button as UiButton } from './ui/button';
-import './ui/foundation.css';
 import './Controls.css';
 
 export default function Button({ className = 'button', type, ...props }: ComponentProps<'button'>) {
@@ -14,6 +13,7 @@ export default function Button({ className = 'button', type, ...props }: Compone
       variant={
         classes.includes('primary') ? 'default' : classes.includes('danger') ? 'destructive' : 'secondary'
       }
+      size={classes.includes('small') ? 'sm' : 'default'}
       className={`control-button ${className}`}
     />
   );

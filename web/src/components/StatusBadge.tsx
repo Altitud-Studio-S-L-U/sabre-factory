@@ -1,6 +1,5 @@
 import { Badge } from './ui/badge';
 import Icon, { type IconName } from '../Icon';
-import './StatusBadge.css';
 
 const stateIcons: Record<string, IconName> = {
   queued: 'queued',
@@ -16,9 +15,24 @@ const stateIcons: Record<string, IconName> = {
   medium: 'alert',
   low: 'info',
 };
+const stateTones: Record<string, 'neutral' | 'info' | 'warning' | 'danger' | 'success'> = {
+  queued: 'neutral',
+  cancelled: 'neutral',
+  running: 'info',
+  waiting_input: 'warning',
+  paused: 'warning',
+  blocked: 'warning',
+  medium: 'warning',
+  failed: 'danger',
+  high: 'danger',
+  critical: 'danger',
+  completed: 'success',
+  low: 'success',
+};
+
 export default function StatusBadge({ value, label }: { value: string; label?: string }) {
   return (
-    <Badge variant="outline" className={`badge badge-${value} sabre-status-badge`}>
+    <Badge variant={stateTones[value] ?? 'neutral'} className={`badge badge-${value}`}>
       <Icon name={stateIcons[value] ?? 'info'} size={13} />
       {label ?? value.replaceAll('_', ' ')}
     </Badge>

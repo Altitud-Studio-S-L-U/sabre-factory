@@ -368,27 +368,27 @@ export default function BudgetPanel({
               final record.
             </p>
           ) : (
-          <div className="budget-panel-actions">
-            <Button
-              type="button"
-              className="button"
-              disabled={!canAmend || busy}
-              onClick={() => open('amend')}
-            >
-              Amend limits
-            </Button>
-            <Button
-              type="button"
-              className="button"
-              disabled={!canAmend || busy || !budget.unsettled_usage_ids.length}
-              onClick={() => open('reconcile')}
-            >
-              Review unsettled usage{budget.unreconciled_calls ? ` (${budget.unreconciled_calls})` : ''}
-            </Button>
-            {connected && !canAmend && (
-              <small>Pause the run before changing authorizations or reconciling usage.</small>
-            )}
-          </div>
+            <div className="budget-panel-actions">
+              <Button
+                type="button"
+                className="button"
+                disabled={!canAmend || busy}
+                onClick={() => open('amend')}
+              >
+                Amend limits
+              </Button>
+              <Button
+                type="button"
+                className="button"
+                disabled={!canAmend || busy || !budget.unsettled_usage_ids.length}
+                onClick={() => open('reconcile')}
+              >
+                Review unsettled usage{budget.unreconciled_calls ? ` (${budget.unreconciled_calls})` : ''}
+              </Button>
+              {connected && !canAmend && (
+                <small>Pause the run before changing authorizations or reconciling usage.</small>
+              )}
+            </div>
           )}
           <details className="budget-history">
             <summary>Authorization history ({budget.authorizations.length})</summary>

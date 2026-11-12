@@ -1,6 +1,5 @@
 import { useEffect, useRef, type ReactNode } from 'react';
 import { Tabs as UiTabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
-import './ui/foundation.css';
 
 export default function Tabs<T extends string>({
   items,

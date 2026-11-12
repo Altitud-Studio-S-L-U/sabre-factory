@@ -19,6 +19,12 @@ import {
   CircleCheck,
   CircleAlert,
   LoaderCircle,
+  Bot,
+  Wrench,
+  Settings,
+  Search,
+  Plus,
+  Command,
 } from 'lucide-react';
 const icons = {
   work: PanelsTopLeft,
@@ -40,6 +46,12 @@ const icons = {
   completed: CircleCheck,
   failed: CircleAlert,
   running: LoaderCircle,
+  agents: Bot,
+  tools: Wrench,
+  config: Settings,
+  search: Search,
+  plus: Plus,
+  command: Command,
 } as const;
 export type IconName = keyof typeof icons;
 export default function Icon({

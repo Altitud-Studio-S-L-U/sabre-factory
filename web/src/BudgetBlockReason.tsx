@@ -16,9 +16,7 @@ export default function BudgetBlockReason({
     api_spend: 'Run API spend · USD',
     factory_spend: 'Factory API spend · USD',
   };
-  const closedNote = closed
-    ? ' Recorded before the run closed; no budget decision is pending.'
-    : '';
+  const closedNote = closed ? ' Recorded before the run closed; no budget decision is pending.' : '';
   if (denial.basis === 'historical_unknown')
     return (
       <section className="budget-denial" aria-label="Recorded budget block">

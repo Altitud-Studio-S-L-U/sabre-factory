@@ -1,8 +1,11 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import App from './App';
+import '@fontsource-variable/geist';
+import '@fontsource-variable/geist-mono';
+import './styles/index.css';
 import './styles.css';
 import './console-theme.css';
+import App from './App';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

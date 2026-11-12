@@ -24,10 +24,10 @@ export interface NavigationItem {
 
 export const navigation: NavigationItem[] = [
   { id: 'work', path: '/work', label: 'Runs', icon: 'work' },
-  { id: 'agents', path: '/agents', label: 'Agents', icon: 'projects' },
-  { id: 'tools', path: '/tools', label: 'Tools', icon: 'settings' },
+  { id: 'agents', path: '/agents', label: 'Agents', icon: 'agents' },
+  { id: 'tools', path: '/tools', label: 'Tools', icon: 'tools' },
   { id: 'memory', path: '/memory', label: 'Memory', icon: 'memory' },
-  { id: 'config', path: '/config', label: 'Config', icon: 'settings' },
+  { id: 'config', path: '/config', label: 'Config', icon: 'config' },
 ];
 
 /** Reachable by address but not shown in the sidebar. */

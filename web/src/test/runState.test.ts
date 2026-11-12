@@ -1,11 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  currentBlocker,
-  historicalError,
-  isBudgetCode,
-  isClosed,
-  pendingQuestions,
-} from '../runState';
+import { currentBlocker, historicalError, isBudgetCode, isClosed, pendingQuestions } from '../runState';
 import type { WorkOrder } from '../api';
 
 type Status = WorkOrder['status'];
@@ -51,9 +45,9 @@ describe('run state semantics', () => {
 
   it('offers no pending questions for closed runs and only current unanswered ones otherwise', () => {
     const questions = [question('open', 2, null), question('answered', 2, 'yes'), question('stale', 1, null)];
-    expect(pendingQuestions({ status: 'waiting_input', plan_revision: 2, questions }).map((q) => q.id)).toEqual([
-      'open',
-    ]);
+    expect(
+      pendingQuestions({ status: 'waiting_input', plan_revision: 2, questions }).map((q) => q.id),
+    ).toEqual(['open']);
     expect(pendingQuestions({ status: 'cancelled', plan_revision: 2, questions })).toEqual([]);
     expect(pendingQuestions({ status: 'completed', plan_revision: 2, questions })).toEqual([]);
   });

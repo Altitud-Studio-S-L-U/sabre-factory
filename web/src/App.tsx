@@ -3,6 +3,8 @@ import Input from './components/Input';
 import Textarea from './components/Textarea';
 import {
   Fragment,
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useMemo,
@@ -34,8 +36,6 @@ import {
   type WorkOrder,
   type AuditView,
 } from './api';
-import About from './About';
-import Integrations from './Integrations';
 import WorkAudit from './WorkAudit';
 import ExecutionTimeline from './ExecutionTimeline';
 import useRunUsage from './useRunUsage';
@@ -49,10 +49,6 @@ import StatusBadge from './components/StatusBadge';
 import LoadingState from './components/LoadingState';
 import SupervisorConsole from './SupervisorConsole';
 import RunsWorkspace from './RunsWorkspace';
-import AgentsConsole from './AgentsConsole';
-import ToolsConsole from './ToolsConsole';
-import MemoryConsole from './MemoryConsole';
-import ConfigConsole from './ConfigConsole';
 import Dialog from './components/Dialog';
 import Tabs from './components/Tabs';
 import BudgetPanel from './BudgetPanel';
@@ -62,6 +58,35 @@ import RemoteTasksPanel from './RemoteTasksPanel';
 import RunReport from './RunReport';
 import { currentBlocker, historicalError, isBudgetCode, isClosed, pendingQuestions } from './runState';
 import { legacyNavigation, navigation, type View } from './navigation';
+import AppShell from './app/AppShell';
+import type { PaletteCommand } from './app/CommandPalette';
+import { Logo } from './app/Logo';
+
+// Sections load on first visit; Runs stays in the main bundle.
+const sections = {
+  agentsConsole: () => import('./AgentsConsole'),
+  toolsConsole: () => import('./ToolsConsole'),
+  memoryConsole: () => import('./MemoryConsole'),
+  configConsole: () => import('./ConfigConsole'),
+  integrations: () => import('./Integrations'),
+  about: () => import('./About'),
+};
+
+/** Fetch section code once the console is idle so the first visit does not wait on the network. */
+function usePrefetchSections() {
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      for (const load of Object.values(sections)) void load();
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, []);
+}
+const AgentsConsole = lazy(sections.agentsConsole);
+const ToolsConsole = lazy(sections.toolsConsole);
+const MemoryConsole = lazy(sections.memoryConsole);
+const ConfigConsole = lazy(sections.configConsole);
+const Integrations = lazy(sections.integrations);
+const About = lazy(sections.about);
 function usesOnlyCliModels(status: Record<string, unknown>): boolean {
   const model = status.model as { provider?: unknown } | undefined;
   const roles = status.roles as Record<string, { provider?: unknown }> | undefined;
@@ -318,7 +343,7 @@ function Login({ error, connecting }: { error: string; connecting: boolean }) {
   return (
     <div className="login-shell">
       <section className="login-intro">
-        <Brand />
+        <Logo />
         <div>
           <span className="eyebrow">Your software factory</span>
           <h1>
@@ -376,23 +401,9 @@ function Login({ error, connecting }: { error: string; connecting: boolean }) {
   );
 }
 
-function Brand() {
-  return (
-    <div className="brand">
-      <span className="brand-symbol" aria-hidden="true">
-        <i />
-        <i />
-        <i />
-      </span>
-      <span>
-        SABRE<small>Software factory</small>
-      </span>
-    </div>
-  );
-}
-
 function Session({ session, onLogout }: { session: PanelSession; onLogout: (error?: string) => void }) {
   const api = useMemo(() => createApi(session.csrf_token, onLogout), [session.csrf_token, onLogout]);
+  usePrefetchSections();
   const location = useLocation();
   const navigate = useNavigate();
   const workMatch = matchPath('/work/:workId', location.pathname);
@@ -525,82 +536,74 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
     void navigate(`/work/${encodeURIComponent(order.id)}`);
   };
 
+  const sectionTitle =
+    [...navigation, ...legacyNavigation].find((item) => item.id === view)?.label || 'Page not found';
+  const paletteCommands: PaletteCommand[] = [
+    ...navigation.map((item) => ({
+      id: `go-${item.id}`,
+      group: 'Go to' as const,
+      label: item.label,
+      icon: item.icon,
+      run: () => changeView(item.id),
+    })),
+    ...orders.slice(0, 30).map((order) => ({
+      id: `run-${order.id}`,
+      group: 'Runs' as const,
+      label: order.objective,
+      hint: statusLabels[order.status] ?? order.status,
+      icon: 'work' as const,
+      run: () => openWork(order),
+    })),
+    {
+      id: 'new-run',
+      group: 'Actions' as const,
+      label: 'New run',
+      icon: 'plus' as const,
+      run: () => void navigate('/work', { state: { form: 'work' } }),
+    },
+    {
+      id: 'refresh',
+      group: 'Actions' as const,
+      label: 'Refresh data',
+      icon: 'refresh' as const,
+      run: () => void reload(),
+    },
+    {
+      id: 'sign-out',
+      group: 'Actions' as const,
+      label: 'Sign out',
+      icon: 'logout' as const,
+      run: () => void logout(),
+    },
+  ];
+
   return (
-    <div className="app-shell">
-      <a className="skip-link" href="#main-content">
-        Skip to content
-      </a>
-      <aside className="sidebar">
-        <Brand />
-        <div className="workspace-label">
-          <span className="workspace-dot" />
-          Personal workspace
-        </div>
-        <nav aria-label="Main navigation">
-          {navigation.map((item) => (
-            <Link
-              key={item.id}
-              to={item.path}
-              className={view === item.id ? 'nav-item active' : 'nav-item'}
-              aria-current={view === item.id ? 'page' : undefined}
-              onClick={() => {
-                returnFocus.current = null;
-              }}
-            >
-              <Icon name={item.icon} />
-              {item.label}
-              {item.id === 'work' && pending.length > 0 && (
-                <span className="nav-count">
-                  {pending.length}
-                  <span className="sr-only"> pending questions</span>
-                </span>
-              )}
-            </Link>
-          ))}
-        </nav>
-        <div className="sidebar-bottom">
-          <div>
-            <span className="status-dot" />
-            {error ? 'Connection interrupted' : loading ? 'Connecting' : 'Factory connected'}
-          </div>
-        </div>
-      </aside>
-      <div className="workspace">
-        <header className="topbar">
-          <div className="breadcrumb">
-            SABRE <span aria-hidden="true">/</span>
-            <strong>
-              {[...navigation, ...legacyNavigation].find((item) => item.id === view)?.label ||
-                'Page not found'}
-            </strong>
-          </div>
-          <div className="topbar-right">
-            <span className="last-update">
-              {updated
-                ? `Updated ${updated.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`
-                : 'Synchronizing'}
-            </span>
-            <Button
-              className="icon-button"
-              aria-label="Refresh data"
-              title="Refresh data"
-              disabled={refreshing}
-              onClick={() => void reload()}
-            >
-              <Icon name="refresh" size={16} />
-            </Button>
-            <Button
-              className="icon-button"
-              aria-label="Sign out"
-              title="Sign out"
-              disabled={loggingOut}
-              onClick={() => void logout()}
-            >
-              <Icon name="logout" size={17} />
-            </Button>
-          </div>
-        </header>
-        <main id="main-content" className="main-content" ref={mainContent} tabIndex={-1}>
+    <>
+      <AppShell
+        items={navigation}
+        current={view}
+        title={sectionTitle}
+        pending={pending.length}
+        connection={error ? 'interrupted' : loading ? 'connecting' : 'connected'}
+        updated={updated}
+        refreshing={refreshing}
+        onRefresh={() => void reload()}
+        loggingOut={loggingOut}
+        onLogout={() => void logout()}
+        onNavigate={() => {
+          returnFocus.current = null;
+        }}
+        commands={paletteCommands}
+        mainRef={mainContent}
+      >
+        <Suspense
+          fallback={
+            <div className="loading-state" role="status">
+              <span className="loading-spinner" />
+              Loading section…
+            </div>
+          }
+        >
           {logoutError && <ErrorNotice>{logoutError}</ErrorNotice>}
           {error && (
             <div className="notice error" role="alert">
@@ -873,10 +876,10 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
               )}
             </>
           )}
-        </main>
-        <SupervisorConsole api={api} orders={orders} selectedId={selectedId} disconnected={Boolean(error)} />
-      </div>
-    </div>
+        </Suspense>
+      </AppShell>
+      <SupervisorConsole api={api} orders={orders} selectedId={selectedId} disconnected={Boolean(error)} />
+    </>
   );
 }
 

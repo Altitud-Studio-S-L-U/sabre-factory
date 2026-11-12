@@ -1,108 +1,111 @@
-.model-configuration {
-  display: grid;
-  gap: 20px;
-}
-.model-configuration .section-heading p {
-  max-width: 68ch;
-}
-.model-runners {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 16px;
-  list-style: none;
-  padding: 0;
-  margin: 0;
-}
-.model-runners li {
-  display: grid;
-  gap: 6px;
-  flex: 1 1 260px;
-  padding: 20px;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-}
-.model-runners small,
-.model-role summary span {
-  color: var(--muted);
-  overflow-wrap: anywhere;
-}
-.model-settings {
-  display: grid;
-  gap: 16px;
-  border: 0;
-  padding: 0;
-  min-width: 0;
-}
-.model-settings legend {
-  margin-bottom: 16px;
-  color: var(--muted);
-  font-size: 13px;
-}
-.model-role {
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--surface);
-  padding: 18px 22px;
-  min-width: 0;
-}
-.model-role summary {
-  cursor: pointer;
-  padding: 4px 0;
-}
-.model-role summary strong {
-  margin-right: 16px;
-}
-.model-role summary span {
-  font-size: 13px;
-}
-.model-fields {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  align-items: start;
-  gap: 20px;
-  margin-top: 22px;
-}
-.model-fields > .field {
-  align-content: start;
-}
-.model-fields > .field + .field {
-  margin-top: 0;
-}
-.model-fields input {
-  width: 100%;
-  min-width: 0;
-}
-.model-inherit {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  margin: 20px 0 8px;
-  font-size: 14px;
-}
-.model-inherit input {
-  flex: 0 0 auto;
-  margin-top: 3px;
-}
-.model-destinations {
-  padding: 4px 0;
-}
-.model-destinations ul {
-  padding-left: 22px;
-  overflow-wrap: anywhere;
-}
-.model-destinations code {
-  font-size: 12px;
-}
-@media (max-width: 650px) {
-  .model-fields {
-    grid-template-columns: 1fr;
+/* Legacy screen styles: deleted when this screen migrates. */
+@layer legacy {
+  .model-configuration {
+    display: grid;
+    gap: 20px;
+  }
+  .model-configuration .section-heading p {
+    max-width: 68ch;
+  }
+  .model-runners {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+  .model-runners li {
+    display: grid;
+    gap: 6px;
+    flex: 1 1 260px;
+    padding: 20px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+  }
+  .model-runners small,
+  .model-role summary span {
+    color: var(--muted);
+    overflow-wrap: anywhere;
+  }
+  .model-settings {
+    display: grid;
+    gap: 16px;
+    border: 0;
+    padding: 0;
+    min-width: 0;
+  }
+  .model-settings legend {
+    margin-bottom: 16px;
+    color: var(--muted);
+    font-size: 13px;
   }
   .model-role {
-    padding: 16px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface);
+    padding: 18px 22px;
+    min-width: 0;
+  }
+  .model-role summary {
+    cursor: pointer;
+    padding: 4px 0;
+  }
+  .model-role summary strong {
+    margin-right: 16px;
   }
   .model-role summary span {
-    display: block;
-    margin: 8px 0 0 16px;
+    font-size: 13px;
+  }
+  .model-fields {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+    gap: 20px;
+    margin-top: 22px;
+  }
+  .model-fields > .field {
+    align-content: start;
+  }
+  .model-fields > .field + .field {
+    margin-top: 0;
+  }
+  .model-fields input {
+    width: 100%;
+    min-width: 0;
+  }
+  .model-inherit {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    margin: 20px 0 8px;
+    font-size: 14px;
+  }
+  .model-inherit input {
+    flex: 0 0 auto;
+    margin-top: 3px;
+  }
+  .model-destinations {
+    padding: 4px 0;
+  }
+  .model-destinations ul {
+    padding-left: 22px;
+    overflow-wrap: anywhere;
+  }
+  .model-destinations code {
+    font-size: 12px;
+  }
+  @media (max-width: 650px) {
+    .model-fields {
+      grid-template-columns: 1fr;
+    }
+    .model-role {
+      padding: 16px;
+    }
+    .model-role summary span {
+      display: block;
+      margin: 8px 0 0 16px;
+    }
   }
 }
