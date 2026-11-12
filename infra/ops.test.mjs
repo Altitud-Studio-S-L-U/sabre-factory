@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import { prepareScannerImages, openPanelAccess, requireClaudeOwnerTerminal, runClaudeOwnerLogin } from './ops.mjs';
+import { EventEmitter } from 'node:events';
+import { prepareScannerImages, openPanelAccess, requireClaudeOwnerTerminal, runClaudeOwnerLogin,
+  browserOpener, launchWithOpener, serveHandoff } from './ops.mjs';
 
 test('Claude account login requires owner stdin and stdout terminals', () => {
   for (const [input, output] of [[{}, {}], [{ isTTY: true }, {}], [{}, { isTTY: true }]]) {
@@ -25,58 +27,78 @@ test('Claude login creates first, then attaches to owner input and cleans its st
 
 const ticket = 'synthetic-owner-panel-grant-'.padEnd(43, 'x');
 const grant = { origin: 'http://127.0.0.1:8000', ticket, expires_in: 60 };
+const relayAddress = 'http://127.0.0.1:49152/relay-path';
 
-function fixture({ platform = 'win32', inputTTY = true, outputTTY = true, receipt = grant } = {}) {
+function fixture({ receipt = grant, delivered = true } = {}) {
   const calls = [];
   const chunks = [];
   const options = {
-    platform,
-    input: { isTTY: inputTTY },
-    output: { isTTY: outputTTY, write: (chunk) => chunks.push(chunk) },
+    output: { write: (chunk) => chunks.push(chunk) },
     requestGrant: async () => { calls.push('grant'); return receipt; },
-    launchBrowser: async (url) => { calls.push(['launch', url]); },
+    handoff: async (target) => {
+      calls.push(['relay', target]);
+      return { address: relayAddress, delivered: Promise.resolve(delivered), close: () => calls.push('relay-closed') };
+    },
+    launchBrowser: async (address) => { calls.push(['launch', address]); },
   };
   return { options, calls, text: () => chunks.join('') };
 }
 
-test('Windows requires owner stdin and stdout terminals before requesting a grant', async () => {
-  for (const [inputTTY, outputTTY] of [[false, true], [true, false], [false, false], [undefined, true], [true, undefined], [null, true], [true, null], [1, true], [true, 1]]) {
-    const current = fixture();
-    current.options.input.isTTY = inputTTY;
-    current.options.output.isTTY = outputTTY;
-    await assert.rejects(openPanelAccess(current.options), { code: 'PANEL_OWNER_TERMINAL_REQUIRED' });
-    assert.deepEqual(current.calls, []);
-    assert.equal(current.text(), '');
+test('every platform opens the panel through the local relay without printing the grant', async () => {
+  for (const origin of ['http://127.0.0.1:8000', 'http://localhost:8000', 'http://[::1]:8000', 'https://localhost:8443']) {
+    const current = fixture({ receipt: { ...grant, origin } });
+    await openPanelAccess(current.options);
+    assert.deepEqual(current.calls, ['grant', ['relay', `${origin}/#ticket=${ticket}`], ['launch', relayAddress]]);
+    assert.match(current.text(), /Panel opened/);
+    assert.equal(current.text().includes(ticket), false);
+    assert.equal(current.text().includes(relayAddress), false);
   }
 });
 
-test('Windows prints a short-lived manual fragment link only in the owner terminal', async () => {
-  const current = fixture();
-  await openPanelAccess(current.options);
-  assert.deepEqual(current.calls, ['grant']);
-  const url = new URL(current.text().split('\n').find((line) => line.startsWith('http')));
-  assert.equal(url.origin, grant.origin);
-  assert.equal(url.pathname, '/');
-  assert.equal(url.search, '');
-  assert.equal(url.hash, `#ticket=${ticket}`);
-  assert.match(current.text(), /60 seconds/);
-  assert.match(current.text(), /works once/);
-  assert.doesNotMatch(current.text(), /Panel opened|Bearer/);
+test('the opener receives only the relay address and the platform opener needs no shell', async () => {
+  assert.deepEqual(browserOpener('win32'), { command: 'explorer.exe', exitCodeReliable: false });
+  assert.deepEqual(browserOpener('darwin'), { command: 'open', exitCodeReliable: true });
+  assert.deepEqual(browserOpener('linux'), { command: 'xdg-open', exitCodeReliable: true });
+  for (const [platform, code] of [['win32', 1], ['darwin', 0], ['linux', 0]]) {
+    const spawned = [];
+    const spawnProcess = (command, args, options) => {
+      spawned.push({ command, args, shell: options.shell });
+      const child = new EventEmitter();
+      queueMicrotask(() => child.emit('exit', code));
+      return child;
+    };
+    await launchWithOpener(relayAddress, { platform, spawnProcess });
+    assert.deepEqual(spawned, [{ command: browserOpener(platform).command, args: [relayAddress], shell: undefined }]);
+  }
+  const failing = () => { const child = new EventEmitter(); queueMicrotask(() => child.emit('exit', 3)); return child; };
+  await assert.rejects(launchWithOpener(relayAddress, { platform: 'linux', spawnProcess: failing }));
 });
 
-test('Windows does not expose a grant if its output loses TTY status while requesting it', async () => {
-  const current = fixture();
-  current.options.requestGrant = async () => {
-    current.calls.push('grant');
-    current.options.output.isTTY = false;
-    return grant;
-  };
-  await assert.rejects(openPanelAccess(current.options), { code: 'PANEL_OWNER_TERMINAL_REQUIRED' });
-  assert.deepEqual(current.calls, ['grant']);
-  assert.equal(current.text(), '');
+test('the relay redirects once to the fragment grant and then stops serving', async () => {
+  const target = `${grant.origin}/#ticket=${ticket}`;
+  const relay = await serveHandoff(target, { timeoutMs: 5_000 });
+  const address = new URL(relay.address);
+  assert.equal(address.hostname, '127.0.0.1');
+  assert.match(address.pathname, /^\/[A-Za-z0-9_-]{43}$/);
+  const wrong = await fetch(`${address.origin}/guess`, { redirect: 'manual' });
+  assert.equal(wrong.status, 404);
+  assert.equal(wrong.headers.get('location'), null);
+  const response = await fetch(relay.address, { redirect: 'manual' });
+  assert.equal(response.status, 303);
+  assert.equal(response.headers.get('location'), target);
+  assert.equal(response.headers.get('cache-control'), 'no-store');
+  assert.equal(response.headers.get('referrer-policy'), 'no-referrer');
+  assert.equal(await relay.delivered, true);
+  await assert.rejects(fetch(relay.address, { redirect: 'manual' }));
 });
 
-test('invalid origins and grants cannot reach the console or an opener', async () => {
+test('an unused relay expires and reports that nothing was delivered', async () => {
+  const relay = await serveHandoff('http://127.0.0.1:8000/#ticket=x', { timeoutMs: 20 });
+  assert.equal(await relay.delivered, false);
+  await assert.rejects(fetch(relay.address, { redirect: 'manual' }));
+});
+
+test('invalid origins and grants never reach the relay, an opener or the console', async () => {
   const origins = ['http://example.test:8000', 'http://127.0.0.1.example.test:8000', 'http://127.0.0.2:8000',
     'http://127.1:8000', 'http://2130706433:8000', 'http://user@127.0.0.1:8000',
     'http://127.0.0.1:8000/path', 'http://127.0.0.1:8000?secret=private', 'http://127.0.0.1:8000/#other',
@@ -84,34 +106,21 @@ test('invalid origins and grants cannot reach the console or an opener', async (
   const receipts = [...origins.map((origin) => ({ ...grant, origin })), null, {},
     { ...grant, ticket: `${ticket}\n` }, { ...grant, ticket: 'short-private-ticket' },
     { ...grant, expires_in: 3600 }, { ...grant, expires_in: undefined }];
-  for (const platform of ['win32', 'linux']) {
-    for (const receipt of receipts) {
-      const current = fixture({ platform, receipt });
-      await assert.rejects(openPanelAccess(current.options), (error) => {
-        assert.equal(error.code, 'PANEL_GRANT_INVALID');
-        assert.doesNotMatch(error.message, /private|ticket|synthetic-owner/);
-        return true;
-      });
-      assert.deepEqual(current.calls, ['grant']);
-      assert.equal(current.text(), '');
-    }
+  for (const receipt of receipts) {
+    const current = fixture({ receipt });
+    await assert.rejects(openPanelAccess(current.options), (error) => {
+      assert.equal(error.code, 'PANEL_GRANT_INVALID');
+      assert.doesNotMatch(error.message, /private|ticket|synthetic-owner/);
+      return true;
+    });
+    assert.deepEqual(current.calls, ['grant']);
+    assert.equal(current.text(), '');
   }
 });
 
-test('Linux keeps browser delivery without printing the grant, even without a TTY', async () => {
-  for (const origin of ['http://127.0.0.1:8000', 'http://localhost:8000', 'http://[::1]:8000', 'https://localhost:8443']) {
-    const current = fixture({ platform: 'linux', inputTTY: false, outputTTY: false, receipt: { ...grant, origin } });
-    await openPanelAccess(current.options);
-    assert.deepEqual(current.calls, ['grant', ['launch', `${origin}/#ticket=${ticket}`]]);
-    assert.match(current.text(), /Panel opened/);
-    assert.equal(current.text().includes(ticket), false);
-    assert.equal(current.text().includes(origin), false);
-  }
-});
-
-test('grant and opener failures expose fixed diagnostics without private details', async () => {
-  for (const stage of ['requestGrant', 'launchBrowser']) {
-    const current = fixture({ platform: 'linux' });
+test('grant, relay, opener and delivery failures expose fixed diagnostics without private details', async () => {
+  for (const stage of ['requestGrant', 'handoff', 'launchBrowser']) {
+    const current = fixture();
     current.options[stage] = async () => { throw new Error(`private failure ${ticket}`); };
     await assert.rejects(openPanelAccess(current.options), (error) => {
       assert.equal(error.code, stage === 'requestGrant' ? 'PANEL_UNAVAILABLE' : 'PANEL_LAUNCH_FAILED');
@@ -120,12 +129,14 @@ test('grant and opener failures expose fixed diagnostics without private details
       return true;
     });
     assert.equal(current.text(), '');
+    if (stage === 'launchBrowser') assert.equal(current.calls.at(-1), 'relay-closed');
   }
-  const current = fixture();
-  current.options.output.write = () => { throw new Error(`private output failure ${ticket}`); };
-  await assert.rejects(openPanelAccess(current.options), (error) => error.code === 'PANEL_OUTPUT_UNAVAILABLE'
-    && !error.message.includes(ticket) && !error.message.includes('private output failure'));
-  assert.deepEqual(current.calls, ['grant']);
+  const undelivered = fixture({ delivered: false });
+  await assert.rejects(openPanelAccess(undelivered.options), (error) => error.code === 'PANEL_LAUNCH_FAILED' && /60 seconds/.test(error.message));
+  assert.equal(undelivered.text(), '');
+  const closedTerminal = fixture();
+  closedTerminal.options.output.write = () => { throw new Error(`private output failure ${ticket}`); };
+  await openPanelAccess(closedTerminal.options);
 });
 
 test('the operations launcher has no PowerShell or ShellExecute opener', () => {

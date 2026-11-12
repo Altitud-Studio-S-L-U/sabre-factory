@@ -113,3 +113,38 @@ async def test_ticket_expiring_while_exchange_waits_for_lock_is_rejected(panel):
         if task is not None and not task.done():
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
+
+
+async def test_session_lifetime_slides_once_per_hour_by_database_time(panel):
+    session, response = await panel.exchange((await panel.issue())["ticket"], "Mozilla/5.0 (X11; Linux x86_64) Firefox/131.0")
+    key = panel.hashed(session)
+    async with panel.repository.connection() as conn:
+        row = await (await conn.execute("SELECT expires_at-created_at AS life, client FROM panel_sessions WHERE session_hash=%s", (key,))).fetchone()
+    assert abs(row["life"].total_seconds() - 30 * 86400) < 5
+    assert row["client"] == "Firefox on Linux"
+    first = await panel.repository.panel_session(key, ORIGIN, panel.epoch, renew_seconds=panel.lifetime)
+    async with panel.repository.connection() as conn:
+        # Recent use: no rewrite. Stale use: the expiry slides forward from now.
+        await conn.execute("UPDATE panel_sessions SET expires_at=clock_timestamp()+interval '2 days', last_used_at=clock_timestamp()-interval '2 hours' WHERE session_hash=%s", (key,))
+    renewed = await panel.repository.panel_session(key, ORIGIN, panel.epoch, renew_seconds=panel.lifetime)
+    assert renewed >= first
+    async with panel.repository.connection() as conn:
+        after = await (await conn.execute("SELECT expires_at-clock_timestamp() AS left, clock_timestamp()-last_used_at AS idle FROM panel_sessions WHERE session_hash=%s", (key,))).fetchone()
+    assert after["left"].total_seconds() > 29 * 86400
+    assert after["idle"].total_seconds() < 60
+    async with panel.repository.connection() as conn:
+        await conn.execute("UPDATE panel_sessions SET expires_at=clock_timestamp() WHERE session_hash=%s", (key,))
+    assert await panel.repository.panel_session(key, ORIGIN, panel.epoch, renew_seconds=panel.lifetime) is None
+
+
+async def test_paired_browsers_are_listed_by_owner_and_revoked_by_public_id(panel):
+    first, _ = await panel.exchange((await panel.issue())["ticket"])
+    second, _ = await panel.exchange((await panel.issue())["ticket"])
+    rows = await panel.repository.list_panel_sessions(ORIGIN, panel.epoch)
+    assert {row["session_hash"] for row in rows} == {panel.hashed(first), panel.hashed(second)}
+    assert await panel.repository.list_panel_sessions(ORIGIN, "other-owner") == []
+    target = next(row for row in rows if row["session_hash"] == panel.hashed(first))
+    assert await panel.repository.revoke_panel_session_by_id(target["id"], ORIGIN, "other-owner") is False
+    assert await panel.repository.revoke_panel_session_by_id(target["id"], ORIGIN, panel.epoch) is True
+    assert await panel.repository.panel_session(panel.hashed(first), ORIGIN, panel.epoch) is None
+    assert await panel.repository.panel_session(panel.hashed(second), ORIGIN, panel.epoch) is not None

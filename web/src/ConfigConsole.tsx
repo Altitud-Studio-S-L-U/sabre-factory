@@ -16,6 +16,7 @@ import {
 } from './api';
 import { providers, SelectionFields } from './ModelConfiguration';
 import Credentials from './Credentials';
+import PairedBrowsers from './PairedBrowsers';
 import Dialog from './components/Dialog';
 import Field from './components/FormField';
 import Select from './components/Select';
@@ -58,7 +59,9 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
   const [saved, setSaved] = useState<ConfigurationView | null>(null);
   const [draft, setDraft] = useState<FactoryConfiguration | null>(null);
   const [document, setDocument] = useState('');
-  const [mode, setMode] = useState('Guided setup');
+  const [mode, setMode] = useState(() =>
+    new URLSearchParams(window.location.search).get('section') === 'access' ? 'Access' : 'Guided setup',
+  );
   const [step, setStep] = useState(() =>
     new URLSearchParams(window.location.search).get('section') === 'models' ? 1 : 0,
   );
@@ -281,16 +284,18 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
       {draft && saved && selection && (
         <>
           <div className="operator-tabs" aria-label="Configuration views">
-            {['Guided setup', 'YAML / JSON', 'Policies & limits', 'Context & storage'].map((name) => (
-              <Button
-                key={name}
-                disabled={busy}
-                aria-pressed={mode === name}
-                onClick={() => void switchMode(name)}
-              >
-                {name}
-              </Button>
-            ))}
+            {['Guided setup', 'YAML / JSON', 'Policies & limits', 'Context & storage', 'Access'].map(
+              (name) => (
+                <Button
+                  key={name}
+                  disabled={busy}
+                  aria-pressed={mode === name}
+                  onClick={() => void switchMode(name)}
+                >
+                  {name}
+                </Button>
+              ),
+            )}
           </div>
           {mode === 'Guided setup' && (
             <>
@@ -922,6 +927,7 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
               </section>
             </>
           )}
+          {mode === 'Access' && <PairedBrowsers api={api} />}
           {mode === 'Context & storage' && (
             <div className="operator-two">
               <section className="operator-panel">
@@ -987,116 +993,118 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
               </section>
             </div>
           )}
-          <section className="operator-panel">
-            <h2>Validate and review</h2>
-            <p className="muted">
-              Preview the server-resolved contract and changed fields before saving. Validation does not run
-              agents, grant permissions or publish.
-            </p>
-            <div className="operator-actions">
-              <Button
-                className="button primary"
-                disabled={busy || !connected}
-                onClick={() => void validate()}
-              >
-                {busy ? 'Checking…' : 'Validate & preview'}
-              </Button>
-              {dirty && (
-                <Button className="button" disabled={busy} onClick={() => accept(saved)}>
-                  Discard draft
+          {mode !== 'Access' && (
+            <section className="operator-panel">
+              <h2>Validate and review</h2>
+              <p className="muted">
+                Preview the server-resolved contract and changed fields before saving. Validation does not run
+                agents, grant permissions or publish.
+              </p>
+              <div className="operator-actions">
+                <Button
+                  className="button primary"
+                  disabled={busy || !connected}
+                  onClick={() => void validate()}
+                >
+                  {busy ? 'Checking…' : 'Validate & preview'}
                 </Button>
-              )}
-            </div>
-            {preview && (
-              <div className="operator-section-divider">
-                <span className={`operator-tag ${preview.valid ? 'good' : 'warning'}`}>
-                  {preview.valid ? 'Schema validated' : 'Changes required'}
-                </span>
-                {preview.diagnostics.length > 0 && (
-                  <ul role="alert">
-                    {preview.diagnostics.map((item, index) => (
-                      <li key={`${item.path}-${index}`}>
-                        <code>{item.path}</code>: {item.message}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-                {preview.valid && (
-                  <>
-                    {preview.safe_diff.length ? (
-                      <div className="operator-table-wrap" style={{ marginTop: 18 }}>
-                        <table className="operator-table">
-                          <thead>
-                            <tr>
-                              <th>Field</th>
-                              <th>Saved value</th>
-                              <th>Proposed value</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {preview.safe_diff.map((change) => (
-                              <tr key={change.path}>
-                                <td>
-                                  <code>{change.path}</code>
-                                </td>
-                                <td>
-                                  <code style={{ overflowWrap: 'anywhere' }}>
-                                    {change.before ?? 'Not set'}
-                                  </code>
-                                </td>
-                                <td>
-                                  <code style={{ overflowWrap: 'anywhere' }}>
-                                    {change.after ?? 'Removed'}
-                                  </code>
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    ) : (
-                      <p>No configuration changes.</p>
-                    )}
-                    <details style={{ marginTop: 18 }}>
-                      <summary>Resolved contract</summary>
-                      <pre className="operator-code">{preview.yaml}</pre>
-                    </details>
-                    <div style={{ marginTop: 18 }}>
-                      <p>Approved data destinations for default and specialist models:</p>
-                      <ul>
-                        {destinations.map((destination) => (
-                          <li key={destination}>
-                            <code>{destination}</code>
-                          </li>
-                        ))}
-                      </ul>
-                      <label className="check-line">
-                        <Input
-                          type="checkbox"
-                          checked={approved}
-                          onChange={(event) => setApproved(event.target.checked)}
-                        />
-                        I approve the listed model data destinations for this configuration.
-                      </label>
-                      <Button
-                        className="button primary"
-                        disabled={
-                          !connected ||
-                          busy ||
-                          !approved ||
-                          !preview.safe_diff.length ||
-                          validatedDocument !== document
-                        }
-                        onClick={() => void save()}
-                      >
-                        {busy ? 'Saving…' : 'Save configuration'}
-                      </Button>
-                    </div>
-                  </>
+                {dirty && (
+                  <Button className="button" disabled={busy} onClick={() => accept(saved)}>
+                    Discard draft
+                  </Button>
                 )}
               </div>
-            )}
-          </section>
+              {preview && (
+                <div className="operator-section-divider">
+                  <span className={`operator-tag ${preview.valid ? 'good' : 'warning'}`}>
+                    {preview.valid ? 'Schema validated' : 'Changes required'}
+                  </span>
+                  {preview.diagnostics.length > 0 && (
+                    <ul role="alert">
+                      {preview.diagnostics.map((item, index) => (
+                        <li key={`${item.path}-${index}`}>
+                          <code>{item.path}</code>: {item.message}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {preview.valid && (
+                    <>
+                      {preview.safe_diff.length ? (
+                        <div className="operator-table-wrap" style={{ marginTop: 18 }}>
+                          <table className="operator-table">
+                            <thead>
+                              <tr>
+                                <th>Field</th>
+                                <th>Saved value</th>
+                                <th>Proposed value</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {preview.safe_diff.map((change) => (
+                                <tr key={change.path}>
+                                  <td>
+                                    <code>{change.path}</code>
+                                  </td>
+                                  <td>
+                                    <code style={{ overflowWrap: 'anywhere' }}>
+                                      {change.before ?? 'Not set'}
+                                    </code>
+                                  </td>
+                                  <td>
+                                    <code style={{ overflowWrap: 'anywhere' }}>
+                                      {change.after ?? 'Removed'}
+                                    </code>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : (
+                        <p>No configuration changes.</p>
+                      )}
+                      <details style={{ marginTop: 18 }}>
+                        <summary>Resolved contract</summary>
+                        <pre className="operator-code">{preview.yaml}</pre>
+                      </details>
+                      <div style={{ marginTop: 18 }}>
+                        <p>Approved data destinations for default and specialist models:</p>
+                        <ul>
+                          {destinations.map((destination) => (
+                            <li key={destination}>
+                              <code>{destination}</code>
+                            </li>
+                          ))}
+                        </ul>
+                        <label className="check-line">
+                          <Input
+                            type="checkbox"
+                            checked={approved}
+                            onChange={(event) => setApproved(event.target.checked)}
+                          />
+                          I approve the listed model data destinations for this configuration.
+                        </label>
+                        <Button
+                          className="button primary"
+                          disabled={
+                            !connected ||
+                            busy ||
+                            !approved ||
+                            !preview.safe_diff.length ||
+                            validatedDocument !== document
+                          }
+                          onClick={() => void save()}
+                        >
+                          {busy ? 'Saving…' : 'Save configuration'}
+                        </Button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+            </section>
+          )}
           <Dialog
             open={!!role}
             title={`${roleNames[role ?? ''] ?? role ?? 'Specialist'} model`}

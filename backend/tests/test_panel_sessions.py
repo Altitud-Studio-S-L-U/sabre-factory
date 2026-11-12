@@ -1,4 +1,5 @@
 import asyncio
+import uuid
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
@@ -7,6 +8,7 @@ import pytest
 from pydantic import SecretStr
 
 from sabre.api import create_app
+from sabre.panel_sessions import client_label
 
 ORIGIN = "http://127.0.0.1:8000"
 OWNER = "synthetic-owner-panel-token-long-enough"
@@ -21,26 +23,46 @@ class SessionRepository:
         self.sessions = {}
         self.clock = datetime.now(UTC)
         self.lock = asyncio.Lock()
+        self.renewals = 0
 
     async def issue_panel_ticket(self, ticket_hash, origin, epoch):
         self.tickets[ticket_hash] = (origin, epoch, self.clock + timedelta(seconds=60))
 
-    async def exchange_panel_ticket(self, ticket_hash, session_hash, origin, epoch):
+    async def exchange_panel_ticket(self, ticket_hash, session_hash, origin, epoch, *, lifetime_seconds=8 * 3600, client=""):
         async with self.lock:
             row = self.tickets.get(ticket_hash)
             if not row or row[:2] != (origin, epoch) or row[2] <= self.clock:
                 return None
             del self.tickets[ticket_hash]
-            expiry = self.clock + timedelta(hours=8)
-            self.sessions[session_hash] = (origin, epoch, expiry)
+            expiry = self.clock + timedelta(seconds=lifetime_seconds)
+            self.sessions[session_hash] = {"origin": origin, "epoch": epoch, "expires_at": expiry, "client": client,
+                                           "id": str(uuid.uuid4()), "created_at": self.clock, "last_used_at": self.clock}
             return expiry
 
-    async def panel_session(self, session_hash, origin, epoch):
+    async def panel_session(self, session_hash, origin, epoch, *, renew_seconds=None):
         row = self.sessions.get(session_hash)
-        return row[2] if row and row[:2] == (origin, epoch) and row[2] > self.clock else None
+        if not row or (row["origin"], row["epoch"]) != (origin, epoch) or row["expires_at"] <= self.clock:
+            return None
+        if renew_seconds is not None and row["last_used_at"] < self.clock - timedelta(hours=1):
+            row["last_used_at"] = self.clock
+            row["expires_at"] = max(row["expires_at"], self.clock + timedelta(seconds=renew_seconds))
+            self.renewals += 1
+        return row["expires_at"]
 
     async def revoke_panel_session(self, session_hash):
         self.sessions.pop(session_hash, None)
+
+    async def list_panel_sessions(self, origin, epoch):
+        rows = [{"session_hash": key, **row} for key, row in self.sessions.items()
+                if (row["origin"], row["epoch"]) == (origin, epoch) and row["expires_at"] > self.clock]
+        return sorted(rows, key=lambda row: row["last_used_at"], reverse=True)
+
+    async def revoke_panel_session_by_id(self, session_id, origin, epoch):
+        for key, row in list(self.sessions.items()):
+            if row["id"] == session_id and (row["origin"], row["epoch"]) == (origin, epoch):
+                del self.sessions[key]
+                return True
+        return False
 
 
 class Service:
@@ -99,7 +121,7 @@ async def test_ticket_replay_and_expiry_fail_without_creating_another_session():
         service.repository.clock += timedelta(seconds=60)
         assert (await client.post("/api/v1/panel/session/exchange", headers=WRITE, json={"ticket": second})).status_code == 401
         assert len(service.repository.sessions) == 1
-        service.repository.clock += timedelta(hours=8)
+        service.repository.clock += timedelta(days=30)
         assert (await client.get("/api/v1/status", headers=UI)).status_code == 401
 
 
@@ -163,3 +185,80 @@ async def test_session_is_bound_to_current_owner_identity():
         await exchange(client)
         app.state.config.auth_token = SecretStr("synthetic-rotated-owner-token-long-enough")
         assert (await client.get("/api/v1/status", headers=UI)).status_code == 401
+
+
+async def test_session_slides_with_use_and_expires_after_thirty_idle_days():
+    service = Service()
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(application(service)), base_url=ORIGIN) as client:
+        _, result = await exchange(client)
+        cookie = result.headers["set-cookie"].lower()
+        assert f"max-age={400 * 86400}" in cookie
+        first = datetime.fromisoformat(result.json()["expires_at"])
+        assert first == service.repository.clock + timedelta(days=30)
+        for _ in range(3):
+            service.repository.clock += timedelta(days=20)
+            assert (await client.get("/api/v1/status", headers=UI)).status_code == 200
+        assert service.repository.renewals == 3
+        renewed = datetime.fromisoformat((await client.get("/api/v1/panel/session", headers=UI)).json()["expires_at"])
+        assert renewed == service.repository.clock + timedelta(days=30)
+        # Frequent polling within the hour does not rewrite the session.
+        for _ in range(5):
+            assert (await client.get("/api/v1/status", headers=UI)).status_code == 200
+        assert service.repository.renewals == 3
+        service.repository.clock += timedelta(days=30)
+        assert (await client.get("/api/v1/status", headers=UI)).status_code == 401
+
+
+async def test_configured_session_lifetime_is_respected():
+    service = Service()
+    app = application(service)
+    app.state.config.panel_session_days = 1
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url=ORIGIN) as client:
+        _, result = await exchange(client)
+        assert datetime.fromisoformat(result.json()["expires_at"]) == service.repository.clock + timedelta(days=1)
+
+
+async def test_paired_browsers_are_listed_without_capabilities_and_can_be_revoked():
+    service = Service()
+    app = application(service)
+    agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Safari/537.36"
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url=ORIGIN) as other, \
+            httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url=ORIGIN, headers={"User-Agent": agent}) as client:
+        await exchange(other)
+        _, result = await exchange(client)
+        csrf = result.json()["csrf_token"]
+        listed = await client.get("/api/v1/panel/browsers", headers=UI)
+        assert listed.status_code == 200
+        body = listed.json()
+        assert body["lifetime_days"] == 30
+        assert sorted(item["current"] for item in body["browsers"]) == [False, True]
+        current = next(item for item in body["browsers"] if item["current"])
+        assert current["client"] == "Chrome on Windows"
+        assert set(current) == {"id", "client", "current", "created_at", "last_used_at", "expires_at"}
+        for session_hash in service.repository.sessions:
+            assert session_hash not in listed.text
+        for value in client.cookies.values():
+            assert value not in listed.text
+        remote = next(item for item in body["browsers"] if not item["current"])
+        mutation = WRITE | {"X-CSRF-Token": csrf}
+        assert (await client.delete(f"/api/v1/panel/browsers/{remote['id']}", headers=UI | {"Origin": ORIGIN})).status_code == 403
+        assert (await client.delete(f"/api/v1/panel/browsers/{remote['id']}", headers=mutation)).status_code == 204
+        assert (await other.get("/api/v1/status", headers=UI)).status_code == 401
+        assert (await client.delete(f"/api/v1/panel/browsers/{remote['id']}", headers=mutation)).status_code == 404
+        assert (await client.delete("/api/v1/panel/browsers/not-an-id", headers=mutation)).status_code == 404
+        assert (await client.get("/api/v1/status", headers=UI)).status_code == 200
+
+
+async def test_paired_browsers_require_a_panel_session():
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(application()), base_url=ORIGIN) as client:
+        assert (await client.get("/api/v1/panel/browsers", headers=BEARER)).status_code == 401
+
+
+@pytest.mark.parametrize(("agent", "label"), [
+    ("Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15", "Safari on macOS"),
+    ("Mozilla/5.0 (X11; Linux x86_64; rv:131.0) Gecko/20100101 Firefox/131.0", "Firefox on Linux"),
+    ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/140.0 Safari/537.36 Edg/140.0", "Edge on Windows"),
+    ("", "Browser"),
+])
+def test_client_label_is_coarse(agent, label):
+    assert client_label(agent) == label

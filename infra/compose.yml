@@ -7,6 +7,7 @@ x-app-environment: &app-environment
   SABRE_EXECUTOR_URL: http://executor:8090
   SABRE_DATA_DIR: /var/lib/sabre
   SABRE_PANEL_ORIGIN: ${SABRE_PANEL_ORIGIN:-http://127.0.0.1:8000}
+  SABRE_PANEL_SESSION_DAYS: ${SABRE_PANEL_SESSION_DAYS:-30}
   SABRE_MODEL_NAME: ${SABRE_MODEL_NAME:-}
   SABRE_MODEL_PROVIDER: ${SABRE_MODEL_PROVIDER:-openai}
   SABRE_MODEL_BASE_URL: ${SABRE_MODEL_BASE_URL:-}
@@ -51,6 +52,10 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
+    # The entrypoint drops from root to postgres; only the capabilities it needs for that remain.
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
     mem_limit: 512m
     cpus: 1
     restart: unless-stopped
@@ -292,6 +297,10 @@ services:
     image: jaegertracing/jaeger:2.22.0@sha256:836b967b5abcf1f7758066aa6b348619267a2f1459f72d472840570f9bd88a17
     ports: ["127.0.0.1:16686:16686"]
     networks: [control, outbound]
+    read_only: true
+    tmpfs: ["/tmp:size=64m"]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
     mem_limit: 384m
     cpus: 0.5
 

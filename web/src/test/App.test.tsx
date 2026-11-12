@@ -48,7 +48,7 @@ const order = {
   effective_budget_policy: null,
   budget_revision: 0,
   limiting_metric: null,
-    budget_denial: null,
+  budget_denial: null,
   repair_cycles_used: 0,
   last_failure_fingerprint: null,
   identical_failure_count: 0,
@@ -689,7 +689,7 @@ describe('Control room', () => {
     expect(localStorage.length).toBe(0);
     expect(sessionStorage.length).toBe(0);
     await user.click(screen.getByRole('button', { name: 'Sign out' }));
-    await screen.findByRole('heading', { name: 'Open SABRE from the CLI' });
+    await screen.findByRole('heading', { name: 'Pair this browser' });
     const logout = fetchMock.mock.calls.find(([path]) => path.endsWith('/panel/session/logout'));
     expect(logout?.[1]).toMatchObject({
       method: 'POST',
@@ -704,11 +704,32 @@ describe('Control room', () => {
   it('explica cómo abrir el panel cuando no hay sesión sin pedir un token manual', async () => {
     const fetchMock = mockApi({ 'GET /panel/session': { status: 401, body: { message: 'Unauthorized' } } });
     render(<App />);
-    await screen.findByRole('heading', { name: 'Open SABRE from the CLI' });
+    await screen.findByRole('heading', { name: 'Pair this browser' });
     expect(screen.getByText('node bin/sabre.mjs open')).toBeVisible();
     expect(screen.queryByLabelText('Token de acceso')).not.toBeInTheDocument();
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(writes).toEqual([]);
+  });
+
+  it('enters the console when the tab regains focus after the browser was paired elsewhere', async () => {
+    let paired = false;
+    const fetchMock = mockApi();
+    const original = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (input, options) => {
+      if (!paired && String(input) === '/api/v1/panel/session')
+        return new Response(JSON.stringify({ message: 'Unauthorized' }), { status: 401 });
+      return original(input, options);
+    });
+    render(<App />);
+    await screen.findByRole('heading', { name: 'Pair this browser' });
+    paired = true;
+    act(() => {
+      window.dispatchEvent(new Event('focus'));
+    });
+    expect(await screen.findByRole('button', { name: 'Sign out' })).toBeVisible();
+    const probes = fetchMock.mock.calls.filter(([path]) => path === '/api/v1/panel/session');
+    expect(probes).toHaveLength(2);
     expect(writes).toEqual([]);
   });
 
@@ -783,7 +804,7 @@ describe('Control room', () => {
         <App />
       </StrictMode>,
     );
-    await screen.findByRole('heading', { name: 'Open SABRE from the CLI' });
+    await screen.findByRole('heading', { name: 'Pair this browser' });
     window.history.pushState(null, '', '/?view=work#ticket=synthetic-same-tab-ticket');
     fireEvent(window, new HashChangeEvent('hashchange'));
     expect(window.location.hash).toBe('');
@@ -805,7 +826,7 @@ describe('Control room', () => {
     window.history.pushState(null, '', '/#ticket=synthetic-expired-link');
     fireEvent(window, new HashChangeEvent('hashchange'));
     expect(window.location.hash).toBe('');
-    await screen.findByRole('heading', { name: 'Open SABRE from the CLI' });
+    await screen.findByRole('heading', { name: 'Pair this browser' });
     expect(await screen.findByRole('alert')).toHaveTextContent('expired or was already used');
     expect(document.body).not.toHaveTextContent('synthetic-expired-link');
     overrides['POST /panel/session/exchange'] = {
@@ -871,7 +892,7 @@ describe('Control room', () => {
     overrides['GET /status'] = { status: 401, body: { message: 'Unauthorized' } };
     await user.click(screen.getByRole('button', { name: 'Refresh data' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('The session expired');
-    expect(screen.getByRole('heading', { name: 'Open SABRE from the CLI' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Pair this browser' })).toBeVisible();
     expect(screen.queryByRole('heading', { name: 'Runs' })).not.toBeInTheDocument();
   });
 
@@ -900,7 +921,7 @@ describe('Control room', () => {
     await screen.findByRole('heading', { name: 'Runs' });
     await user.click(screen.getByRole('button', { name: 'Sign out' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('The browser session changed');
-    expect(screen.getByRole('heading', { name: 'Open SABRE from the CLI' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Pair this browser' })).toBeVisible();
     expect(fetchMock.mock.calls.filter(([path]) => path.endsWith('/panel/session/logout'))).toHaveLength(1);
     expect(fetchMock.mock.calls.filter(([path]) => path === '/api/v1/panel/session')).toHaveLength(1);
     first.unmount();
@@ -912,7 +933,7 @@ describe('Control room', () => {
     render(<App />);
     await screen.findByRole('heading', { name: 'Runs' });
     await user.click(screen.getByRole('button', { name: 'Sign out' }));
-    await screen.findByRole('heading', { name: 'Open SABRE from the CLI' });
+    await screen.findByRole('heading', { name: 'Pair this browser' });
     const logouts = fetchMock.mock.calls.filter(([path]) => path.endsWith('/panel/session/logout'));
     expect(logouts).toHaveLength(2);
     expect(new Headers(logouts[1][1]?.headers).get('X-CSRF-Token')).toBe('synthetic-renewed-csrf');

@@ -10,7 +10,7 @@ const operations = new Set(['init', 'config', 'build', 'prepare', 'prepare-codex
   'logs', 'slack', 'telemetry', 'stop', 'codex-login', 'claude-login', 'migrate-credentials']);
 try {
   if (command === 'help' || command === '--help') {
-    console.log('SABRE Factory\n\nnode bin/sabre.mjs <command>\n\nCommands: doctor, init, config, build, prepare, prepare-codex, prepare-claude, up, open, down, status, logs, backup, verify, restore, mcp, mcp-stdio, slack, telemetry, codex-login, claude-login');
+    console.log('SABRE Factory\n\nsabre <command>   (or node bin/sabre.mjs <command>; run npm link once to install sabre)\n\nCommands: doctor, init, config, build, prepare, prepare-codex, prepare-claude, up [--no-open], open, down, status, logs, backup, verify, restore, mcp, mcp-stdio, slack, telemetry, codex-login, claude-login\n\nup opens the panel already signed in; open pairs another browser.');
   } else {
     const report = await doctor();
     if (command === 'doctor') console.log(JSON.stringify(report, null, 2));

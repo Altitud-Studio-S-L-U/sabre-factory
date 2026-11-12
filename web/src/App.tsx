@@ -60,13 +60,7 @@ import BudgetFields, { defaultBudgetPolicy } from './components/BudgetFields';
 import ReleasesPanel from './ReleasesPanel';
 import RemoteTasksPanel from './RemoteTasksPanel';
 import RunReport from './RunReport';
-import {
-  currentBlocker,
-  historicalError,
-  isBudgetCode,
-  isClosed,
-  pendingQuestions,
-} from './runState';
+import { currentBlocker, historicalError, isBudgetCode, isClosed, pendingQuestions } from './runState';
 import { legacyNavigation, navigation, type View } from './navigation';
 function usesOnlyCliModels(status: Record<string, unknown>): boolean {
   const model = status.model as { provider?: unknown } | undefined;
@@ -265,13 +259,32 @@ export default function App() {
       setConnecting(true);
       observe(connection.current);
     };
+    // A browser paired from another tab (or by sabre open) shares the cookie: re-check on return.
+    let probing: Promise<PanelSession | null> | null = null;
+    const recheck = () => {
+      if (activeSession.current || document.visibilityState === 'hidden') return;
+      if (probing && connection.current === probing) return;
+      if (new URLSearchParams(window.location.hash.slice(1)).has('ticket')) return;
+      probing = openPanelSession();
+      connection.current = probing;
+      observe(probing);
+      void probing
+        .finally(() => {
+          probing = null;
+        })
+        .catch(() => undefined);
+    };
     window.addEventListener('hashchange', accessLink);
+    window.addEventListener('focus', recheck);
+    document.addEventListener('visibilitychange', recheck);
     // StrictMode repeats effects; a one-use ticket must have only one exchange.
     connection.current ??= openPanelSession();
     observe(connection.current);
     return () => {
       current = false;
       window.removeEventListener('hashchange', accessLink);
+      window.removeEventListener('focus', recheck);
+      document.removeEventListener('visibilitychange', recheck);
     };
   }, []);
   const disconnect = useCallback(
@@ -331,25 +344,31 @@ function Login({ error, connecting }: { error: string; connecting: boolean }) {
       <main className="login-form">
         <div className="login-form-inner">
           <span className="eyebrow">Control room</span>
-          <h2>{connecting ? 'Opening the control room' : 'Open SABRE from the CLI'}</h2>
+          <h2>{connecting ? 'Opening the control room' : 'Pair this browser'}</h2>
           {connecting ? (
             <p role="status">Checking the local session…</p>
           ) : (
             <>
               <p>
-                Run this command from the SABRE directory. On Windows, open the temporary link shown in your
-                terminal; on Linux and macOS, the browser opens automatically.
+                SABRE opens this panel already signed in when it starts. To pair this browser now, run this
+                command from the SABRE directory:
               </p>
               <pre>
                 <code>node bin/sabre.mjs open</code>
               </pre>
-              <p>The link can be used once. If it expires, run the command again.</p>
+              <p>
+                The browser stays signed in while you use it and signs out after 30 days without use. This tab
+                checks again when you return to it.
+              </p>
             </>
           )}
           {error && <ErrorNotice>{error}</ErrorNotice>}
           <div className="privacy-note">
             <span aria-hidden="true">●</span>
-            <p>Access is authorized on your device. After signing out, reopen the panel from the CLI.</p>
+            <p>
+              Access is paired with this device by the launcher; containers cannot open a session. Revoke
+              paired browsers in Config → Access.
+            </p>
           </div>
         </div>
       </main>

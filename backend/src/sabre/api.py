@@ -2,11 +2,11 @@
 
 import hmac
 from contextlib import asynccontextmanager
+from datetime import timedelta
 from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from pydantic.json_schema import models_json_schema
 
@@ -65,6 +65,7 @@ from sabre.operator_contracts import (
 )
 from sabre.panel_sessions import (
     COOKIE,
+    COOKIE_MAX_AGE,
     COOKIE_PATH,
     DEFAULT_ORIGIN,
     PanelSessions,
@@ -113,7 +114,8 @@ def create_app(service=None, config=None) -> FastAPI:
 
     def panels():
         cfg = application.state.config
-        return PanelSessions(svc().repository, cfg.auth_token.get_secret_value(), getattr(cfg, "panel_origin", DEFAULT_ORIGIN))
+        return PanelSessions(svc().repository, cfg.auth_token.get_secret_value(), getattr(cfg, "panel_origin", DEFAULT_ORIGIN),
+                             timedelta(days=getattr(cfg, "panel_session_days", 30)))
 
     async def authorize_request(request: Request, call_next):
         if request.url.path.startswith(("/api/", "/mcp", "/internal/")):
@@ -156,9 +158,6 @@ def create_app(service=None, config=None) -> FastAPI:
         if request.url.path.startswith(("/api/", "/mcp", "/internal/")):
             response.headers["Cache-Control"] = "no-store"
         return response
-
-    application.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
-        allow_methods=["GET", "POST", "PUT", "DELETE"], allow_headers=["Authorization", "Content-Type"])
 
     @application.exception_handler(DomainError)
     async def domain_error(request, error):
@@ -207,9 +206,10 @@ def create_app(service=None, config=None) -> FastAPI:
         manager = panels()
         # Apply browser restrictions even when a caller also supplies a valid bearer.
         browser_context(request, manager.origin, mutation=True)
-        session, payload = await manager.exchange(body.ticket.get_secret_value())
+        session, payload = await manager.exchange(body.ticket.get_secret_value(), request.headers.get("user-agent", ""))
         response = JSONResponse(payload)
-        response.set_cookie(COOKIE, session, max_age=8 * 3600, httponly=True, samesite="strict",
+        # The server-side expiry slides with use and is the authority; the cookie only carries the capability.
+        response.set_cookie(COOKIE, session, max_age=COOKIE_MAX_AGE, httponly=True, samesite="strict",
                             secure=manager.origin.startswith("https://"), path=COOKIE_PATH)
         return response
 
@@ -218,6 +218,19 @@ def create_app(service=None, config=None) -> FastAPI:
         if not hasattr(request.state, "panel_session"):
             raise DomainError("PANEL_SESSION_REQUIRED", "Open SABRE from its local launcher", 401)
         return request.state.panel_session
+
+    @application.get("/api/v1/panel/browsers", include_in_schema=False)
+    async def paired_browsers(request: Request):
+        if not hasattr(request.state, "panel_session"):
+            raise DomainError("PANEL_SESSION_REQUIRED", "Open SABRE from its local launcher", 401)
+        return {"browsers": await panels().paired(request), "lifetime_days": panels().lifetime // 86400}
+
+    @application.delete("/api/v1/panel/browsers/{session_id}", status_code=204, include_in_schema=False)
+    async def revoke_paired_browser(request: Request, session_id: str):
+        if not hasattr(request.state, "panel_session"):
+            raise DomainError("PANEL_SESSION_REQUIRED", "Open SABRE from its local launcher", 401)
+        await panels().revoke_paired(session_id)
+        return Response(status_code=204)
 
     @application.post("/api/v1/panel/session/logout", status_code=204, include_in_schema=False)
     async def panel_logout(request: Request):

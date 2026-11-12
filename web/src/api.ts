@@ -109,6 +109,20 @@ export interface PanelSession {
   expires_at: string;
 }
 
+export interface PairedBrowser {
+  id: string;
+  client: string;
+  current: boolean;
+  created_at: string;
+  last_used_at: string;
+  expires_at: string;
+}
+
+export interface PairedBrowsers {
+  browsers: PairedBrowser[];
+  lifetime_days: number;
+}
+
 export async function openPanelSession(): Promise<PanelSession | null> {
   const fragment = new URLSearchParams(window.location.hash.slice(1));
   const hasTicket = fragment.has('ticket');
@@ -243,6 +257,9 @@ export function createApi(csrfToken: string, onUnauthorized?: (message: string) 
     revokeDelegation: (id: string) =>
       request<RevokedDelegation>(`/delegations/${encodeURIComponent(id)}`, { method: 'DELETE' }),
     logout: () => request<void>('/panel/session/logout', { method: 'POST' }),
+    pairedBrowsers: () => request<PairedBrowsers>('/panel/browsers'),
+    revokePairedBrowser: (id: string) =>
+      request<void>(`/panel/browsers/${encodeURIComponent(id)}`, { method: 'DELETE' }),
     status: () => request<Record<string, unknown>>('/status'),
     deliveries: () => request<DeliveryStatus[]>('/notifications'),
     retryDelivery: (id: string) =>
