@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from datetime import timedelta
 from typing import Any
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 from pydantic.json_schema import models_json_schema
@@ -34,9 +34,10 @@ from sabre.integrations import (
     IntegrationStateChange,
 )
 from sabre.mcp_connections import MCPConnectionInfo, MCPConnectionSave, MCPDiscovery
-from sabre.memory_contracts import MemoryApproval, MemoryCarryForward, MemoryValidityRecord
+from sabre.memory_contracts import MemoryApproval, MemoryCarryForward, MemoryGraph, MemoryValidityRecord
 from sabre.model_configuration import ModelConfiguration, ModelConfigurationChange
 from sabre.models import (
+    MEMORY_ID_PATTERN,
     Answer,
     CallBudgetIncrease,
     CliProgressLimitsChange,
@@ -549,6 +550,11 @@ def create_app(service=None, config=None) -> FastAPI:
     @application.post("/api/v1/memory/{memory_id}/invalidate", response_model=MemoryItem)
     async def invalidate_memory(memory_id: str):
         return await svc().memory.update(memory_id, False)
+
+    @application.get("/api/v1/projects/{project_id}/memory/graph", response_model=MemoryGraph)
+    async def memory_graph(project_id: str, focus: str | None = Query(default=None, pattern=MEMORY_ID_PATTERN),
+                           depth: int = Query(default=1, ge=1, le=2), limit: int = Query(default=100, ge=1, le=300)):
+        return await svc().memory.graph(project_id, focus, depth, limit)
 
     @application.get("/api/v1/secret-targets", response_model=list[SecretTarget])
     async def secret_targets():

@@ -2,7 +2,7 @@ import hashlib
 import json
 import re
 
-from sabre.memory_contracts import MemoryApproval, MemoryCarryForward, MemoryValidityRecord
+from sabre.memory_contracts import MemoryApproval, MemoryCarryForward, MemoryGraph, MemoryValidityRecord
 from sabre.models import DomainError, MemoryCreate, MemoryItem, ProposedBy, WorkOrder, memory_identity, now
 from sabre.repository import digest
 
@@ -70,7 +70,12 @@ class MemoryService:
     async def update(self, memory_id: str, approve: bool, decision: MemoryApproval | None = None):
         if decision is None or not approve:
             return await self.repository.set_memory_state(memory_id, approve)
-        return await self.repository.set_memory_state(memory_id, approve, scope=decision.scope)
+        return await self.repository.set_memory_state(memory_id, approve, scope=decision.scope, supersedes=decision.supersedes,
+                                                      related=decision.related)
+
+    async def graph(self, project_id: str, focus: str | None = None, depth: int = 1, limit: int = 100) -> MemoryGraph:
+        await self.repository.project(project_id)
+        return MemoryGraph.model_validate(await self.repository.memory_graph(project_id, focus, depth, limit))
 
     async def carry_forward(self, memory_id: str, request: MemoryCarryForward):
         return MemoryValidityRecord.model_validate(await self.repository.carry_memory_forward(memory_id, request.commit))

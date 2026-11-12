@@ -8,8 +8,8 @@ from psycopg.types.json import Jsonb
 from integration.test_postgres import fixture_work
 from integration.test_postgres import repository as repository
 from sabre.memory import MemoryService
-from sabre.memory_contracts import MemoryCarryForward
-from sabre.models import DeliveryEvidence, DomainError, MemoryCreate, Status
+from sabre.memory_contracts import MemoryApproval, MemoryCarryForward
+from sabre.models import DeliveryEvidence, DomainError, MemoryCreate, ProposedBy, Status
 from sabre.project_context import INDEX_VERSION
 from sabre.security import SecretGuard
 
@@ -134,3 +134,50 @@ async def test_citations_are_checked_against_the_source_index(repository):
         link = await (await conn.execute("SELECT kind,target_type,target_id,attrs FROM memory_links WHERE source_id=%s", (item.id,))).fetchone()
     assert (link["kind"], link["target_type"], link["target_id"]) == ("cites", "file", "src/app.py")
     assert link["attrs"] == {"digest": "1" * 64, "lines": [2, 7], "commit": A}
+
+
+async def test_supersession_invalidates_on_approval_and_graph_stays_bounded(repository):
+    repo, project, work = await delivered(repository)
+    _, other, other_work = await delivered(repository)
+    service = MemoryService(repo, SecretGuard())
+    await index(repo, project.id, A, {"src/app.py": "1" * 64})
+    older = await service.update((await service.propose(proposal(project, work, "Graph uses breadth first order"), proposed_by=ProposedBy(channel="owner_console"))).id, True)
+    neighbour = await service.propose(proposal(project, work, "Graph labels stay short"))
+    foreign = await MemoryService(repo, SecretGuard()).propose(proposal(other, other_work, "Foreign memory"))
+    with pytest.raises(DomainError) as cross:
+        await service.propose(proposal(project, work, "Replaces a foreign memory", supersedes=foreign.id))
+    assert cross.value.code == "MEMORY_LINK_INVALID"
+    newer = await service.propose(proposal(project, work, "Graph uses depth first order", supersedes=older.id, citations=["src/app.py#L4"]),
+                                  proposed_by=ProposedBy(channel="supervisor_chat", role="analyst"))
+    assert (await repo.memory(older.id)).active, "Proposing a replacement must not invalidate before approval"
+    with pytest.raises(DomainError) as self_link:
+        await service.update(newer.id, True, MemoryApproval(related=[newer.id]))
+    assert self_link.value.code == "MEMORY_LINK_INVALID"
+    assert (await repo.memory(older.id)).invalidated_at is None, "A rejected approval must roll back the supersession"
+    approved = await service.update(newer.id, True, MemoryApproval(related=[neighbour.id], scope="project"))
+    assert approved.active and approved.scope == "project"
+    replaced = await repo.memory(older.id)
+    assert replaced.invalidated_at is not None and not replaced.active
+    assert await repo.search_memory(project.id, "breadth", A) == []
+
+    graph = await service.graph(project.id, newer.id, 1, 100)
+    ids = {node.id for node in graph.nodes}
+    assert {f"memory:{newer.id}", f"memory:{older.id}", f"memory:{neighbour.id}", "file:src/app.py", f"run:{work.id}", f"commit:{A}",
+            "agent:supervisor_chat:analyst"} <= ids
+    assert f"memory:{foreign.id}" not in ids
+    kinds = {(edge.source, edge.kind, edge.target) for edge in graph.edges}
+    assert (f"memory:{newer.id}", "supersedes", f"memory:{older.id}") in kinds
+    assert (f"memory:{newer.id}", "related", f"memory:{neighbour.id}") in kinds
+    assert (f"memory:{newer.id}", "cites", "file:src/app.py") in kinds
+    assert (f"memory:{newer.id}", "proposed_by", "agent:supervisor_chat:analyst") in kinds
+    assert all(edge.source in ids and edge.target in ids for edge in graph.edges)
+    assert not graph.truncated
+    nodes = {node.id: node for node in graph.nodes}
+    assert nodes[f"memory:{older.id}"].attrs["state"] == "invalidated"
+    small = await service.graph(project.id, newer.id, 2, 2)
+    assert len(small.nodes) == 2 and small.truncated
+    overview = await service.graph(project.id, None, 1, 9)
+    assert len([node for node in overview.nodes if node.type == "memory"]) == 3 and len(overview.nodes) <= 9
+    with pytest.raises(DomainError) as hidden:
+        await service.graph(project.id, foreign.id, 1, 50)
+    assert hidden.value.code == "MEMORY_NOT_FOUND"

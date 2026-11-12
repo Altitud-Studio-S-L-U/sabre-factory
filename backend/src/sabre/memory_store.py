@@ -12,7 +12,7 @@ from typing import Any
 from psycopg import sql
 from psycopg.types.json import Jsonb
 
-from sabre.models import DomainError, MemoryItem, citation_parts, now
+from sabre.models import DomainError, MemoryItem, ProposedBy, citation_parts, now
 
 MEMORY_GRAPH_SCHEMA = """
 CREATE TABLE memory_links(
@@ -57,6 +57,21 @@ def index_version() -> int:
 
 def item_from(data) -> MemoryItem:
     return MemoryItem.model_validate(data)
+
+
+def lifecycle(item: MemoryItem) -> str:
+    return "invalidated" if item.invalidated_at is not None else "active" if item.active else "pending"
+
+
+AGENT_LABELS = {"owner_console": "Owner (console)", "owner_mcp": "Owner (MCP)", "supervisor_chat": "Supervisor chat", "factory": "Factory"}
+
+
+def agent_node(proposed_by: ProposedBy) -> str:
+    return f"agent:{proposed_by.channel}" + (f":{proposed_by.role}" if proposed_by.role else "")
+
+
+def agent_label(proposed_by: ProposedBy) -> str:
+    return AGENT_LABELS[proposed_by.channel] + (f" / {proposed_by.role}" if proposed_by.role else "")
 
 
 def cited_paths(citations: list[str]) -> dict[str, list[int]]:
@@ -119,16 +134,40 @@ class MemoryStore:
                 VALUES(%s,%s,'cites','file',%s,%s) ON CONFLICT DO NOTHING""",
                 (item.project_id, item.id, path, Jsonb({"digest": digests[path], "lines": sorted(lines), "commit": item.source_commit})))
 
+    async def _memory_target(self, conn, item: MemoryItem, target_id: str, *, lock=False) -> MemoryItem:
+        if target_id == item.id:
+            raise DomainError("MEMORY_LINK_INVALID", "A memory cannot link to itself", 422)
+        statement = "SELECT data FROM memories WHERE id=%s AND project_id=%s FOR UPDATE" if lock else "SELECT data FROM memories WHERE id=%s AND project_id=%s"
+        row = await (await conn.execute(statement,
+                                        (target_id, item.project_id))).fetchone()
+        if row is None:
+            raise DomainError("MEMORY_LINK_INVALID", "Linked memories must belong to the same project", 422)
+        return item_from(row["data"])
+
+    async def _link(self, conn, item: MemoryItem, kind: str, target_type: str, target_id: str, attrs: dict | None = None):
+        await conn.execute("""INSERT INTO memory_links(project_id,source_id,kind,target_type,target_id,attrs)
+            VALUES(%s,%s,%s,%s,%s,%s) ON CONFLICT(source_id,kind,target_type,target_id) DO NOTHING""",
+            (item.project_id, item.id, kind, target_type, target_id, Jsonb(attrs or {})))
+
     async def create_memory(self, item: MemoryItem, embedding: list[float] | None = None):
         async with self.connection() as conn:
+            if item.supersedes is not None:
+                await self._memory_target(conn, item, item.supersedes)
             created = await (await conn.execute("INSERT INTO memories(id,project_id,data,embedding) VALUES(%s,%s,%s,%s) ON CONFLICT(id) DO NOTHING RETURNING id",
                 (item.id, item.project_id, Jsonb(json.loads(item.model_dump_json())), str(embedding) if embedding else None))).fetchone()
             if created:
                 await self._insert_citations(conn, item)
+                if item.supersedes is not None:
+                    await self._link(conn, item, "supersedes", "memory", item.supersedes, {"recorded_at": "proposal"})
+                await self._after_create(conn, item, embedding)
             row = await (await conn.execute("SELECT data FROM memories WHERE id=%s", (item.id,))).fetchone()
             return item_from(row["data"])
 
-    async def set_memory_state(self, memory_id: str, approve: bool, *, scope: str | None = None):
+    async def _after_create(self, conn, item: MemoryItem, embedding: list[float] | None):
+        """Hook for derived links computed in the proposal transaction."""
+
+    async def set_memory_state(self, memory_id: str, approve: bool, *, scope: str | None = None,
+                               supersedes: str | None = None, related: list[str] | None = None):
         async with self.connection() as conn:
             row = await (await conn.execute("SELECT data FROM memories WHERE id=%s FOR UPDATE", (memory_id,))).fetchone()
             if not row:
@@ -140,6 +179,18 @@ class MemoryStore:
                 item.active, item.approved_at = True, now()
                 if scope is not None:
                     item.scope = scope  # type: ignore[assignment]
+                if supersedes is not None:
+                    item.supersedes = supersedes
+                if item.supersedes is not None:
+                    # Supersession is the owner's decision: the older memory is invalidated atomically with this approval.
+                    older = await self._memory_target(conn, item, item.supersedes, lock=True)
+                    await self._link(conn, item, "supersedes", "memory", older.id, {"recorded_at": "approval"})
+                    if older.invalidated_at is None:
+                        older.active, older.invalidated_at = False, now()
+                        await conn.execute("UPDATE memories SET data=%s WHERE id=%s", (Jsonb(json.loads(older.model_dump_json())), older.id))
+                for target in dict.fromkeys(related or []):
+                    await self._memory_target(conn, item, target)
+                    await self._link(conn, item, "related", "memory", target, {"recorded_at": "approval"})
             else:
                 item.active, item.invalidated_at = False, now()
             await conn.execute("UPDATE memories SET data=%s WHERE id=%s", (Jsonb(json.loads(item.model_dump_json())), memory_id))
@@ -270,3 +321,81 @@ class MemoryStore:
                     recallable=sql.SQL(RECALLABLE), query_function=query_function)
             cursor = await conn.execute(statement, values)
             return [item_from(r["data"]) async for r in cursor]
+
+    async def memory_graph(self, project_id: str, focus: str | None, depth: int, limit: int) -> dict:
+        memory_kinds = ["supersedes", "related", "overlaps"]
+        truncated = False
+        async with self.connection() as conn:
+            if focus is not None:
+                found = await (await conn.execute("SELECT 1 FROM memories WHERE id=%s AND project_id=%s", (focus, project_id))).fetchone()
+                if found is None:
+                    raise DomainError("MEMORY_NOT_FOUND", "Memory not found in this project", 404)
+                selected, frontier = [focus], [focus]
+                for _ in range(depth):
+                    rows = await (await conn.execute("""SELECT source_id,target_id FROM memory_links WHERE project_id=%s AND target_type='memory'
+                        AND kind=ANY(%s) AND (source_id=ANY(%s) OR target_id=ANY(%s)) ORDER BY id LIMIT %s""",
+                        (project_id, memory_kinds, frontier, frontier, limit * 4))).fetchall()
+                    truncated |= len(rows) == limit * 4
+                    following = [value for row in rows for value in (row["source_id"], row["target_id"]) if value not in selected]
+                    following = list(dict.fromkeys(following))
+                    selected.extend(following)
+                    frontier = following
+                    if not frontier:
+                        break
+                if len(selected) > limit:
+                    selected, truncated = selected[:limit], True
+            else:
+                cap = max(1, limit // 3)
+                rows = await (await conn.execute("""SELECT id FROM memories WHERE project_id=%s
+                    ORDER BY (data->>'created_at')::timestamptz DESC,id DESC LIMIT %s""", (project_id, cap + 1))).fetchall()
+                selected = [row["id"] for row in rows[:cap]]
+                truncated |= len(rows) > cap
+            memories = {row["id"]: item_from(row["data"]) for row in await (await conn.execute(
+                "SELECT id,data FROM memories WHERE project_id=%s AND id=ANY(%s)", (project_id, selected))).fetchall()}
+            links = await (await conn.execute("""SELECT source_id,kind,target_type,target_id,attrs FROM memory_links
+                WHERE project_id=%s AND source_id=ANY(%s) ORDER BY id LIMIT %s""", (project_id, selected, limit * 8))).fetchall()
+            truncated |= len(links) == limit * 8
+            runs = {row["id"]: row for row in await (await conn.execute("""SELECT id,data->>'objective' AS objective,data->>'status' AS status
+                FROM work_orders WHERE project_id=%s AND id=ANY(%s)""", (project_id, sorted({item.source_work_id for item in memories.values()})))).fetchall()}
+        nodes: dict[str, dict] = {}
+        edges: list[dict] = []
+
+        def add(node_id, node_type, label, attrs):
+            nonlocal truncated
+            if node_id in nodes:
+                return True
+            if len(nodes) >= limit:
+                truncated = True
+                return False
+            nodes[node_id] = {"id": node_id, "type": node_type, "label": label, "attrs": attrs}
+            return True
+
+        def connect(source, target, kind, attrs=None):
+            if source in nodes and target in nodes:
+                edges.append({"source": source, "target": target, "kind": kind, "attrs": attrs or {}})
+
+        ordered = [memories[value] for value in selected if value in memories]
+        for item in ordered:
+            add(f"memory:{item.id}", "memory", " ".join(item.content.split())[:80],
+                {"kind": item.kind, "state": lifecycle(item), "scope": item.scope, "source_commit": item.source_commit})
+        for link in links:
+            if link["target_type"] == "file":
+                add(f"file:{link['target_id']}", "file", link["target_id"], {})
+        for item in ordered:
+            run = runs.get(item.source_work_id)
+            if run is not None:
+                add(f"run:{run['id']}", "run", " ".join((run["objective"] or "").split())[:80], {"status": run["status"]})
+            add(f"commit:{item.source_commit}", "commit", item.source_commit[:12], {"sha": item.source_commit})
+            if item.proposed_by is not None:
+                add(agent_node(item.proposed_by), "agent", agent_label(item.proposed_by),
+                    {"channel": item.proposed_by.channel, "role": item.proposed_by.role})
+        for link in links:
+            target = f"{link['target_type']}:{link['target_id']}"
+            connect(f"memory:{link['source_id']}", target, link["kind"], dict(link["attrs"]))
+        for item in ordered:
+            source = f"memory:{item.id}"
+            connect(source, f"run:{item.source_work_id}", "from_run")
+            connect(source, f"commit:{item.source_commit}", "at_commit")
+            if item.proposed_by is not None:
+                connect(source, agent_node(item.proposed_by), "proposed_by")
+        return {"focus": focus, "depth": depth, "nodes": list(nodes.values()), "edges": edges, "truncated": truncated}
