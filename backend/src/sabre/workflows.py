@@ -6,6 +6,7 @@ import hashlib
 import json
 import re
 import time
+from contextvars import ContextVar
 from typing import Any, Literal, TypedDict
 
 import httpx
@@ -40,8 +41,11 @@ from sabre.run_state import CONTROL_OUTCOMES, is_control_outcome
 from sabre.security import is_blocking_finding, security_policy_digest
 from sabre.specialists import task_instruction
 from sabre.telemetry import span, trace_identifiers
+from sabre.work_notes import WorkNotes, load_notes, merge_notes, note_scope
 
 GRAPH_VERSION = "sabre-v1"
+# Notebooks touched by the running stage; the stage wrapper persists them with its update.
+STAGE_NOTES: ContextVar[dict[str, WorkNotes] | None] = ContextVar("sabre_stage_notes", default=None)
 MAX_ANALYSIS_HANDOFF_BYTES = 8192
 MAX_TASK_CONTEXT_BYTES = 8192
 MAX_TASK_PACKAGE_BYTES = 4096
@@ -262,6 +266,8 @@ class FactoryState(TypedDict, total=False):
     analysis_handoff: dict | None
     reset_workspace: bool
     gate_evidence: dict | None
+    # Bounded agent working notes per task (or stage role), see sabre.work_notes.
+    work_notes: dict | None
 
 
 def validate_plan(tasks: list[Task]):
@@ -319,7 +325,7 @@ class Factory:
         builder = StateGraph(FactoryState)
         retry = RetryPolicy(max_attempts=3, retry_on=(httpx.ConnectError, httpx.ReadTimeout))
         for name in ("intake", "reproduce", "analyze", "clarify", "design", "design_clarify", "architecture", "plan", "plan_clarify", "implement", "task_clarify", "scope_guard", "scope_approval", "checks", "qa_clarify", "review", "review_clarify", "security_check", "route", "commit", "deliver", "remember", "audit_report"):
-            builder.add_node(name, observe_stage(name, getattr(self, name), self.guard, self.repository), retry_policy=retry)
+            builder.add_node(name, observe_stage(name, self.noting(getattr(self, name)), self.guard, self.repository), retry_policy=retry)
         builder.add_edge(START, "intake")
         builder.add_conditional_edges("intake", lambda s: "reproduce" if s["order"]["mode"] == "patch" and s["order"].get("resolved_flow") else "analyze")
         builder.add_edge("reproduce", "analyze")
@@ -345,6 +351,21 @@ class Factory:
         builder.add_edge("deliver", "remember")
         builder.add_edge("remember", END)
         self.graph = builder.compile(checkpointer=checkpointer)
+
+    def noting(self, handler):
+        """Persist the work notes a stage's specialists recorded with the stage's own state update."""
+        async def run(state: FactoryState):
+            pending: dict[str, WorkNotes] = {}
+            token = STAGE_NOTES.set(pending)
+            try:
+                result = await handler(state)
+            finally:
+                STAGE_NOTES.reset(token)
+            changed = [notes for notes in pending.values() if notes.changed]
+            if changed and isinstance(result, dict):
+                result = {**result, "work_notes": merge_notes(state.get("work_notes"), changed)}
+            return result
+        return run
 
     def config(self, work_id) -> RunnableConfig:
         return {"configurable": {"thread_id": work_id}, "recursion_limit": 200}
@@ -401,8 +422,15 @@ class Factory:
         memory_tools = {"validate_context": self.memory.context_validator(work.project_id, snapshot["base_commit"])}
         if memories:
             memory_tools["read_memory"] = self.memory.reader(work.project_id, snapshot["base_commit"])
+        scope = note_scope(role, task)
+        pending = STAGE_NOTES.get()
+        notes = pending.get(scope) if pending is not None else None
+        if notes is None or notes.plan_revision != work.plan_revision:
+            notes = load_notes(state.get("work_notes") if state else None, scope, work.plan_revision, self.guard)
         result = await self.team.run(role, work, project, instruction, memory=memories, source_context=source_context,
-            task_context=context, memory_tools=memory_tools, **extra)
+            task_context=context, memory_tools=memory_tools, work_notes=notes, **extra)
+        if pending is not None:
+            pending[scope] = notes
         return result
 
     async def intake(self, state):
@@ -771,7 +799,7 @@ class Factory:
                 "order": work.model_dump(mode="json"), "reset_workspace": True,
                 "feedback": "", "review": "", "review_ok": False, "gates": [], "snapshot": {},
                 "security": {}, "architecture_approved": False, "source_commit": "", "baseline_manifests": "",
-                "qa_ok": False, "qa_review": "", "analysis_handoff": None, "baseline_source_index": "", "gate_evidence": None,
+                "qa_ok": False, "qa_review": "", "analysis_handoff": None, "baseline_source_index": "", "gate_evidence": None, "work_notes": None,
             }, as_node=START)
             saved = await self.graph.aget_state(config)
         if saved.next != ("intake",) or saved.values.get("reset_workspace") is not True or saved.values.get("order", {}).get("plan_revision") != revision:
