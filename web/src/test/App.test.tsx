@@ -1492,7 +1492,7 @@ describe('Control room', () => {
     mockApi();
     const user = await enter();
     await user.click(screen.getByRole('link', { name: 'Memory' }));
-    await user.click(await screen.findByRole('button', { name: 'Proposals' }));
+    await user.click(await screen.findByRole('tab', { name: 'Proposals' }));
     await user.click(await screen.findByRole('button', { name: 'Inspect memory memory-one' }));
     const inspector = screen.getByRole('dialog', { name: 'Memory provenance' });
     await user.click(within(inspector).getByRole('button', { name: 'Approve memory' }));

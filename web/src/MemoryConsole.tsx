@@ -1,7 +1,7 @@
 import Button from './components/Button';
 import Input from './components/Input';
 import Textarea from './components/Textarea';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   ApiError,
   type Api,
@@ -12,10 +12,18 @@ import {
   type IngestionReport,
   type AuditView,
 } from './api';
-import Dialog from './components/Dialog';
+import Dialog, { DialogActions } from './components/Dialog';
 import Field from './components/FormField';
 import Select from './components/Select';
-import './ConsoleSections.css';
+import PageHeader from './components/PageHeader';
+import Notice from './components/Notice';
+import Disclosure from './components/Disclosure';
+import DescriptionList from './components/DescriptionList';
+import EmptyState from './components/EmptyState';
+import Tabs from './components/Tabs';
+import { Badge } from './components/ui/badge';
+import { Card, CardDescription, CardHeader, CardTitle } from './components/ui/card';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './components/ui/table';
 
 const failure = (reason: unknown) =>
   reason instanceof ApiError
@@ -23,6 +31,29 @@ const failure = (reason: unknown) =>
     : 'Project knowledge could not be loaded. Retry the project request.';
 const validity = (item: MemoryItem) =>
   item.invalidated_at ? 'Invalidated' : item.active ? 'Approved' : 'Needs review';
+const views = ['Facts', 'Sources', 'Proposals', 'Relations', 'Context', 'History'] as const;
+type View = (typeof views)[number];
+
+/** Secondary line under a table cell or list entry. */
+function Detail({ children }: { children: ReactNode }) {
+  return <small className="mt-1 block text-xs text-muted-foreground">{children}</small>;
+}
+
+/** An empty result whose title stays a level-2 heading for assistive technology. */
+function EmptyPanel({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <EmptyState
+      title={
+        <span role="heading" aria-level={2}>
+          {title}
+        </span>
+      }
+    >
+      {children}
+    </EmptyState>
+  );
+}
+
 export interface MemoryConsoleProps {
   api: Api;
   projects: Project[];
@@ -32,6 +63,9 @@ export interface MemoryConsoleProps {
 }
 export default function MemoryConsole({ api, projects, connected = true }: MemoryConsoleProps) {
   const [projectId, setProjectId] = useState(projects[0]?.id ?? '');
+  const effectiveProjectId = projects.some((project) => project.id === projectId)
+    ? projectId
+    : (projects[0]?.id ?? '');
   const [report, setReport] = useState<ProjectKnowledgeReport | null>(null);
   const [items, setItems] = useState<MemoryItem[]>([]);
   const [ingestion, setIngestion] = useState<IngestionReport | null>(null);
@@ -39,8 +73,8 @@ export default function MemoryConsole({ api, projects, connected = true }: Memor
   const [sentContext, setSentContext] = useState<AuditView['context']>(null);
   const [contextError, setContextError] = useState('');
   const [contextLoading, setContextLoading] = useState(false);
-  const [tab, setTab] = useState('Facts');
-  const [loading, setLoading] = useState(false);
+  const [tab, setTab] = useState<View>('Facts');
+  const [loading, setLoading] = useState(!!effectiveProjectId);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [selected, setSelected] = useState<MemoryItem | null>(null);
@@ -54,11 +88,7 @@ export default function MemoryConsole({ api, projects, connected = true }: Memor
     evidence_digest: '',
   });
   const generation = useRef(0);
-  const effectiveProjectId = projects.some((project) => project.id === projectId)
-    ? projectId
-    : (projects[0]?.id ?? '');
-  const load = useCallback(async () => {
-    const requestId = ++generation.current;
+  const reset = (projectId: string) => {
     setItems([]);
     setReport(null);
     setIngestion(null);
@@ -66,34 +96,54 @@ export default function MemoryConsole({ api, projects, connected = true }: Memor
     setSelected(null);
     setError('');
     setNotice('');
-    if (!effectiveProjectId) return;
-    setLoading(true);
-    try {
-      const [knowledge, memories, index] = await Promise.all([
+    setLoading(!!projectId);
+  };
+  // A new project scope discards the previous project's records before the next render.
+  const [scope, setScope] = useState({ api, projectId: effectiveProjectId });
+  if (scope.api !== api || scope.projectId !== effectiveProjectId) {
+    setScope({ api, projectId: effectiveProjectId });
+    reset(effectiveProjectId);
+  }
+  const fetchKnowledge = useCallback(
+    (current: () => boolean) =>
+      Promise.all([
         api.knowledge(effectiveProjectId),
         api.memory(effectiveProjectId),
         api.ingestion(effectiveProjectId).catch((reason: unknown) => {
-          if (requestId === generation.current) setIndexError(failure(reason));
+          if (current()) setIndexError(failure(reason));
           return null;
         }),
-      ]);
-      if (requestId === generation.current) {
-        setReport(knowledge);
-        setItems(memories.filter((item) => item.project_id === effectiveProjectId));
-        if (index?.project_id === effectiveProjectId) setIngestion(index);
-      }
-    } catch (reason) {
-      if (requestId === generation.current) setError(failure(reason));
-    } finally {
-      if (requestId === generation.current) setLoading(false);
-    }
-  }, [api, effectiveProjectId]);
+      ])
+        .then(
+          ([knowledge, memories, index]) => {
+            if (!current()) return;
+            setReport(knowledge);
+            setItems(memories.filter((item) => item.project_id === effectiveProjectId));
+            if (index?.project_id === effectiveProjectId) setIngestion(index);
+          },
+          (reason: unknown) => {
+            if (current()) setError(failure(reason));
+          },
+        )
+        .finally(() => {
+          if (current()) setLoading(false);
+        }),
+    [api, effectiveProjectId],
+  );
   useEffect(() => {
-    void load();
+    if (!effectiveProjectId) return;
+    let active = true;
+    const requestId = ++generation.current;
+    void fetchKnowledge(() => active && requestId === generation.current);
     return () => {
-      generation.current++;
+      active = false;
     };
-  }, [load]);
+  }, [fetchKnowledge, effectiveProjectId]);
+  const refresh = () => {
+    const requestId = ++generation.current;
+    reset(effectiveProjectId);
+    if (effectiveProjectId) void fetchKnowledge(() => requestId === generation.current);
+  };
   const pendingIndex = ingestion?.jobs.some((job) => job.state === 'queued' || job.state === 'running');
   useEffect(() => {
     if (!pendingIndex || !connected || !effectiveProjectId) return;
@@ -138,15 +188,20 @@ export default function MemoryConsole({ api, projects, connected = true }: Memor
     }
   };
   const context = report?.context;
-  useEffect(() => {
-    let active = true;
+  const contextWorkId = context?.work_id;
+  // Leaving the Context view, or a different recorded run, discards the previous measurement.
+  const [contextScope, setContextScope] = useState({ api, tab, workId: contextWorkId });
+  if (contextScope.api !== api || contextScope.tab !== tab || contextScope.workId !== contextWorkId) {
+    setContextScope({ api, tab, workId: contextWorkId });
     setSentContext(null);
     setContextError('');
-    setContextLoading(false);
-    if (tab !== 'Context' || !context?.work_id) return;
-    setContextLoading(true);
+    setContextLoading(tab === 'Context' && !!contextWorkId);
+  }
+  useEffect(() => {
+    if (tab !== 'Context' || !contextWorkId) return;
+    let active = true;
     void api
-      .audit(context.work_id)
+      .audit(contextWorkId)
       .then((value) => {
         if (active) setSentContext(value.context);
       })
@@ -159,7 +214,7 @@ export default function MemoryConsole({ api, projects, connected = true }: Memor
     return () => {
       active = false;
     };
-  }, [api, tab, context?.work_id]);
+  }, [api, tab, contextWorkId]);
   const sourceIndex = ingestion?.latest;
   const latestJob = ingestion?.jobs[0];
   const sourceRecord = sourceIndex ?? context;
@@ -170,92 +225,97 @@ export default function MemoryConsole({ api, projects, connected = true }: Memor
         ? !!item.invalidated_at
         : item.active,
   );
+  const metrics: [string, ReactNode][] = [
+    [
+      sourceIndex ? 'Indexed source files' : 'Recorded source files',
+      loading ? '—' : (sourceRecord?.files.length ?? 0),
+    ],
+    ['Approved knowledge', loading ? '—' : items.filter((item) => item.active).length],
+    [
+      'Pending proposals',
+      loading ? '—' : items.filter((item) => !item.active && !item.invalidated_at).length,
+    ],
+    [
+      'Source commit',
+      <code key="commit" className="font-mono text-sm font-medium">
+        {sourceRecord?.source_commit.slice(0, 12) || 'Not recorded'}
+      </code>,
+    ],
+  ];
   return (
-    <div className="operator-page">
-      <header className="operator-heading">
-        <div>
-          <span className="operator-eyebrow">Project knowledge</span>
-          <h1>Memory</h1>
-          <p>
-            Inspect sources, reviewed knowledge and the context recorded for a specialist. Every item keeps
-            its project and source provenance.
-          </p>
-        </div>
-        <div className="operator-actions">
-          <Button
-            className="button"
-            disabled={loading || busy || !effectiveProjectId}
-            onClick={() => void load()}
-          >
-            Refresh
-          </Button>
-          <Button
-            className="button primary"
-            disabled={!connected || !effectiveProjectId}
-            onClick={() => {
-              setDraft({
-                kind: 'lesson',
-                content: '',
-                source_commit: context?.source_commit ?? '',
-                source_work_id: context?.work_id ?? '',
-                evidence_digest: '',
-              });
-              setCreating(true);
-            }}
-          >
-            Propose memory
-          </Button>
-        </div>
-      </header>
-      <div className="operator-filter">
-        <Field label="Project">
-          <Select
-            value={effectiveProjectId}
-            disabled={busy}
-            onChange={(event) => {
-              setProjectId(event.target.value);
-              setCreating(false);
-            }}
-          >
-            {!projects.length && <option value="">No registered projects</option>}
-            {projects.map((project) => (
-              <option key={project.id} value={project.id}>
-                {project.name}
-              </option>
-            ))}
-          </Select>
-        </Field>
-      </div>
+    <div className="@container grid min-w-0 gap-6">
+      <PageHeader
+        eyebrow="Project knowledge"
+        title="Memory"
+        description="Inspect sources, reviewed knowledge and the context recorded for a specialist. Every item keeps its project and source provenance."
+        actions={
+          <>
+            <Button variant="secondary" disabled={loading || busy || !effectiveProjectId} onClick={refresh}>
+              Refresh
+            </Button>
+            <Button
+              variant="primary"
+              disabled={!connected || !effectiveProjectId}
+              onClick={() => {
+                setDraft({
+                  kind: 'lesson',
+                  content: '',
+                  source_commit: context?.source_commit ?? '',
+                  source_work_id: context?.work_id ?? '',
+                  evidence_digest: '',
+                });
+                setCreating(true);
+              }}
+            >
+              Propose memory
+            </Button>
+          </>
+        }
+      />
+      <Field label="Project" className="max-w-80">
+        <Select
+          value={effectiveProjectId}
+          disabled={busy}
+          onChange={(event) => {
+            setProjectId(event.target.value);
+            setCreating(false);
+          }}
+        >
+          {!projects.length && <option value="">No registered projects</option>}
+          {projects.map((project) => (
+            <option key={project.id} value={project.id}>
+              {project.name}
+            </option>
+          ))}
+        </Select>
+      </Field>
       {!connected && (
-        <p className="notice warning" role="status">
+        <Notice tone="warning" role="status">
           Disconnected. Review the last loaded record; approval and proposal actions are unavailable.
-        </p>
+        </Notice>
       )}
       {error && (
-        <p className="notice error" role="alert">
+        <Notice tone="danger" role="alert">
           {error}
-        </p>
+        </Notice>
       )}
       {notice && (
-        <p className="notice neutral" role="status">
+        <Notice tone="neutral" role="status">
           {notice}
-        </p>
+        </Notice>
       )}
       {!projects.length ? (
-        <div className="operator-empty">
-          <h2>No project knowledge yet</h2>
-          <p>
-            Register a repository in Config to establish a project scope. Source context and reviewed memory
-            appear here when recorded.
-          </p>
-        </div>
+        <EmptyPanel title="No project knowledge yet">
+          Register a repository in Config to establish a project scope. Source context and reviewed memory
+          appear here when recorded.
+        </EmptyPanel>
       ) : (
         <>
-          <section className="operator-panel">
-            <div className="operator-heading">
-              <div>
-                <h2>Repository index</h2>
-                <p>
+          <Card aria-labelledby="repository-index-title">
+            <CardHeader>
+              <div className="grid min-w-0 gap-1.5">
+                <CardTitle id="repository-index-title">Repository index</CardTitle>
+                <CardDescription>
                   {latestJob
                     ? latestJob.state === 'completed'
                       ? 'Source metadata captured. A new source commit requires a fresh reconciliation.'
@@ -263,10 +323,10 @@ export default function MemoryConsole({ api, projects, connected = true }: Memor
                         ? 'Indexing stopped. Review the diagnostic and retry after correcting the cause.'
                         : `Indexing ${latestJob.state}. Source admission scanning runs before any metadata is retained.`
                     : 'No repository ingestion has been recorded.'}
-                </p>
+                </CardDescription>
               </div>
               <Button
-                className="button"
+                variant="secondary"
                 disabled={!connected || busy || !!pendingIndex}
                 onClick={() => {
                   if (busy || !connected) return;
@@ -291,348 +351,363 @@ export default function MemoryConsole({ api, projects, connected = true }: Memor
               >
                 {pendingIndex ? 'Indexing queued' : sourceIndex ? 'Reconcile repository' : 'Index repository'}
               </Button>
-            </div>
+            </CardHeader>
             {latestJob?.error_code && (
-              <p className="notice warning" role="status">
-                <code>{latestJob.error_code}</code> · {latestJob.error_message}
-              </p>
+              <Notice tone="warning" role="status">
+                <span>
+                  <code>{latestJob.error_code}</code> · {latestJob.error_message}
+                </span>
+              </Notice>
             )}
             {indexError && (
-              <p className="notice error" role="alert">
+              <Notice tone="danger" role="alert">
                 {indexError}
-              </p>
+              </Notice>
             )}
             {sourceIndex && (
-              <p className="operator-readonly">
+              <p className="text-xs text-muted-foreground">
                 Index v{sourceIndex.index_version} · {sourceIndex.files.length} retained file references ·{' '}
                 {sourceIndex.omitted_files} omitted · captured{' '}
                 {new Date(sourceIndex.captured_at).toLocaleString('en-US')}. Current at capture; repository
                 may have changed.
               </p>
             )}
-          </section>
-          <div className="operator-metrics">
-            <div>
-              <span>{sourceIndex ? 'Indexed source files' : 'Recorded source files'}</span>
-              <strong>{loading ? '—' : (sourceRecord?.files.length ?? 0)}</strong>
-            </div>
-            <div>
-              <span>Approved knowledge</span>
-              <strong>{loading ? '—' : items.filter((item) => item.active).length}</strong>
-            </div>
-            <div>
-              <span>Pending proposals</span>
-              <strong>
-                {loading ? '—' : items.filter((item) => !item.active && !item.invalidated_at).length}
-              </strong>
-            </div>
-            <div>
-              <span>Source commit</span>
-              <strong style={{ fontSize: 14 }}>
-                <code>{sourceRecord?.source_commit.slice(0, 12) || 'Not recorded'}</code>
-              </strong>
-            </div>
-          </div>
-          <div className="operator-tabs" aria-label="Knowledge views">
-            {['Facts', 'Sources', 'Proposals', 'Relations', 'Context', 'History'].map((name) => (
-              <Button key={name} aria-pressed={tab === name} onClick={() => setTab(name)}>
-                {name}
-              </Button>
+          </Card>
+          <dl
+            aria-label="Knowledge summary"
+            className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-border bg-border @3xl:grid-cols-4"
+          >
+            {metrics.map(([label, value]) => (
+              <div key={label} className="grid min-w-0 content-start gap-1.5 bg-card px-4 py-3.5">
+                <dt className="text-xs text-muted-foreground">{label}</dt>
+                <dd className="min-w-0 text-xl font-semibold tabular-nums [overflow-wrap:anywhere]">
+                  {value}
+                </dd>
+              </div>
             ))}
-          </div>
-          {loading && (
-            <div className="operator-panel" role="status">
-              Loading this project’s knowledge and provenance…
-            </div>
-          )}
-          {!loading && !error && (
-            <>
-              {['Facts', 'Proposals', 'History'].includes(tab) && (
-                <>
-                  {rows.length ? (
-                    <div className="operator-table-wrap">
-                      <table className="operator-table">
-                        <thead>
-                          <tr>
-                            <th>Knowledge</th>
-                            <th>Type</th>
-                            <th>Provenance</th>
-                            <th>Validity</th>
-                            <th>Details</th>
-                          </tr>
-                        </thead>
-                        <tbody>
+          </dl>
+          <Tabs
+            items={views.map((name) => ({ value: name, label: name }))}
+            value={tab}
+            onChange={setTab}
+            label="Knowledge views"
+            className="min-w-0 [&>[role=tabpanel]]:px-0 [&>[role=tabpanel]]:pb-0"
+          >
+            {(view) =>
+              loading ? (
+                <Card role="status" className="text-sm text-muted-foreground">
+                  Loading this project’s knowledge and provenance…
+                </Card>
+              ) : error ? null : (
+                <div className="grid min-w-0 gap-4 pt-1">
+                  {['Facts', 'Proposals', 'History'].includes(view) &&
+                    (rows.length ? (
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Knowledge</TableHead>
+                            <TableHead>Type</TableHead>
+                            <TableHead>Provenance</TableHead>
+                            <TableHead>Validity</TableHead>
+                            <TableHead>Details</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
                           {rows.map((item) => (
-                            <tr key={item.id}>
-                              <td>
+                            <TableRow key={item.id}>
+                              <TableCell className="min-w-56">
                                 {item.content}
-                                <small>{new Date(item.created_at).toLocaleString('en-US')}</small>
-                              </td>
-                              <td>{item.kind === 'fact' ? 'Recorded fact' : 'Lesson'}</td>
-                              <td>
-                                <code>{item.source_commit.slice(0, 12)}</code>
-                                <small>Run {item.source_work_id}</small>
-                              </td>
-                              <td>
-                                <span className={`operator-tag ${item.active ? 'good' : 'warning'}`}>
-                                  {validity(item)}
-                                </span>
-                              </td>
-                              <td>
+                                <Detail>{new Date(item.created_at).toLocaleString('en-US')}</Detail>
+                              </TableCell>
+                              <TableCell className="whitespace-nowrap">
+                                {item.kind === 'fact' ? 'Recorded fact' : 'Lesson'}
+                              </TableCell>
+                              <TableCell>
+                                <code className="font-mono text-xs">{item.source_commit.slice(0, 12)}</code>
+                                <Detail>Run {item.source_work_id}</Detail>
+                              </TableCell>
+                              <TableCell>
+                                <Badge variant={item.active ? 'success' : 'warning'}>{validity(item)}</Badge>
+                              </TableCell>
+                              <TableCell>
                                 <Button
-                                  className="button small"
+                                  variant="secondary"
+                                  size="sm"
                                   onClick={() => setSelected(item)}
                                   aria-label={`Inspect memory ${item.id}`}
                                 >
                                   Inspect
                                 </Button>
-                              </td>
-                            </tr>
+                              </TableCell>
+                            </TableRow>
                           ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  ) : (
-                    <div className="operator-empty">
-                      <h2>
-                        {tab === 'Proposals'
-                          ? 'No pending proposals'
-                          : tab === 'History'
-                            ? 'No invalidated knowledge'
-                            : 'No approved knowledge'}
-                      </h2>
-                      <p>
-                        {tab === 'Facts'
+                        </TableBody>
+                      </Table>
+                    ) : (
+                      <EmptyPanel
+                        title={
+                          view === 'Proposals'
+                            ? 'No pending proposals'
+                            : view === 'History'
+                              ? 'No invalidated knowledge'
+                              : 'No approved knowledge'
+                        }
+                      >
+                        {view === 'Facts'
                           ? 'Evidence and provenance remain attached to each memory. Proposals require review before they guide future runs.'
                           : 'Only records in this project are shown.'}
-                      </p>
-                    </div>
-                  )}
-                </>
-              )}
-              {tab === 'Sources' && (
-                <section className="operator-panel">
-                  <h2>{sourceIndex ? 'Indexed repository sources' : 'Recorded repository context'}</h2>
-                  <p className="muted">
-                    {sourceIndex
-                      ? 'Bounded metadata from an admission-scanned repository snapshot. Raw source is not stored in this report.'
-                      : 'This is the bounded source selection recorded by an agent. Currentness has not been checked.'}
-                  </p>
-                  {sourceRecord ? (
-                    <>
-                      <dl className="operator-kv">
-                        <dt>Source commit</dt>
-                        <dd>
-                          <code>{sourceRecord.source_commit}</code>
-                        </dd>
-                        <dt>Snapshot digest</dt>
-                        <dd>
-                          <code>{sourceRecord.snapshot_digest}</code>
-                        </dd>
-                        <dt>Selection</dt>
-                        <dd>
-                          {sourceRecord.total_files} files observed · {sourceRecord.files.length} retained ·{' '}
-                          {sourceRecord.omitted_files} omitted
-                        </dd>
-                        <dt>Capture</dt>
-                        <dd>
-                          {sourceRecord.captured_at
-                            ? new Date(sourceRecord.captured_at).toLocaleString('en-US')
-                            : 'Timestamp not recorded'}
-                        </dd>
-                      </dl>
-                      <div className="operator-table-wrap">
-                        <table className="operator-table">
-                          <thead>
-                            <tr>
-                              <th>Source file</th>
-                              <th>Recorded extent</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {sourceRecord.files.map((file) => (
-                              <tr key={file.path}>
-                                <td>
-                                  <code>{file.path}</code>
-                                </td>
-                                <td>
-                                  {file.lines === null ? 'Outside the indexing limit' : `${file.lines} lines`}
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
+                      </EmptyPanel>
+                    ))}
+                  {view === 'Sources' && (
+                    <Card aria-labelledby="memory-sources-title">
+                      <div className="grid gap-1.5">
+                        <CardTitle id="memory-sources-title">
+                          {sourceIndex ? 'Indexed repository sources' : 'Recorded repository context'}
+                        </CardTitle>
+                        <CardDescription>
+                          {sourceIndex
+                            ? 'Bounded metadata from an admission-scanned repository snapshot. Raw source is not stored in this report.'
+                            : 'This is the bounded source selection recorded by an agent. Currentness has not been checked.'}
+                        </CardDescription>
                       </div>
-                      {sourceIndex && (
-                        <details className="operator-section-divider">
-                          <summary>
-                            Changes from {sourceIndex.previous_commit?.slice(0, 12) || 'initial capture'}
-                          </summary>
-                          <p>
-                            {sourceIndex.changes.added.length} added · {sourceIndex.changes.changed.length}{' '}
-                            changed · {sourceIndex.changes.deleted.length} deleted within the bounded index.
-                          </p>
-                          {(['added', 'changed', 'deleted'] as const).map(
-                            (kind) =>
-                              sourceIndex.changes[kind].length > 0 && (
-                                <div key={kind}>
-                                  <h3>{kind}</h3>
-                                  <ul>
-                                    {sourceIndex.changes[kind].map((path) => (
-                                      <li key={path}>
-                                        <code>{path}</code>
-                                      </li>
-                                    ))}
-                                  </ul>
-                                </div>
-                              ),
+                      {sourceRecord ? (
+                        <>
+                          <DescriptionList
+                            items={[
+                              [
+                                'Source commit',
+                                <code className="font-mono text-xs">{sourceRecord.source_commit}</code>,
+                              ],
+                              [
+                                'Snapshot digest',
+                                <code className="font-mono text-xs">{sourceRecord.snapshot_digest}</code>,
+                              ],
+                              [
+                                'Selection',
+                                `${sourceRecord.total_files} files observed · ${sourceRecord.files.length} retained · ${sourceRecord.omitted_files} omitted`,
+                              ],
+                              [
+                                'Capture',
+                                sourceRecord.captured_at
+                                  ? new Date(sourceRecord.captured_at).toLocaleString('en-US')
+                                  : 'Timestamp not recorded',
+                              ],
+                            ]}
+                          />
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead>Source file</TableHead>
+                                <TableHead>Recorded extent</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {sourceRecord.files.map((file) => (
+                                <TableRow key={file.path}>
+                                  <TableCell>
+                                    <code className="font-mono text-xs">{file.path}</code>
+                                  </TableCell>
+                                  <TableCell className="whitespace-nowrap">
+                                    {file.lines === null
+                                      ? 'Outside the indexing limit'
+                                      : `${file.lines} lines`}
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                          {sourceIndex && (
+                            <Disclosure
+                              summary={`Changes from ${sourceIndex.previous_commit?.slice(0, 12) || 'initial capture'}`}
+                            >
+                              <p className="text-sm text-muted-foreground">
+                                {sourceIndex.changes.added.length} added ·{' '}
+                                {sourceIndex.changes.changed.length} changed ·{' '}
+                                {sourceIndex.changes.deleted.length} deleted within the bounded index.
+                              </p>
+                              {(['added', 'changed', 'deleted'] as const).map(
+                                (kind) =>
+                                  sourceIndex.changes[kind].length > 0 && (
+                                    <div key={kind} className="grid gap-1.5">
+                                      <h3 className="text-sm font-medium capitalize">{kind}</h3>
+                                      <ul className="grid list-disc gap-1 pl-5 text-sm">
+                                        {sourceIndex.changes[kind].map((path) => (
+                                          <li key={path} className="[overflow-wrap:anywhere]">
+                                            <code className="font-mono text-xs">{path}</code>
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    </div>
+                                  ),
+                              )}
+                            </Disclosure>
                           )}
-                        </details>
-                      )}
-                    </>
-                  ) : (
-                    <p>No source context is recorded for this project in the available history.</p>
-                  )}
-                </section>
-              )}
-              {tab === 'Relations' && (
-                <section className="operator-panel">
-                  <h2>Provenance relationships</h2>
-                  <p className="muted">Links below come from stored source and run references.</p>
-                  {items.length ? (
-                    <ul className="operator-checks">
-                      {items.map((item) => (
-                        <li key={item.id}>
-                          <div>
-                            <Button className="text-button" onClick={() => setSelected(item)}>
-                              Memory {item.id}
-                            </Button>
-                            <small>
-                              {item.kind} · {validity(item)}
-                            </small>
-                          </div>
-                          <div>
-                            Run <code>{item.source_work_id}</code>
-                            <small>
-                              Commit <code>{item.source_commit.slice(0, 12)}</code>
-                              {item.evidence_digest
-                                ? ' · evidence digest retained'
-                                : ' · no evidence digest recorded'}
-                            </small>
-                          </div>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p>No memory provenance relationships recorded.</p>
-                  )}
-                </section>
-              )}
-              {tab === 'Context' && (
-                <div className="operator-two">
-                  <section className="operator-panel">
-                    <h2>Recorded specialist context</h2>
-                    {context ? (
-                      <>
-                        <p>
-                          Source selection recorded for <strong>{context.role}</strong>, run{' '}
-                          <code>{context.work_id}</code>.
+                        </>
+                      ) : (
+                        <p className="text-sm">
+                          No source context is recorded for this project in the available history.
                         </p>
-                        <dl className="operator-kv">
-                          <dt>Source files</dt>
-                          <dd>{context.files.length} references</dd>
-                          <dt>Plan revision</dt>
-                          <dd>{context.plan_revision}</dd>
-                          <dt>Commit</dt>
-                          <dd>
-                            <code>{context.source_commit}</code>
-                          </dd>
-                          <dt>Currentness</dt>
-                          <dd>Unknown; repository not checked again</dd>
-                        </dl>
-                      </>
-                    ) : (
-                      <p>No specialist context snapshot is available.</p>
-                    )}
-                  </section>
-                  <section className="operator-panel">
-                    <h2>What this record proves</h2>
-                    <p>
-                      Source references were retained in a checkpoint. The run’s context receipts measure sent
-                      bytes and compacted read references; they do not expose exact prompt excerpts or task
-                      relevance scores.
-                    </p>
-                    {contextLoading && <p role="status">Loading recorded run context…</p>}
-                    {contextError && (
-                      <p className="notice error" role="alert">
-                        {contextError}
-                      </p>
-                    )}
-                    {sentContext ? (
-                      <>
-                        <dl className="operator-kv">
-                          <dt>Run coverage</dt>
-                          <dd>
-                            {sentContext.requests_with_context} measured requests ·{' '}
-                            {sentContext.requests_without_context} without measurements
-                          </dd>
-                          <dt>Before compaction</dt>
-                          <dd>{sentContext.original_bytes.toLocaleString('en-US')} bytes</dd>
-                          <dt>Sent context</dt>
-                          <dd>{sentContext.sent_bytes.toLocaleString('en-US')} bytes</dd>
-                          <dt>Read references</dt>
-                          <dd>{sentContext.compacted_results} compacted results</dd>
-                          <dt>Recovered pages</dt>
-                          <dd>
-                            {sentContext.restored_pages === null
-                              ? 'Not measured'
-                              : sentContext.restored_pages}
-                          </dd>
-                        </dl>
-                        {sentContext.references_truncated && (
-                          <p className="operator-readonly">
-                            Reference details are bounded; totals include all retained read references.
+                      )}
+                    </Card>
+                  )}
+                  {view === 'Relations' && (
+                    <Card aria-labelledby="memory-relations-title">
+                      <div className="grid gap-1.5">
+                        <CardTitle id="memory-relations-title">Provenance relationships</CardTitle>
+                        <CardDescription>
+                          Links below come from stored source and run references.
+                        </CardDescription>
+                      </div>
+                      {items.length ? (
+                        <ul className="grid divide-y divide-border border-y border-border">
+                          {items.map((item) => (
+                            <li
+                              key={item.id}
+                              className="grid min-w-0 gap-2 py-3 text-sm @xl:grid-cols-2 @xl:gap-6"
+                            >
+                              <div className="min-w-0">
+                                <Button
+                                  variant="link"
+                                  className="h-auto min-h-8 justify-start p-0 whitespace-normal"
+                                  onClick={() => setSelected(item)}
+                                >
+                                  Memory {item.id}
+                                </Button>
+                                <Detail>
+                                  {item.kind} · {validity(item)}
+                                </Detail>
+                              </div>
+                              <div className="min-w-0 [overflow-wrap:anywhere]">
+                                Run <code className="font-mono text-xs">{item.source_work_id}</code>
+                                <Detail>
+                                  Commit <code className="font-mono">{item.source_commit.slice(0, 12)}</code>
+                                  {item.evidence_digest
+                                    ? ' · evidence digest retained'
+                                    : ' · no evidence digest recorded'}
+                                </Detail>
+                              </div>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="text-sm">No memory provenance relationships recorded.</p>
+                      )}
+                    </Card>
+                  )}
+                  {view === 'Context' && (
+                    <div className="grid min-w-0 items-start gap-4 @4xl:grid-cols-2">
+                      <Card aria-labelledby="memory-context-title">
+                        <CardTitle id="memory-context-title">Recorded specialist context</CardTitle>
+                        {context ? (
+                          <>
+                            <p className="text-sm">
+                              Source selection recorded for <strong>{context.role}</strong>, run{' '}
+                              <code className="font-mono text-xs">{context.work_id}</code>.
+                            </p>
+                            <DescriptionList
+                              items={[
+                                ['Source files', `${context.files.length} references`],
+                                ['Plan revision', context.plan_revision],
+                                [
+                                  'Commit',
+                                  <code className="font-mono text-xs">{context.source_commit}</code>,
+                                ],
+                                ['Currentness', 'Unknown; repository not checked again'],
+                              ]}
+                            />
+                          </>
+                        ) : (
+                          <p className="text-sm">No specialist context snapshot is available.</p>
+                        )}
+                      </Card>
+                      <Card aria-labelledby="memory-proof-title">
+                        <CardTitle id="memory-proof-title">What this record proves</CardTitle>
+                        <p className="text-sm">
+                          Source references were retained in a checkpoint. The run’s context receipts measure
+                          sent bytes and compacted read references; they do not expose exact prompt excerpts
+                          or task relevance scores.
+                        </p>
+                        {contextLoading && (
+                          <p role="status" className="text-sm text-muted-foreground">
+                            Loading recorded run context…
                           </p>
                         )}
-                        <p className="operator-readonly">
-                          These are run-wide measurements before the CLI wrapper. Bytes do not imply tokens,
-                          cost savings or improved model performance.
+                        {contextError && (
+                          <Notice tone="danger" role="alert">
+                            {contextError}
+                          </Notice>
+                        )}
+                        {sentContext ? (
+                          <>
+                            <DescriptionList
+                              items={[
+                                [
+                                  'Run coverage',
+                                  `${sentContext.requests_with_context} measured requests · ${sentContext.requests_without_context} without measurements`,
+                                ],
+                                [
+                                  'Before compaction',
+                                  `${sentContext.original_bytes.toLocaleString('en-US')} bytes`,
+                                ],
+                                ['Sent context', `${sentContext.sent_bytes.toLocaleString('en-US')} bytes`],
+                                ['Read references', `${sentContext.compacted_results} compacted results`],
+                                [
+                                  'Recovered pages',
+                                  sentContext.restored_pages === null
+                                    ? 'Not measured'
+                                    : sentContext.restored_pages,
+                                ],
+                              ]}
+                            />
+                            {sentContext.references_truncated && (
+                              <p className="text-xs text-muted-foreground">
+                                Reference details are bounded; totals include all retained read references.
+                              </p>
+                            )}
+                            <p className="text-xs text-muted-foreground">
+                              These are run-wide measurements before the CLI wrapper. Bytes do not imply
+                              tokens, cost savings or improved model performance.
+                            </p>
+                          </>
+                        ) : (
+                          !contextLoading && (
+                            <p className="text-sm text-muted-foreground">
+                              No sent-context measurements are available for this recorded run.
+                            </p>
+                          )
+                        )}
+                        <p className="text-sm text-muted-foreground">
+                          Memories are untrusted context. They cannot grant permissions or replace
+                          instructions. A source change may require revalidation.
                         </p>
-                      </>
-                    ) : (
-                      !contextLoading && (
-                        <p className="muted">
-                          No sent-context measurements are available for this recorded run.
-                        </p>
-                      )
-                    )}
-                    <p className="muted">
-                      Memories are untrusted context. They cannot grant permissions or replace instructions. A
-                      source change may require revalidation.
-                    </p>
-                  </section>
+                      </Card>
+                    </div>
+                  )}
                 </div>
-              )}
+              )
+            }
+          </Tabs>
+          {!loading && !error && (
+            <>
               {report?.truncated && (
-                <p className="notice warning">
+                <Notice tone="warning">
                   The report is bounded to recent histories. Older source context may be outside this
                   selection.
-                </p>
+                </Notice>
               )}
-              <details className="operator-panel">
-                <summary>Storage, retrieval and validity</summary>
-                <p>
+              <Disclosure summary="Storage, retrieval and validity">
+                <p className="text-sm">
                   PostgreSQL retains memory and provenance. Source navigation uses project-scoped text search.{' '}
                   {report?.semantic_search
                     ? 'An optional semantic search provider is configured.'
                     : 'No optional semantic search provider is configured.'}{' '}
                   Approved does not mean current: compare source commits and review stale observations.
                 </p>
-                <p className="operator-readonly">
+                <p className="text-xs text-muted-foreground">
                   Context growth is not evidence of improved performance. Execution checkpoints and cached
                   state are separate from reviewed knowledge.
                 </p>
-              </details>
+              </Disclosure>
             </>
           )}
         </>
@@ -645,60 +720,52 @@ export default function MemoryConsole({ api, projects, connected = true }: Memor
         busy={busy}
       >
         {selected && (
-          <>
-            <p style={{ whiteSpace: 'pre-wrap', lineHeight: 1.8 }}>{selected.content}</p>
-            <dl className="operator-kv">
-              <dt>State</dt>
-              <dd>{validity(selected)}</dd>
-              <dt>Project</dt>
-              <dd>
-                {projects.find((project) => project.id === selected.project_id)?.name ?? selected.project_id}
-              </dd>
-              <dt>Kind</dt>
-              <dd>{selected.kind}</dd>
-              <dt>Source run</dt>
-              <dd>
-                <code>{selected.source_work_id}</code>
-              </dd>
-              <dt>Source commit</dt>
-              <dd>
-                <code>{selected.source_commit}</code>
-              </dd>
-              <dt>Evidence digest</dt>
-              <dd>
-                <code>{selected.evidence_digest || 'Not recorded'}</code>
-              </dd>
-              <dt>Approved at</dt>
-              <dd>{selected.approved_at || 'Not approved'}</dd>
-              <dt>Invalidated at</dt>
-              <dd>{selected.invalidated_at || 'Not invalidated'}</dd>
-            </dl>
+          <div className="grid gap-5">
+            <p className="text-base leading-relaxed whitespace-pre-wrap">{selected.content}</p>
+            <DescriptionList
+              items={[
+                ['State', validity(selected)],
+                [
+                  'Project',
+                  projects.find((project) => project.id === selected.project_id)?.name ?? selected.project_id,
+                ],
+                ['Kind', selected.kind],
+                ['Source run', <code className="font-mono text-xs">{selected.source_work_id}</code>],
+                ['Source commit', <code className="font-mono text-xs">{selected.source_commit}</code>],
+                [
+                  'Evidence digest',
+                  <code className="font-mono text-xs">{selected.evidence_digest || 'Not recorded'}</code>,
+                ],
+                ['Approved at', selected.approved_at || 'Not approved'],
+                ['Invalidated at', selected.invalidated_at || 'Not invalidated'],
+              ]}
+            />
             {error && (
-              <p className="notice error" role="alert">
+              <Notice tone="danger" role="alert">
                 {error}
-              </p>
+              </Notice>
             )}
-            <div className="operator-actions">
-              {!selected.active && !selected.invalidated_at && (
-                <Button
-                  className="button primary"
-                  disabled={busy || !connected}
-                  onClick={() => void action(selected, 'approve')}
-                >
-                  Approve memory
-                </Button>
-              )}
+            <DialogActions>
               {!selected.invalidated_at && (
                 <Button
-                  className="button"
+                  variant="secondary"
                   disabled={busy || !connected}
                   onClick={() => void action(selected, 'invalidate')}
                 >
                   Invalidate memory
                 </Button>
               )}
-            </div>
-          </>
+              {!selected.active && !selected.invalidated_at && (
+                <Button
+                  variant="primary"
+                  disabled={busy || !connected}
+                  onClick={() => void action(selected, 'approve')}
+                >
+                  Approve memory
+                </Button>
+              )}
+            </DialogActions>
+          </div>
         )}
       </Dialog>
       <Dialog
@@ -710,6 +777,7 @@ export default function MemoryConsole({ api, projects, connected = true }: Memor
         dirty={!!draft.content}
       >
         <form
+          className="grid gap-4"
           onSubmit={(event) => {
             event.preventDefault();
             if (busy || !connected) return;
@@ -748,22 +816,24 @@ export default function MemoryConsole({ api, projects, connected = true }: Memor
               onChange={(event) => setDraft({ ...draft, content: event.target.value })}
             />
           </Field>
-          <Field label="Source commit">
-            <Input
-              required
-              value={draft.source_commit}
-              maxLength={128}
-              onChange={(event) => setDraft({ ...draft, source_commit: event.target.value })}
-            />
-          </Field>
-          <Field label="Source run">
-            <Input
-              required
-              value={draft.source_work_id}
-              maxLength={128}
-              onChange={(event) => setDraft({ ...draft, source_work_id: event.target.value })}
-            />
-          </Field>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Source commit">
+              <Input
+                required
+                value={draft.source_commit}
+                maxLength={128}
+                onChange={(event) => setDraft({ ...draft, source_commit: event.target.value })}
+              />
+            </Field>
+            <Field label="Source run">
+              <Input
+                required
+                value={draft.source_work_id}
+                maxLength={128}
+                onChange={(event) => setDraft({ ...draft, source_work_id: event.target.value })}
+              />
+            </Field>
+          </div>
           <Field
             label="Evidence digest"
             hint="Use the recorded digest if available; do not paste secrets or evidence payloads."
@@ -775,13 +845,15 @@ export default function MemoryConsole({ api, projects, connected = true }: Memor
             />
           </Field>
           {error && (
-            <p className="notice error" role="alert">
+            <Notice tone="danger" role="alert">
               {error}
-            </p>
+            </Notice>
           )}
-          <Button className="button primary" disabled={busy || !connected}>
-            {busy ? 'Saving…' : 'Save proposal'}
-          </Button>
+          <DialogActions>
+            <Button variant="primary" disabled={busy || !connected}>
+              {busy ? 'Saving…' : 'Save proposal'}
+            </Button>
+          </DialogActions>
         </form>
       </Dialog>
     </div>

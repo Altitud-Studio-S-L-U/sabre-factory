@@ -1,7 +1,22 @@
+import type { ReactNode } from 'react';
 import type { ProjectKnowledgeReport } from './api';
-import './KnowledgeAudit.css';
+import Disclosure from './components/Disclosure';
+import DescriptionList from './components/DescriptionList';
+import Notice from './components/Notice';
+import { SectionHeading } from './components/PageHeader';
 
 const count = (value: number) => value.toLocaleString('en-US');
+const note = 'text-xs leading-relaxed text-muted-foreground';
+
+function Kind({ title, value, children }: { title: string; value: ReactNode; children: ReactNode }) {
+  return (
+    <div className="grid min-w-0 content-start gap-1.5 bg-card p-4">
+      <h3 className="text-xs font-medium text-muted-foreground">{title}</h3>
+      <strong className="text-base font-semibold">{value}</strong>
+      <p className={note}>{children}</p>
+    </div>
+  );
+}
 
 export default function ProjectKnowledge({
   data,
@@ -13,103 +28,87 @@ export default function ProjectKnowledge({
   error?: string;
 }) {
   return (
-    <section className="project-knowledge" aria-labelledby="project-knowledge-title">
-      <div className="section-heading">
-        <h2 id="project-knowledge-title">What SABRE retains</h2>
-      </div>
+    <section className="@container grid min-w-0 gap-4" aria-labelledby="project-knowledge-title">
+      <SectionHeading id="project-knowledge-title" title="What SABRE retains" />
       {error && (
-        <p role="alert" className="audit-error">
+        <Notice tone="danger" role="alert">
           {error}
+        </Notice>
+      )}
+      {loading && !data && (
+        <p role="status" className="text-sm text-muted-foreground">
+          Loading project context…
         </p>
       )}
-      {loading && !data && <p role="status">Loading project context…</p>}
       {data && (
         <>
-          <div className="knowledge-kinds">
-            <div>
-              <h3>Project knowledge</h3>
-              <strong>
-                {count(data.memories.active)} active · {count(data.memories.pending)} pending
-              </strong>
-              <p>
-                {data.memories.total === 0
-                  ? 'No memories yet. Delivery facts are recorded after the PR is published; lessons require review.'
-                  : 'Facts and lessons with provenance. Invalidated memories no longer guide runs.'}
-              </p>
-            </div>
-            <div>
-              <h3>Resume state</h3>
-              <strong>{count(data.checkpoints.count)} development checkpoints</strong>
-              <p>
-                Retain progress and histories for {count(data.checkpoints.threads)} development and agent
-                flows. Security retains separate records.
-              </p>
-            </div>
-            <div>
-              <h3>Source navigation</h3>
-              <strong>Text search by project</strong>
-              <p>
-                The local index supports search and bounded reads.{' '}
-                {data.semantic_search
-                  ? 'Vector memory search is configured.'
-                  : 'Vector memory search is not configured.'}
-              </p>
-            </div>
+          <div className="grid gap-px overflow-hidden rounded-lg border border-border bg-border @2xl:grid-cols-3">
+            <Kind
+              title="Project knowledge"
+              value={`${count(data.memories.active)} active · ${count(data.memories.pending)} pending`}
+            >
+              {data.memories.total === 0
+                ? 'No memories yet. Delivery facts are recorded after the PR is published; lessons require review.'
+                : 'Facts and lessons with provenance. Invalidated memories no longer guide runs.'}
+            </Kind>
+            <Kind title="Resume state" value={`${count(data.checkpoints.count)} development checkpoints`}>
+              Retain progress and histories for {count(data.checkpoints.threads)} development and agent flows.
+              Security retains separate records.
+            </Kind>
+            <Kind title="Source navigation" value="Text search by project">
+              The local index supports search and bounded reads.{' '}
+              {data.semantic_search
+                ? 'Vector memory search is configured.'
+                : 'Vector memory search is not configured.'}
+            </Kind>
           </div>
-          <p className="audit-note">
+          <p className={note}>
             Authorized profile: {data.profile === 'node' ? 'Node.js' : 'Python'} · {data.gate_count}{' '}
             {data.gate_count === 1 ? 'configured check' : 'configured checks'}.
           </p>
           {data.context ? (
-            <details className="knowledge-context">
-              <summary>Recorded source context</summary>
-              <p className="audit-note">
+            <Disclosure summary="Recorded source context">
+              <p className={note}>
                 This is an agent-recorded reference. The repository has not been checked again and the
                 reference may be outdated.
               </p>
-              <dl className="knowledge-provenance">
-                <div>
-                  <dt>Source commit</dt>
-                  <dd>
-                    <code>{data.context.source_commit}</code>
-                  </dd>
-                </div>
-                <div>
-                  <dt>Snapshot</dt>
-                  <dd>
-                    <code>{data.context.snapshot_digest}</code>
-                  </dd>
-                </div>
-                <div>
-                  <dt>Scope</dt>
-                  <dd>
-                    {count(data.context.total_files)} files · {count(data.context.text_files)} text ·{' '}
-                    {count(data.context.omitted_files)} outside this selection
-                  </dd>
-                </div>
-              </dl>
-              <ul className="knowledge-files" aria-label="Recorded context files">
+              <DescriptionList
+                items={[
+                  ['Source commit', <code className="font-mono text-xs">{data.context.source_commit}</code>],
+                  ['Snapshot', <code className="font-mono text-xs">{data.context.snapshot_digest}</code>],
+                  [
+                    'Scope',
+                    `${count(data.context.total_files)} files · ${count(data.context.text_files)} text · ${count(
+                      data.context.omitted_files,
+                    )} outside this selection`,
+                  ],
+                ]}
+              />
+              <ul
+                className="grid divide-y divide-border border-y border-border text-sm"
+                aria-label="Recorded context files"
+              >
                 {data.context.files.map((file) => (
-                  <li key={file.path}>
-                    <code>{file.path}</code>
-                    <span>
+                  <li key={file.path} className="flex min-w-0 items-baseline justify-between gap-3 py-2">
+                    <code className="min-w-0 font-mono text-xs [overflow-wrap:anywhere]">{file.path}</code>
+                    <span className="shrink-0 text-xs text-muted-foreground">
                       {file.lines !== null ? `${count(file.lines)} lines` : 'Outside the indexing limit'}
                     </span>
                   </li>
                 ))}
               </ul>
-            </details>
+            </Disclosure>
           ) : (
-            <p className="audit-empty">
+            <p className="text-sm text-muted-foreground">
               {data.truncated
                 ? 'No context is available in this bounded selection.'
                 : 'No source context recorded for the current revision.'}
             </p>
           )}
           {data.truncated && (
-            <p className="audit-caution">
+            <Notice tone="warning">
               Context selection is limited to recent histories. Counters cover the complete record.
-            </p>
+            </Notice>
           )}
         </>
       )}
