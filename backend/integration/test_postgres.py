@@ -518,3 +518,34 @@ async def test_cancel_does_not_overwrite_new_progress_or_clean_an_active_writer(
     cancelled = await service.control(work.id, "cancel")
     assert cancelled.status == Status.CANCELLED
     assert cleaned == [work.id]
+
+
+async def test_idle_cancel_of_a_blocked_run_keeps_evidence_and_records_one_event(repository):
+    repo, project, work = await fixture_work(repository)
+    work.status, work.error_code, work.limiting_metric = Status.BLOCKED, "BUDGET_EXHAUSTED", "tokens"
+    work.summary = "The budget does not allow another model call"
+    await repo.save(work)
+    cleaned = []
+
+    async def cleanup(work_id):
+        cleaned.append(work_id)
+
+    service = FactoryService(repo, SimpleNamespace(executor=SimpleNamespace(cleanup=cleanup)), None, None, SecretGuard(), None)
+    cancelled = await service.control(work.id, "cancel")
+    assert cancelled.status == Status.CANCELLED and cancelled.summary == "Work order cancelled"
+    assert (cancelled.error_code, cancelled.limiting_metric) == ("BUDGET_EXHAUSTED", "tokens")
+    assert [event["kind"] for event in await repo.events(work.id)].count("cancelled") == 1
+    with pytest.raises(DomainError) as closed:
+        await service.control(work.id, "cancel")
+    assert closed.value.code == "WORK_TERMINAL"
+    assert [event["kind"] for event in await repo.events(work.id)].count("cancelled") == 1
+
+
+async def test_repeated_idle_pause_records_a_single_event(repository):
+    repo, project, work = await fixture_work(repository)
+    work.status = Status.BLOCKED
+    await repo.save(work)
+    service = FactoryService(repo, SimpleNamespace(executor=SimpleNamespace(cleanup=AsyncMock())), None, None, SecretGuard(), None)
+    assert (await service.control(work.id, "pause")).status == Status.PAUSED
+    assert (await service.control(work.id, "pause")).status == Status.PAUSED
+    assert [event["kind"] for event in await repo.events(work.id)].count("paused") == 1

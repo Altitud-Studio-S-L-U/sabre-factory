@@ -7,6 +7,7 @@ import { Link, useInRouterContext } from 'react-router';
 import { ArrowUp, ArrowUpRight, HardHat, LoaderCircle, Wrench } from 'lucide-react';
 import type { Api, OperatorMessageView, OperatorAction, WorkOrder } from './api';
 import Select from './components/Select';
+import { pendingQuestions } from './runState';
 import './SupervisorConsole.css';
 
 const actions: { id: OperatorAction; label: string; run: boolean }[] = [
@@ -381,12 +382,7 @@ export default function SupervisorConsole({
 
   const scopes = [...new Set([...orders.map((order) => order.id), ...(selectedId ? [selectedId] : [])])];
   const attention = orders
-    .map((order) => ({
-      order,
-      questions: order.questions.filter(
-        (question) => question.answer === null && question.plan_revision === order.plan_revision,
-      ),
-    }))
+    .map((order) => ({ order, questions: pendingQuestions(order) }))
     .filter(({ order, questions }) => questions.length > 0 || ['blocked', 'failed'].includes(order.status));
   const chooseScope = (id: string) => {
     setScope(id);

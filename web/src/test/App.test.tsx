@@ -1136,6 +1136,46 @@ describe('Control room', () => {
     await waitFor(() => expect(writes).toContainEqual({ path: '/work/work-one/cancel', body: undefined }));
   });
 
+  it('shows a cancelled run that retains a budget error as history without a decision, resume or answer form', async () => {
+    orders = [
+      {
+        ...order,
+        status: 'cancelled',
+        control: 'cancel',
+        phase: 'verification',
+        error_code: 'BUDGET_EXHAUSTED',
+        limiting_metric: 'tokens',
+        summary: 'Work order cancelled',
+      },
+    ];
+    mockApi();
+    const user = await enter();
+    await selectRun(user);
+    const history = screen.getByRole('note', { name: 'Retained run history' });
+    expect(history).toHaveTextContent('History · BUDGET_EXHAUSTED');
+    expect(history).toHaveTextContent('No decision is pending');
+    expect(screen.getByText('Work order cancelled')).toBeVisible();
+    expect(screen.queryByText(/waiting for your budget decision/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Review budget options' })).not.toBeInTheDocument();
+    for (const name of ['Resume', 'Resolve budget', 'Pause', 'Cancel run', 'Answer and continue'])
+      expect(screen.queryByRole('button', { name })).not.toBeInTheDocument();
+    expect(screen.queryByText('Your decision unlocks the next step')).not.toBeInTheDocument();
+    expect(writes).toHaveLength(0);
+  });
+
+  it('withdraws the pending decision once cancellation is confirmed', async () => {
+    mockApi();
+    const user = await enter();
+    await selectRun(user);
+    expect(screen.getByRole('button', { name: 'Answer and continue' })).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Cancel run' }));
+    await user.click(screen.getByRole('button', { name: 'Confirm cancellation' }));
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: 'Answer and continue' })).not.toBeInTheDocument(),
+    );
+    expect(screen.queryByText('Your decision unlocks the next step')).not.toBeInTheDocument();
+  });
+
   it('envía un nuevo alcance con control de revision', async () => {
     orders[0].status = 'paused';
     mockApi();

@@ -451,6 +451,27 @@ async def test_pause_and_cancel_do_not_claim_success(build_factory):
     assert cancelled.status == Status.CANCELLED
 
 
+async def test_owner_pause_and_cancel_are_control_outcomes_not_errors(build_factory):
+    factory, repo, team, *_ = build_factory()
+    repo.control_value = "pause"
+    paused = await factory.drive(repo.current.id)
+    assert (paused.status, paused.error_code, paused.summary) == (Status.PAUSED, None, "Work order paused")
+    repo.control_value = "cancel"
+    cancelled = await factory.drive(repo.current.id)
+    assert (cancelled.status, cancelled.error_code, cancelled.summary) == (Status.CANCELLED, None, "Work order cancelled")
+    kinds = [kind for kind, _ in repo.events_value]
+    assert "paused" in kinds and "cancelled" in kinds and "blocked" not in kinds
+
+
+async def test_cancellation_keeps_previously_recorded_error_evidence(build_factory):
+    factory, repo, *_ = build_factory()
+    repo.current.error_code, repo.current.limiting_metric = "BUDGET_EXHAUSTED", "tokens"
+    repo.control_value = "cancel"
+    cancelled = await factory.drive(repo.current.id)
+    assert cancelled.status == Status.CANCELLED
+    assert (cancelled.error_code, cancelled.limiting_metric) == ("BUDGET_EXHAUSTED", "tokens")
+
+
 def test_task_dependency_cycle_is_rejected():
     with pytest.raises(DomainError, match="circular"):
         validate_plan([Task(id="a", title="A", depends_on=["b"]), Task(id="b", title="B", depends_on=["a"])])

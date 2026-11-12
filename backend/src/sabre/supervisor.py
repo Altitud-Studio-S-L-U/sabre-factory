@@ -32,6 +32,7 @@ from sabre.models import (
 )
 from sabre.operator_contracts import OperatorContext
 from sabre.repository import digest, payload
+from sabre.run_state import open_questions, stop_reason
 from sabre.skills import SKILLS
 from sabre.telemetry import span
 
@@ -156,7 +157,7 @@ def conversation_tools(service, store, event: ConversationMessage | OperatorCont
         works = await repository.works()
         if project_id is not None:
             works = [item for item in works if item.project_id == project_id]
-        return await checked([{"id": item.id, "project_id": item.project_id, "objective": item.objective, "status": item.status, "phase": item.phase, "summary": item.summary, "questions": [payload(q) for q in item.questions if q.answer is None and q.plan_revision == item.plan_revision]} for item in works[:30]])
+        return await checked([{"id": item.id, "project_id": item.project_id, "objective": item.objective, "status": item.status, "phase": item.phase, "summary": item.summary, "questions": [payload(q) for q in open_questions(item)]} for item in works[:30]])
 
     @tool
     async def get_work(work_id: str) -> dict:
@@ -173,13 +174,17 @@ def conversation_tools(service, store, event: ConversationMessage | OperatorCont
         current = await repository.audit_usage_breakdown(work.id)
         usage = RunUsageSnapshot(work_id=work.id, usage=AuditUsage(**current["usage"]),
             measured_api_cost_usd=current["measured_api_cost_usd"], reserved_api_cost_usd=current["reserved_api_cost_usd"])
+        reason = stop_reason(work)
+        notes = ["Each run has its own allowance; this is not a shared project budget.",
+            "Measured usage excludes pending reservations; unknown usage is not zero.",
+            "CLI subscription fees are not measured API cost. Reading does not change limits or resume execution."]
+        if reason and reason["basis"] == "historical":
+            notes.append(f"This run is {work.status}. Its error code, limiting metric and budget denial are retained history; no budget decision is pending and the run cannot be resumed.")
         return await checked({"version": 1, "scope": "run", "work_id": work.id,
             "project_id": work.project_id, "status": work.status, "phase": work.phase,
-            "error_code": work.error_code, "budget_revision": work.budget_revision,
+            "error_code": work.error_code, "stop_reason": reason, "budget_revision": work.budget_revision,
             "limits": payload(limits), "usage": payload(usage), "api_spend_limit_usd": work.budget.max_cost_usd,
-            "notes": ["Each run has its own allowance; this is not a shared project budget.",
-                "Measured usage excludes pending reservations; unknown usage is not zero.",
-                "CLI subscription fees are not measured API cost. Reading does not change limits or resume execution."]})
+            "notes": notes})
 
     @tool
     async def get_factory_readiness() -> dict:

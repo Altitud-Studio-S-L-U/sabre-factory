@@ -9,6 +9,7 @@ from langgraph.errors import GraphInterrupt
 
 from sabre.events import ExecutionEvent
 from sabre.models import new_id, now
+from sabre.run_state import is_control_outcome
 from sabre.telemetry import trace_identifiers
 
 current_execution: ContextVar[str | None] = ContextVar("sabre_execution_correlation", default=None)
@@ -33,7 +34,8 @@ async def observe(repository, work, kind, name, *, parent_id=None, provider=None
     try:
         yield correlation
     except BaseException as error:
-        await record("interrupted" if isinstance(error, (GraphInterrupt, asyncio.CancelledError)) else "failed", getattr(error, "code", None))
+        interrupted = isinstance(error, (GraphInterrupt, asyncio.CancelledError)) or is_control_outcome(error)
+        await record("interrupted" if interrupted else "failed", getattr(error, "code", None))
         raise
     else:
         await record("completed")

@@ -3,6 +3,7 @@ import type { Api, AuditView, ProcessTopology, RunInspection, SequencedEvent, Wo
 import { projectExecution, type ObservedSpan } from './executionProjection';
 import RunInspector, { specialistNames } from './RunInspector';
 import JsonView from './components/JsonView';
+import { currentBlocker } from './runState';
 import type { RunUsageState } from './useRunUsage';
 import './ExecutionConsole.css';
 
@@ -86,6 +87,20 @@ export default function RunProcessConsole({
       : selected
         ? (pinned ?? undefined)
         : ([...spans].reverse().find((span) => span.event.kind === 'stage') ?? spans.at(-1)));
+  const historicalSelection = Boolean(selected && pinned && !spans.some((span) => span.id === selected));
+  // A recorded step error explains the run's current stop only while the run is stopped with that code and no
+  // later step has started; otherwise it is a historical record of an earlier attempt.
+  const blocker = currentBlocker(order);
+  const firstSequence = (span: ObservedSpan) => span.records[0]?.sequence ?? 0;
+  const lastSequence = (span: ObservedSpan) => span.records.at(-1)?.sequence ?? 0;
+  const currentStop = Boolean(
+    current &&
+      !historicalSelection &&
+      ['blocked', 'failed'].includes(order.status) &&
+      blocker !== null &&
+      current.event.error_code === blocker &&
+      !spans.some((span) => span.event.kind === 'stage' && firstSequence(span) > lastSequence(current)),
+  );
   const registered = topology?.lanes ?? [];
   const laneFor = (span: ObservedSpan) =>
     registered.find(
@@ -457,7 +472,8 @@ export default function RunProcessConsole({
           </div>
         </section>
         <RunInspector
-          historicalSelection={Boolean(selected && pinned && !spans.some((span) => span.id === selected))}
+          currentStop={currentStop}
+          historicalSelection={historicalSelection}
           api={api}
           current={current}
           lane={lane}

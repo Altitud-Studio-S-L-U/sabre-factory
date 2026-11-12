@@ -98,6 +98,65 @@ function event(sequence: number, name: string, correlation: string): SequencedEv
     },
   };
 }
+function failed(sequence: number, name: string, correlation: string, code: string): SequencedEvent {
+  const base = event(sequence, name, correlation);
+  return { ...base, event: { ...base.event, state: 'failed', error_code: code } };
+}
+
+describe('Recorded step errors', () => {
+  const inspectorNotice = () => within(screen.getByRole('region', { name: 'Execution inspector' }));
+
+  it('explains only the latest failed step with the current summary while the run is blocked', async () => {
+    const user = userEvent.setup();
+    const blocked = { ...order('blocked'), error_code: 'BUDGET_EXHAUSTED', summary: 'The budget does not allow another model call' };
+    render(
+      <RunProcessConsole
+        order={blocked}
+        topology={topology}
+        entries={[failed(1, 'implement', 'attempt-1', 'BUDGET_EXHAUSTED'), failed(2, 'implement', 'attempt-2', 'BUDGET_EXHAUSTED')]}
+      />,
+    );
+    expect(inspectorNotice().getByText('Current stop reason · BUDGET_EXHAUSTED')).toBeVisible();
+    expect(inspectorNotice().getByText('The budget does not allow another model call')).toBeVisible();
+    const attempts = screen.getAllByRole('button', { name: 'implement · failed' });
+    expect(attempts).toHaveLength(2);
+    await user.click(attempts[0]);
+    expect(inspectorNotice().getByText(/Historical record · BUDGET_EXHAUSTED · event #1/)).toBeVisible();
+    expect(inspectorNotice().queryByText('The budget does not allow another model call')).not.toBeInTheDocument();
+  });
+
+  it('labels a failed step as a historical record once the run is cancelled', () => {
+    const cancelled = {
+      ...order('cancelled'),
+      error_code: 'BUDGET_EXHAUSTED',
+      control: 'cancel' as const,
+      summary: 'Work order cancelled',
+    };
+    render(
+      <RunProcessConsole
+        order={cancelled}
+        topology={topology}
+        entries={[failed(1, 'implement', 'checks', 'BUDGET_EXHAUSTED')]}
+      />,
+    );
+    expect(inspectorNotice().getByText(/Historical record · BUDGET_EXHAUSTED · event #1/)).toBeVisible();
+    expect(inspectorNotice().queryByText('Work order cancelled')).not.toBeInTheDocument();
+    expect(inspectorNotice().queryByText(/Current stop reason/)).not.toBeInTheDocument();
+  });
+
+  it('presents an owner pause or cancellation on a step as a control outcome', () => {
+    render(
+      <RunProcessConsole
+        order={{ ...order('cancelled'), error_code: 'CANCEL_REQUESTED', summary: 'Cancellation requested' }}
+        topology={topology}
+        entries={[failed(1, 'implement', 'stopped', 'CANCEL_REQUESTED')]}
+      />,
+    );
+    expect(screen.getByRole('button', { name: 'implement · interrupted' })).toBeInTheDocument();
+    expect(inspectorNotice().getByText(/Stopped by an owner pause or cancellation request/)).toBeVisible();
+  });
+});
+
 describe('Recorded process console', () => {
   it('expands the existing workspace, retains inspection and zoom, then restores operator focus', async () => {
     const user = userEvent.setup();

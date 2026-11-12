@@ -35,6 +35,7 @@ from sabre.models import (
 )
 from sabre.project_context import ProjectContext, source_path
 from sabre.repository import digest
+from sabre.run_state import CONTROL_OUTCOMES, is_control_outcome
 from sabre.security import security_policy_digest
 from sabre.specialists import task_instruction
 from sabre.telemetry import span, trace_identifiers
@@ -211,7 +212,8 @@ def observe_stage(name, handler, guard, repository=None):
             try:
                 result = await guarded_call(handler, guard, "WORKFLOW_STAGE_FAILED", state)
             except BaseException as error:
-                await record("interrupted" if isinstance(error, (GraphInterrupt, asyncio.CancelledError)) else "failed", getattr(error, "code", None))
+                interrupted = isinstance(error, (GraphInterrupt, asyncio.CancelledError)) or is_control_outcome(error)
+                await record("interrupted" if interrupted else "failed", getattr(error, "code", None))
                 raise
             else:
                 await record("completed")
@@ -753,12 +755,20 @@ class Factory:
             except DomainError as error:
                 # Use the current projection for progress made inside the interrupted node.
                 work = await self.repository.work(work_id)
-                work.status = {"PAUSE_REQUESTED": Status.PAUSED, "CANCEL_REQUESTED": Status.CANCELLED}.get(error.code, Status.BLOCKED)
-                work.budget_denial = error.budget_denial
-                work.limiting_metric = error.budget_denial.metric if error.budget_denial else (error.code.removeprefix("BUDGET_").lower() if error.code.startswith("BUDGET_") and error.code != "BUDGET_EXHAUSTED" else ("active_seconds" if error.code == "TIME_BUDGET" else None))
-                work.error_code, work.summary = error.code, error.message
+                outcome = CONTROL_OUTCOMES.get(error.code)
+                if outcome is not None:
+                    # Owner pause/cancel is a control outcome: keep any earlier evidence, record no new error.
+                    work.status = outcome
+                    work.summary = "Work order paused" if outcome is Status.PAUSED else "Work order cancelled"
+                    kind = outcome.value
+                else:
+                    work.status = Status.BLOCKED
+                    work.budget_denial = error.budget_denial
+                    work.limiting_metric = error.budget_denial.metric if error.budget_denial else (error.code.removeprefix("BUDGET_").lower() if error.code.startswith("BUDGET_") and error.code != "BUDGET_EXHAUSTED" else ("active_seconds" if error.code == "TIME_BUDGET" else None))
+                    work.error_code, work.summary = error.code, error.message
+                    kind = "blocked"
                 await self.finish(work)
-                await self.repository.event(work, "blocked", error.message)
+                await self.repository.event(work, kind, work.summary)
                 if error.code in {"STALE_SECURITY", "SECURITY_POLICY_CHANGED"}:
                     work.evidence = None
                     await self.graph.aupdate_state(config, {"order": work.model_dump(mode="json")}, as_node="review")

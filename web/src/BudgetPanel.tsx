@@ -13,6 +13,7 @@ import {
 } from './api';
 import Dialog from './components/Dialog';
 import Field from './components/FormField';
+import { currentBlocker, isBudgetCode, isClosed } from './runState';
 import Select from './components/Select';
 import './BudgetPanel.css';
 import BudgetBlockReason from './BudgetBlockReason';
@@ -77,12 +78,9 @@ export default function BudgetPanel({
   const [editor, setEditor] = useState<Editor | null>(null);
   const [candidate, setCandidate] = useState<Candidate | null>(null);
   const [busy, setBusy] = useState(false);
+  const closed = isClosed(work);
   const canAmend = connected && ['paused', 'blocked'].includes(work.status) && work.control !== 'cancel';
-  const budgetBlocked =
-    work.status === 'blocked' &&
-    !!work.error_code &&
-    (work.error_code.startsWith('BUDGET_') || work.error_code.endsWith('_BUDGET_EXHAUSTED')) &&
-    work.error_code !== 'CONTEXT_BUDGET_EXHAUSTED';
+  const budgetBlocked = work.status === 'blocked' && isBudgetCode(currentBlocker(work));
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -300,10 +298,12 @@ export default function BudgetPanel({
               </div>
             </section>
           )}
-          {budget.denial && <BudgetBlockReason denial={budget.denial} />}
+          {budget.denial && <BudgetBlockReason denial={budget.denial} closed={closed} />}
           <div className="budget-snapshot">
             <span>Authorization revision {budget.revision}</span>
-            <span>Pending step: {budget.pending_step}</span>
+            <span>
+              {closed ? 'Last phase' : 'Pending step'}: {budget.pending_step}
+            </span>
             {budget.limiting_metric && budget.limiting_metric !== 'exhausted' && (
               <strong>
                 Limiting metric: {labels[budget.limiting_metric as BudgetMetric] ?? budget.limiting_metric}
@@ -362,6 +362,12 @@ export default function BudgetPanel({
               : 'Dispatch uses bounded reservations before provider calls.'}{' '}
             Paid API spend remains separately authorized.
           </p>
+          {closed ? (
+            <p className="budget-explanation">
+              This run is {work.status === 'cancelled' ? 'cancelled' : 'completed'}. Limits and usage are a
+              final record.
+            </p>
+          ) : (
           <div className="budget-panel-actions">
             <Button
               type="button"
@@ -383,6 +389,7 @@ export default function BudgetPanel({
               <small>Pause the run before changing authorizations or reconciling usage.</small>
             )}
           </div>
+          )}
           <details className="budget-history">
             <summary>Authorization history ({budget.authorizations.length})</summary>
             {!budget.authorizations.length ? (

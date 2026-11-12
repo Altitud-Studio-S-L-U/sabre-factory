@@ -24,6 +24,28 @@ it('distinguishes an unconsumed next-call reservation from measured usage', () =
   expect(screen.getByText('317,197')).toBeInTheDocument();
 });
 
+it('describes a denial retained on a closed run in the past tense without a pending decision', () => {
+  render(
+    <BudgetBlockReason
+      closed
+      denial={{
+        version: 1,
+        metric: 'tokens',
+        basis: 'next_reservation',
+        used: 237197,
+        reserved: 0,
+        requested: 80000,
+        required: 317197,
+        limit: 300000,
+      }}
+    />,
+  );
+  expect(screen.getByText(/Next step did not fit/)).toBeInTheDocument();
+  expect(screen.queryByText(/Next step does not fit/)).not.toBeInTheDocument();
+  expect(screen.getByText(/no budget decision is pending/)).toBeInTheDocument();
+  expect(screen.getByText('317,197')).toBeInTheDocument();
+});
+
 it('does not infer an old blocking request from current counters', () => {
   render(
     <BudgetBlockReason

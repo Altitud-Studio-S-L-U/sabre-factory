@@ -1,4 +1,5 @@
 import type { SequencedEvent } from './api';
+import { isControlCode } from './runState';
 
 export const phaseLabel: Record<string, string> = {
   intake: 'Preflight',
@@ -39,7 +40,10 @@ export function projectExecution(entries: SequencedEvent[]): ObservedSpan[] {
     groups.set(item.event.correlation_id, group);
   }
   return [...groups].map(([id, records]) => {
-    const event = records.at(-1)!.event;
+    const last = records.at(-1)!.event;
+    // Older runs recorded an owner pause/cancel as a failed step; it is a control outcome, not a failure.
+    const event =
+      last.state === 'failed' && isControlCode(last.error_code) ? { ...last, state: 'interrupted' as const } : last;
     const started = records.find((item) => item.event.state === 'started');
     const stamp = Date.parse(event.timestamp);
     const start = started
