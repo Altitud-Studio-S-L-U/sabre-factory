@@ -16,6 +16,7 @@ describe('actividad y contexto guardados', () => {
       cache_read_tokens: 8,
       tool_requests: 2,
       tool_responses: 1,
+      notes_recorded: 0,
       last_checkpoint_at: null,
       duration_ms: null,
     };
@@ -215,6 +216,7 @@ describe('actividad y contexto guardados', () => {
           cache_read_tokens: 2048,
           tool_requests: 52,
           tool_responses: 52,
+          notes_recorded: 0,
           last_checkpoint_at: null,
           duration_ms: 61000,
         },

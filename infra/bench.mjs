@@ -27,9 +27,10 @@ export function extractReport(stdout) {
 }
 
 export function summarize(report) {
+  const width = Math.max(18, ...report.tasks.map((task) => task.task.length));
   const rows = report.tasks.map((task) => {
     const failedProbes = Object.entries(task.probes).filter(([, value]) => value === false).map(([name]) => name);
-    return `${task.grade.verdict.padEnd(4)}  ${task.task.padEnd(18)} calls ${String(task.calls.total).padStart(3)}  `
+    return `${task.grade.verdict.padEnd(4)}  ${task.task.padEnd(width)} calls ${String(task.calls.total).padStart(3)}  `
       + `est. tokens ${String(task.tokens.estimated_total).padStart(6)}  reserved ${String(task.tokens.reserved_total).padStart(7)}  `
       + `max sent ${String(task.context.sent_bytes_max).padStart(6)} B${failedProbes.length ? `  probes off: ${failedProbes.join(', ')}` : ''}`;
   });
