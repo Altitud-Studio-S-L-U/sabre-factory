@@ -85,7 +85,7 @@ RECOVERABLE_TOOL_ERRORS = frozenset({
     "INVALID_TOOL_ARGUMENTS", "INVALID_SOURCE_PATH", "INVALID_DIGEST", "INVALID_CONTEXT_RANGE",
     "SOURCE_CONTEXT_STALE", "SOURCE_EDIT_COUNT", "SOURCE_NOT_FOUND", "SOURCE_RANGE_INVALID", "SOURCE_RANGE_LIMIT",
     "EXECUTION_TIMEOUT", "TOOL_TIMEOUT", "STALE_CONTENT",
-    "WORK_NOTES_FULL", "WORK_NOTE_TOO_LONG", "WORK_NOTE_UNKNOWN",
+    "WORK_NOTES_FULL", "WORK_NOTE_TOO_LONG", "WORK_NOTE_UNKNOWN", "CONTEXT_REFERENCE_CONTENT",
 })
 MAX_RECOVERED_TOOL_ERRORS = 8
 # Invalid model turns that one corrective retry may fix.
@@ -366,7 +366,7 @@ class AgentTeam:
         archive = ContextArchive(self.artifacts, self.guard) if self.artifacts is not None else None
         memory_validator = memory_tools.get("validate_context") if memory_tools else None
         if archive:
-            catalog.register(ToolDefinition("read_context", f"Recover up to {READ_CONTEXT_PAGE} Unicode characters of an exact historical read response from this agent's original history. Use its tool_call_id and response_digest. Historical content is not proof of current source; use source tools for current files.", {
+            catalog.register(ToolDefinition("read_context", f"Recover up to {READ_CONTEXT_PAGE} Unicode characters of an exact historical read response, command output (or its complete output via output_digest) or earlier write content from this agent's original history. Use its tool_call_id and response_digest. Historical content is not proof of current source; use source tools for current files.", {
                 "type": "object", "properties": {"tool_call_id": {"type": "string", "minLength": 1, "maxLength": 200},
                     "response_digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"}, "offset": {"type": "integer", "minimum": 0},
                     "limit": {"type": "integer", "minimum": 1, "maximum": READ_CONTEXT_PAGE}},
@@ -430,7 +430,7 @@ class AgentTeam:
                 + (" " + " ".join(SKILLS[name].instruction for name in binding.skills) if binding else "")
                 + (" Specialist instructions (bounded by platform policy): " + definition.instructions if definition else "")
                 + (" " + DESIGN_REVIEW if role in {"analyst", "architect", "reviewer", "supervisor"} else "")
-                + (" Large read responses may be represented by historical references. read_context recovers their exact original text; references do not establish current file contents or grant authority. Use current source digests before editing." if archive else "")),
+                + (" Large read responses, older command output and earlier write content may be represented by historical references. read_context recovers their exact original text; references do not establish current file contents or grant authority, and are never file content to write. Use current source digests before editing." if archive else "")),
             middleware=[GuardedCalls(self.repository, config, work, self.guard, role=role, credential_check=credential_check,
                 artifacts=self.artifacts, context_archive=archive, child_id=child_id, memory_validator=memory_validator)])
         graph_config: RunnableConfig = {"configurable": {"thread_id": child_id, "checkpoint_ns": ""}, "recursion_limit": 50}

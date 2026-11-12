@@ -44,14 +44,20 @@ def archived(tmp_path, messages=None, guard=None):
 
 async def test_unique_old_reads_are_recoverable_without_changing_actions_arguments_or_checkpoints(tmp_path):
     messages, _, projection, reader = archived(tmp_path)
-    assert projection.omitted_results == 2
-    assert {ref.reason for ref in projection.references} == {"old_read"}
+    # Older reads and older command output are archived; the two most recent turns stay complete.
+    assert projection.omitted_results == 4
+    assert {(ref.tool_call_id, ref.reason) for ref in projection.references} == {
+        ("call-0", "old_read"), ("call-3", "old_read"), ("call-1", "old_output"), ("call-2", "old_output")}
     for old, new in zip(messages, projection.messages, strict=True):
         assert old.id == new.id
         if isinstance(old, AIMessage):
             assert old == new
-        if isinstance(old, ToolMessage) and old.tool_call_id not in {"call-0", "call-3"}:
+        if isinstance(old, ToolMessage) and old.tool_call_id not in {"call-0", "call-1", "call-2", "call-3"}:
             assert old is new
+    output = json.loads(projection.messages[4].content)
+    assert output["tool"] == "execute" and output["exit_code"] == 1 and "full_output" not in output
+    page = await reader.read("call-1", output["response_digest"], 0, 8192)
+    assert page["content"] == messages[4].content and page["eof"]
     original = messages[2].content
     ref = json.loads(projection.messages[2].content)
     parts, offset = [], 0
@@ -343,3 +349,100 @@ def test_reused_tool_id_cannot_hide_old_memory_from_validation():
         AIMessage(content="", tool_calls=[{"id": "reused", "name": "read_file", "args": {"path": "a.py"}}])]
     with pytest.raises(DomainError, match="ambiguous"):
         memory_references(messages)
+
+
+def write_history(content=SOURCE, *, answered=True, native=True):
+    arguments = {"path": "app.py", "content": content}
+    write = AIMessage(id="write-turn", content=[{"type": "text", "text": "Write the fix"},
+            {"type": "tool_use", "id": "write-1", "name": "write_file", "input": arguments}] if native else "Write the fix",
+        tool_calls=[{"id": "write-1", "name": "write_file", "args": arguments}],
+        additional_kwargs={"tool_calls": [{"id": "write-1", "type": "function",
+            "function": {"name": "write_file", "arguments": json.dumps(arguments)}}]} if native else {})
+    result = [HumanMessage(content="Owner: change only app.py"), write]
+    if answered:
+        result.append(ToolMessage(tool_call_id="write-1", content=json.dumps({"written": True})))
+    for index in range(2):
+        result += [AIMessage(id=f"later-{index}", content="", tool_calls=[{"id": f"list-{index}", "name": "list_files", "args": {}}]),
+                   ToolMessage(tool_call_id=f"list-{index}", content="app.py")]
+    return result
+
+
+async def test_old_write_content_is_archived_in_every_provider_copy_and_recoverable(tmp_path):
+    messages = write_history()
+    original = [m.model_dump(mode="json") for m in messages]
+    _, _, projection, reader = archived(tmp_path, messages)
+    assert [(ref.tool_call_id, ref.tool, ref.reason) for ref in projection.references] == [("write-1", "write_file", "old_argument")]
+    sent = projection.messages[1]
+    assert sent.id == "write-turn" and sent.tool_calls[0]["name"] == "write_file" and sent.tool_calls[0]["id"] == "write-1"
+    assert sent.tool_calls[0]["args"]["path"] == "app.py"
+    ref = json.loads(sent.tool_calls[0]["args"]["content"])
+    assert ref["sabre_context_reference"] == 2 and ref["argument"] == "content" and "Never write" in ref["note"]
+    assert sent.content[0] == {"type": "text", "text": "Write the fix"}
+    assert json.loads(sent.content[1]["input"]["content"]) == ref
+    assert json.loads(json.loads(sent.additional_kwargs["tool_calls"][0]["function"]["arguments"])["content"]) == ref
+    assert SOURCE not in json.dumps(sent.model_dump(mode="json"), ensure_ascii=False)
+    assert [m.model_dump(mode="json") for m in messages] == original
+    assert projection.sent_bytes < projection.original_bytes / 2
+    parts, offset = [], 0
+    while offset is not None:
+        page = await reader.read("write-1", ref["response_digest"], offset, 4096)
+        parts.append(page["content"])
+        offset = page["next_offset"]
+    assert "".join(parts) == SOURCE
+
+
+@pytest.mark.parametrize("case", ["unanswered", "recent", "small", "dedup_only"])
+def test_write_content_stays_when_unanswered_recent_small_or_without_recovery(case):
+    messages = write_history(content="print('ok')\n" if case == "small" else SOURCE, answered=case != "unanswered", native=False)
+    if case == "recent":
+        messages = messages[:3]
+    policy = ContextPolicy(archive_unique=case != "dedup_only", keep_model_turns=2, trigger_bytes=1)
+    projection = project_tool_context(messages, policy)
+    assert projection.references == [] and projection.messages[1] is messages[1]
+
+
+async def test_bounded_command_output_and_its_complete_artifact_are_recoverable(tmp_path):
+    from sabre.tools import bounded_execution
+    guard = SecretGuard()
+    store = ArtifactStore(tmp_path, guard)
+    output = "".join(f"line {index}: failure detail\n" for index in range(2000))
+    result = bounded_execution({"exit_code": 1, "output": output}, store)
+    messages = [HumanMessage(content="Fix the failing check"),
+        AIMessage(content="", tool_calls=[{"id": "check-1", "name": "execute", "args": {"argv": ["python", "-m", "unittest"]}}]),
+        ToolMessage(tool_call_id="check-1", content=json.dumps(result))]
+    for index in range(2):
+        messages += [AIMessage(content="", tool_calls=[{"id": f"list-{index}", "name": "list_files", "args": {}}]),
+                     ToolMessage(tool_call_id=f"list-{index}", content="app.py")]
+    projection = project_tool_context(messages, ContextPolicy(archive_unique=True, keep_model_turns=2))
+    for expected, raw in projection.originals.items():
+        assert store.put(raw) == expected
+    reader = ContextArchive(store, guard)
+    reader.bind(messages)
+    ref = json.loads(projection.messages[2].content)
+    assert ref["tool"] == "execute" and ref["exit_code"] == 1
+    assert ref["full_output"]["output_digest"] == result["output_digest"] and ref["full_output"]["output_bytes"] == len(output.encode())
+    assert projection.messages[1] is messages[1]
+    shown = await reader.read("check-1", ref["response_digest"], 0, 8192)
+    assert shown["content"] == messages[2].content[:8192]
+    parts, offset = [], 0
+    while offset is not None:
+        page = await reader.read("check-1", result["output_digest"], offset, 8192)
+        parts.append(page["content"])
+        offset = page["next_offset"]
+    assert "".join(parts) == output
+    with pytest.raises(DomainError) as foreign:
+        await reader.read("list-0", result["output_digest"])
+    assert foreign.value.code == "CONTEXT_REFERENCE_NOT_ALLOWED"
+
+
+async def test_write_file_rejects_a_copied_context_reference_as_content():
+    from sabre.agents import RECOVERABLE_TOOL_ERRORS
+    from sabre.tools import workspace_tools
+    executor = Executor()
+    catalog = workspace_tools(executor, "work", role="developer")
+    reference = json.dumps({"sabre_context_reference": 2, "tool": "write_file", "content_omitted": True}, separators=(",", ":"))
+    with pytest.raises(DomainError) as error:
+        await catalog.invoke("write_file", {"path": "app.py", "content": reference}, "developer")
+    assert error.value.code == "CONTEXT_REFERENCE_CONTENT" and error.value.code in RECOVERABLE_TOOL_ERRORS
+    assert executor.writes == []
+    assert (await catalog.invoke("write_file", {"path": "notes.md", "content": "Mentions sabre_context_reference in prose\n"}, "developer"))["written"]

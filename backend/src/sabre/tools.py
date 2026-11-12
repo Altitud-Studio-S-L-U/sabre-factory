@@ -267,6 +267,10 @@ def workspace_tools(executor, work_id: str, guard: SecretGuard | None = None,
         return {"files": results}
 
     async def write_file(path: str, content: str):
+        if content.lstrip().startswith('{"sabre_context_reference"'):
+            # Earlier write content may be shown as a reference; copying one would destroy the file.
+            raise DomainError("CONTEXT_REFERENCE_CONTENT", "This content is a historical context reference, not file content. "
+                              "Recover the original with read_context or write the intended content", 422)
         await executor.write_file(work_id, path, content)
         return {"written": True}
 

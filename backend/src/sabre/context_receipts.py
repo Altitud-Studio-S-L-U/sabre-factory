@@ -19,10 +19,10 @@ class ContextReference(Contract):
     model_config = ConfigDict(hide_input_in_errors=True, revalidate_instances="always")
 
     tool_call_id: str = Field(min_length=1, max_length=200, pattern=r"^[A-Za-z0-9_.:-]+$", strict=True)
-    tool: Literal["read_file", "read_files", "read_file_range", "search_source", "list_files"]
+    tool: Literal["read_file", "read_files", "read_file_range", "search_source", "list_files", "execute", "write_file"]
     response_digest: Digest
     original_bytes: ByteCount
-    reason: Literal["old_read", "duplicate"]
+    reason: Literal["old_read", "duplicate", "old_output", "old_argument"]
 
 
 class ContextReceipt(Contract):
