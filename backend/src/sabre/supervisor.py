@@ -10,7 +10,7 @@ from typing import Literal, Protocol
 from langchain.agents import create_agent
 from langchain.agents.middleware import AgentMiddleware
 from langchain.agents.middleware.types import InputAgentState
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 from pydantic import SecretStr
@@ -55,6 +55,23 @@ class ConversationMessage(Protocol):
     def conversation_id(self) -> str: ...
 
 
+OMITTED_TURNS = ("\nEarlier turns of this conversation were left out of this request to fit its context: {count} messages. "
+                 "Read current state with your tools; do not rely on details from those turns.")
+
+
+def conversation_window(messages, fits) -> int:
+    """Index of the oldest owner message from which the conversation fits.
+
+    The cut is always before an owner message, so every tool call keeps its result. When
+    not even the current turn fits, the current turn is returned and the caller refuses it.
+    """
+    starts = [index for index, item in enumerate(messages) if getattr(item, "type", "") == "human"]
+    for start in starts:
+        if fits(messages[start:]):
+            return start
+    return starts[-1] if starts else 0
+
+
 class ChatGuard(AgentMiddleware):
     def __init__(self, repository, config, guard, event_id, credential_check=None, *, surface="slack", input_limit=None):
         self.repository, self.config, self.guard, self.event_id = repository, config, guard, event_id
@@ -76,15 +93,31 @@ class ChatGuard(AgentMiddleware):
                 raise DomainError("API_BUDGET_REQUIRED", "Authorize positive conversation and factory API allowances before sending a paid request", 409)
         if self.credential_check:
             await self.credential_check()
-        material = {
-            "messages": [item.model_dump(mode="json") for item in request.messages],
-            "tools": [item if isinstance(item, dict) else {"name": item.name, "description": item.description, "schema": item.get_input_schema().model_json_schema()} for item in request.tools],
-            "system": request.system_message.content if request.system_message else "",
-        }
+        tools = [item if isinstance(item, dict) else {"name": item.name, "description": item.description, "schema": item.get_input_schema().model_json_schema()} for item in request.tools]
+        system = request.system_message.content if request.system_message else ""
+
+        def material_for(messages, instructions):
+            return {"messages": [item.model_dump(mode="json") for item in messages], "tools": tools, "system": instructions}
+
+        def size(value):
+            return len(json.dumps(value, ensure_ascii=False).encode())
+
+        material = material_for(request.messages, system)
         self.guard.check(material)
-        input_bound = len(json.dumps(material, ensure_ascii=False).encode()) + 2048
-        if self.input_limit is not None and input_bound - 2048 > self.input_limit:
-            raise DomainError("CONTEXT_BUDGET_EXHAUSTED", "The Supervisor conversation exceeds its bounded input context", 409)
+        original = size(material)
+        if self.input_limit is not None and original > self.input_limit:
+            # A long conversation stays usable: the oldest complete turns are left out of this
+            # request (the stored conversation is untouched) and the model is told so.
+            note = OMITTED_TURNS.format(count=len(request.messages))
+            start = conversation_window(request.messages, lambda recent: size(material_for(recent, system + note)) <= self.input_limit)
+            if start:
+                instructions = system + OMITTED_TURNS.format(count=start)
+                request = request.override(messages=request.messages[start:], system_message=SystemMessage(content=instructions))
+                material = material_for(request.messages, instructions)
+                observation.set(context_original_bytes=original, context_sent_bytes=size(material))
+            if size(material) > self.input_limit:
+                raise DomainError("CONTEXT_BUDGET_EXHAUSTED", "This message and its tool results exceed the Supervisor's bounded input context", 409)
+        input_bound = size(material) + 2048
         output_bound = self.config.model_max_output_tokens
         cli = getattr(self.config, "model_provider", "") in {"codex_cli", "claude_cli"}
         input_rate = 0 if cli else self.config.model_input_usd_per_million
