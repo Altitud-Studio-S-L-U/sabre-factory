@@ -398,10 +398,16 @@ async function enter() {
 }
 
 function runList() {
-  return screen.getByRole('complementary', { name: 'Runs' });
+  return screen.getByRole('region', { name: 'All runs' });
 }
 async function selectRun(user: ReturnType<typeof userEvent.setup>) {
-  await user.click(within(runList()).getByRole('button', { name: new RegExp(order.objective) }));
+  await user.click(within(runList()).getByRole('link', { name: new RegExp(order.objective) }));
+}
+async function backToRuns(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(
+    within(screen.getByRole('navigation', { name: 'Breadcrumb' })).getByRole('link', { name: 'Runs' }),
+  );
+  await screen.findByRole('region', { name: 'All runs' });
 }
 async function legacyRoute(path: string) {
   await act(async () => {
@@ -481,8 +487,7 @@ describe('Control room', () => {
     overrides['GET /status'] = { status: 503, body: { message: 'Synthetic connection interrupted' } };
     await user.click(screen.getByRole('button', { name: 'Refresh data' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Data could not be refreshed');
-    expect(screen.getByRole('heading', { level: 2, name: 'Patch Importkit' })).toBeVisible();
-    expect(screen.getByRole('button', { name: '+ New run' })).toBeDisabled();
+    expect(screen.getByRole('heading', { level: 1, name: 'Patch Importkit' })).toBeVisible();
     expect(screen.getByRole('button', { name: 'Resume' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Cancel run' })).toBeDisabled();
     const answer = screen.getByLabelText('Your answer');
@@ -513,10 +518,10 @@ describe('Control room', () => {
     render(<App />);
     expect(await screen.findByRole('heading', { level: 1, name: 'Page not found' })).toBeVisible();
     expect(window.location.pathname).toBe('/unknown-section');
-    expect(screen.queryByRole('complementary', { name: 'Runs' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'All runs' })).not.toBeInTheDocument();
     await user.click(screen.getByRole('link', { name: 'Go to runs' }));
     expect(await screen.findByRole('heading', { level: 1, name: 'Runs' })).toBeVisible();
-    expect(window.location.pathname).toBe('/work');
+    expect(window.location.pathname).toBe('/runs');
     expect(writes).toEqual([]);
   });
   it('expone rutas reales y conserva vista y encargo con Atrás, Adelante y recarga', async () => {
@@ -524,7 +529,7 @@ describe('Control room', () => {
     const user = userEvent.setup();
     const mounted = render(<App />);
     await screen.findByRole('heading', { level: 1, name: 'Runs' });
-    expect(window.location.pathname).toBe('/work');
+    expect(window.location.pathname).toBe('/runs');
     const navigation = screen.getByRole('navigation', { name: 'Main navigation' });
     for (const [name, path] of [
       ['Agents', '/agents'],
@@ -538,30 +543,30 @@ describe('Control room', () => {
     expect(window.location.pathname).toBe('/tools');
     await user.click(within(navigation).getByRole('link', { name: /^Runs/ }));
     await user.click(
-      within(runList()).getByRole('button', {
+      within(runList()).getByRole('link', {
         name: new RegExp(order.objective),
       }),
     );
-    expect(window.location.pathname).toBe('/work/work-one');
+    expect(window.location.pathname).toBe('/runs/work-one');
     await act(async () => window.history.back());
     await screen.findByRole('heading', { level: 1, name: 'Runs' });
-    expect(window.location.pathname).toBe('/work');
+    expect(window.location.pathname).toBe('/runs');
     await act(async () => window.history.back());
     await screen.findByRole('heading', { level: 1, name: 'Tools' });
     await act(async () => window.history.forward());
     await screen.findByRole('heading', { level: 1, name: 'Runs' });
     await act(async () => window.history.forward());
-    await screen.findByRole('heading', { level: 2, name: 'Patch Importkit' });
+    await screen.findByRole('heading', { level: 1, name: 'Patch Importkit' });
     mounted.unmount();
     render(<App />);
-    expect(await screen.findByRole('heading', { level: 2, name: 'Patch Importkit' })).toBeVisible();
-    expect(window.location.pathname).toBe('/work/work-one');
+    expect(await screen.findByRole('heading', { level: 1, name: 'Patch Importkit' })).toBeVisible();
+    expect(window.location.pathname).toBe('/runs/work-one');
     expect(writes).toEqual([]);
   });
 
   it('abre un enlace profundo fuera del listado y retira el ticket antes de cualquier consulta', async () => {
     orders = [];
-    window.history.replaceState(null, '', '/work/work-one#ticket=synthetic-deep-link');
+    window.history.replaceState(null, '', '/runs/work-one#ticket=synthetic-deep-link');
     const fetchMock = mockApi({ 'GET /work/work-one': { status: 200, body: order } });
     const original = fetchMock.getMockImplementation()!;
     fetchMock.mockImplementation(async (input, options) => {
@@ -574,8 +579,8 @@ describe('Control room', () => {
         <App />
       </StrictMode>,
     );
-    expect(await screen.findByRole('heading', { level: 2, name: 'Patch Importkit' })).toBeVisible();
-    expect(window.location.pathname).toBe('/work/work-one');
+    expect(await screen.findByRole('heading', { level: 1, name: 'Patch Importkit' })).toBeVisible();
+    expect(window.location.pathname).toBe('/runs/work-one');
     expect(fetchMock.mock.calls.filter(([path]) => path.endsWith('/session/exchange'))).toHaveLength(1);
     expect(fetchMock.mock.calls.some(([path]) => path === '/api/v1/work/work-one')).toBe(true);
     expect(document.body).not.toHaveTextContent('synthetic-deep-link');
@@ -583,16 +588,41 @@ describe('Control room', () => {
   });
 
   it('muestra el error del enlace de encargo inexistente sin sustituirlo por el listado', async () => {
-    window.history.replaceState(null, '', '/work/missing');
+    window.history.replaceState(null, '', '/runs/missing');
     mockApi({ 'GET /work/missing': { status: 404, body: { message: 'No existe' } } });
     const user = userEvent.setup();
     render(<App />);
     expect(await screen.findByRole('heading', { level: 1, name: 'Run unavailable' })).toBeVisible();
     expect(screen.getByText('This run does not exist or is no longer available.')).toBeVisible();
-    expect(screen.queryByRole('complementary', { name: 'Runs' })).not.toBeInTheDocument();
-    expect(window.location.pathname).toBe('/work/missing');
+    expect(screen.queryByRole('region', { name: 'All runs' })).not.toBeInTheDocument();
+    expect(window.location.pathname).toBe('/runs/missing');
     await user.click(screen.getByRole('link', { name: '← All runs' }));
     expect(await screen.findByRole('heading', { level: 1, name: 'Runs' })).toBeVisible();
+    expect(writes).toEqual([]);
+  });
+
+  it('opens an earlier /work address at the same run under /runs', async () => {
+    window.history.replaceState(null, '', '/work/work-one?tab=process#evidence');
+    mockApi();
+    render(<App />);
+    expect(await screen.findByRole('heading', { level: 1, name: 'Patch Importkit' })).toBeVisible();
+    expect(window.location.pathname).toBe('/runs/work-one');
+    expect(window.location.search).toBe('?tab=process');
+    expect(window.location.hash).toBe('#evidence');
+    expect(writes).toEqual([]);
+  });
+
+  it('disables creating and pausing runs from the runs table while disconnected', async () => {
+    orders = [{ ...order, status: 'running', questions: [] }];
+    const overrides: Record<string, { status: number; body: unknown }> = {};
+    mockApi(overrides);
+    const user = await enter();
+    expect(screen.getByRole('button', { name: '+ New run' })).toBeEnabled();
+    overrides['GET /status'] = { status: 503, body: { message: 'Synthetic connection interrupted' } };
+    await user.click(screen.getByRole('button', { name: 'Refresh data' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Data could not be refreshed');
+    expect(screen.getByRole('button', { name: '+ New run' })).toBeDisabled();
+    expect(within(runList()).getByRole('button', { name: /^Pause run/ })).toBeDisabled();
     expect(writes).toEqual([]);
   });
 
@@ -616,16 +646,17 @@ describe('Control room', () => {
     mockApi();
     const user = await enter();
     let history = runList();
-    await user.click(within(history).getByRole('button', { name: 'Attention' }));
-    await user.click(within(history).getByRole('button', { name: new RegExp(order.objective) }));
-    expect(screen.getByRole('heading', { level: 2, name: 'Patch Importkit' })).toBeVisible();
+    await user.click(within(history).getByRole('button', { name: 'Needs you' }));
+    await user.click(within(history).getByRole('link', { name: new RegExp(order.objective) }));
+    expect(screen.getByRole('heading', { level: 1, name: 'Patch Importkit' })).toBeVisible();
     expect(screen.getByRole('button', { name: 'Resume' })).toBeVisible();
+    await backToRuns(user);
     history = runList();
     await user.click(within(history).getByRole('button', { name: 'Closed' }));
     expect(
-      within(history).queryByRole('button', { name: new RegExp(order.objective) }),
+      within(history).queryByRole('link', { name: new RegExp(order.objective) }),
     ).not.toBeInTheDocument();
-    expect(within(history).getByRole('button', { name: /Run completado de prueba/ })).toBeVisible();
+    expect(within(history).getByRole('link', { name: /Run completado de prueba/ })).toBeVisible();
     expect(writes).toEqual([]);
   });
 
@@ -645,11 +676,11 @@ describe('Control room', () => {
     await waitFor(() => expect(screen.getByRole('heading', { level: 1, name: 'Runs' })).toHaveFocus());
     const history = runList();
     within(history)
-      .getByRole('button', { name: new RegExp(order.objective) })
+      .getByRole('link', { name: new RegExp(order.objective) })
       .focus();
     await user.keyboard('{Enter}');
     await waitFor(() =>
-      expect(screen.getByRole('heading', { level: 2, name: 'Patch Importkit' })).toHaveFocus(),
+      expect(screen.getByRole('heading', { level: 1, name: 'Patch Importkit' })).toHaveFocus(),
     );
     const refresh = screen.getByRole('button', { name: 'Refresh data' });
     const workReads = () => fetchMock.mock.calls.filter(([path]) => path === '/api/v1/work').length;
@@ -997,15 +1028,20 @@ describe('Control room', () => {
     ];
     mockApi();
     const user = await enter();
-    await user.click(within(runList()).getByRole('button', { name: 'Closed' }));
-    const closed = within(runList()).getAllByRole('button', { name: new RegExp(order.objective) });
-    expect(closed).toHaveLength(3);
-    await user.click(closed[0]);
-    expect(screen.getByRole('heading', { level: 2, name: 'Monitoring Importkit' })).toBeVisible();
+    const openClosed = async (index: number) => {
+      await user.click(within(runList()).getByRole('button', { name: 'Closed' }));
+      const closed = within(runList()).getAllByRole('link', { name: new RegExp(order.objective) });
+      expect(closed).toHaveLength(3);
+      await user.click(closed[index]);
+    };
+    await openClosed(0);
+    expect(screen.getByRole('heading', { level: 1, name: 'Monitoring Importkit' })).toBeVisible();
     expect(screen.queryByRole('link', { name: 'Review PR ↗' })).not.toBeInTheDocument();
-    await user.click(closed[1]);
+    await backToRuns(user);
+    await openClosed(1);
     expect(screen.queryByRole('link', { name: 'Review PR ↗' })).not.toBeInTheDocument();
-    await user.click(closed[2]);
+    await backToRuns(user);
+    await openClosed(2);
     expect(screen.getByRole('link', { name: 'Review PR ↗' })).toHaveAttribute('href', evidence.pr_url);
     expect(writes).toEqual([]);
   });
@@ -1042,7 +1078,7 @@ describe('Control room', () => {
       mockApi();
       const user = await enter();
       const history = runList();
-      await user.click(within(history).getByRole('button', { name: new RegExp(order.objective) }));
+      await user.click(within(history).getByRole('link', { name: new RegExp(order.objective) }));
       await user.click(screen.getByRole('tab', { name: 'Tasks & evidence' }));
       const heading = screen.getByRole('heading', { name: 'Delivery evidence' });
       const section = within(heading.closest('section')!);
@@ -1083,11 +1119,11 @@ describe('Control room', () => {
     mockApi();
     const user = await enter();
     await user.click(
-      within(runList()).getByRole('button', {
+      within(runList()).getByRole('link', {
         name: /Corregir la validación ETag/,
       }),
     );
-    expect(screen.getByRole('heading', { level: 2, name: 'Patch Importkit' })).toBeVisible();
+    expect(screen.getByRole('heading', { level: 1, name: 'Patch Importkit' })).toBeVisible();
     expect(screen.getByRole('button', { name: 'Resume' })).toBeVisible();
     expect(screen.getByText('WORKSPACE_SNAPSHOT_FAILED')).toBeVisible();
     const reason = screen.getByText('No se pudo guardar el resultado del espacio de trabajo.');
@@ -1249,7 +1285,7 @@ describe('Control room', () => {
     mockApi();
     const user = await enter();
     await user.click(
-      within(runList()).getByRole('button', {
+      within(runList()).getByRole('link', {
         name: new RegExp(order.objective),
       }),
     );
@@ -1390,10 +1426,10 @@ describe('Control room', () => {
             }
           : {}),
       });
-      window.history.replaceState(null, '', '/work/work-one');
+      window.history.replaceState(null, '', '/runs/work-one');
       const user = userEvent.setup();
       render(<App />);
-      await screen.findByRole('heading', { level: 2, name: 'Patch Importkit' });
+      await screen.findByRole('heading', { level: 1, name: 'Patch Importkit' });
       await user.click(screen.getByRole('tab', { name: 'Limits & scope' }));
       await user.click(screen.getByRole('button', { name: 'Use per-agent controls' }));
       await waitFor(() =>
@@ -1492,7 +1528,7 @@ describe('Control room', () => {
     mockApi();
     const user = await enter();
     await user.click(screen.getByRole('link', { name: 'Memory' }));
-    await user.click(await screen.findByRole('tab', { name: 'Proposals' }));
+    await user.click(await screen.findByRole('tab', { name: 'Review queue' }));
     await user.click(await screen.findByRole('button', { name: 'Inspect memory memory-one' }));
     const inspector = screen.getByRole('dialog', { name: 'Memory provenance' });
     await user.click(within(inspector).getByRole('button', { name: 'Approve memory' }));
@@ -1543,7 +1579,7 @@ describe('Control room', () => {
     mockApi();
     const user = await enter();
     await user.click(
-      within(runList()).getByRole('button', {
+      within(runList()).getByRole('link', {
         name: new RegExp(order.objective),
       }),
     );
@@ -1608,7 +1644,7 @@ describe('Control room', () => {
     mockApi();
     const user = await enter();
     await user.click(
-      within(runList()).getByRole('button', {
+      within(runList()).getByRole('link', {
         name: new RegExp(order.objective),
       }),
     );
@@ -1644,7 +1680,7 @@ describe('Control room', () => {
     mockApi();
     const user = await enter();
     await user.click(
-      within(runList()).getByRole('button', {
+      within(runList()).getByRole('link', {
         name: new RegExp(order.objective),
       }),
     );
@@ -1668,13 +1704,13 @@ describe('Control room', () => {
       mockApi();
       const user = await enter();
       await user.click(
-        within(runList()).getByRole('button', {
+        within(runList()).getByRole('link', {
           name: new RegExp(order.objective),
         }),
       );
       await user.click(screen.getByRole('tab', { name: 'Tasks & evidence' }));
       expect(screen.getByRole('heading', { name: 'Remediation proposals' })).toBeVisible();
-      expect(screen.getByRole('heading', { level: 2, name: 'Monitoring Importkit' })).toBeVisible();
+      expect(screen.getByRole('heading', { level: 1, name: 'Monitoring Importkit' })).toBeVisible();
       expect(screen.queryByRole('button', { name: 'Resume' })).not.toBeInTheDocument();
       expect(screen.queryByRole('button', { name: 'Pause' })).not.toBeInTheDocument();
       expect(screen.queryByText('Change request')).not.toBeInTheDocument();

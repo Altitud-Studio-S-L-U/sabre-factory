@@ -23,12 +23,15 @@ export interface NavigationItem {
 }
 
 export const navigation: NavigationItem[] = [
-  { id: 'work', path: '/work', label: 'Runs', icon: 'work' },
+  { id: 'work', path: '/runs', label: 'Runs', icon: 'work' },
   { id: 'agents', path: '/agents', label: 'Agents', icon: 'agents' },
   { id: 'tools', path: '/tools', label: 'Tools', icon: 'tools' },
   { id: 'memory', path: '/memory', label: 'Memory', icon: 'memory' },
   { id: 'config', path: '/config', label: 'Config', icon: 'config' },
 ];
+
+/** Earlier addresses that still open the right place (bookmarks, links in notifications). */
+export const redirects: { from: string; to: string }[] = [{ from: '/work', to: '/runs' }];
 
 /** Reachable by address but not shown in the sidebar. */
 export const legacyNavigation: NavigationItem[] = [

@@ -1,18 +1,30 @@
 import { test, expect } from '@playwright/test';
 import { mockFactoryApi, syntheticRun } from './fixtures';
+import {
+  memoryDetail,
+  memoryGraph,
+  memoryItem,
+  memoryRecalls,
+  memoryReview,
+} from '../src/test/memoryFixture';
+import { configurationHistory, runtimeSettings } from '../src/test/runtimeFixture';
 
 // Visual evidence for design work: SABRE_GALLERY=<label> pnpm test:browser gallery
 // writes one full-page capture per section and viewport to work/gallery/<label>/.
 const label = process.env.SABRE_GALLERY;
 
 const sections = [
-  { name: 'runs', path: '/work', ready: 'Runs' },
-  { name: 'run-detail', path: '/work/synthetic-run', ready: 'Correct the synthetic example' },
+  { name: 'runs', path: '/runs', ready: 'Runs' },
+  { name: 'run-detail', path: '/runs/synthetic-run', ready: 'Full objective' },
   { name: 'agents', path: '/agents', ready: 'Agents' },
   { name: 'tools', path: '/tools', ready: 'Tools' },
   { name: 'memory', path: '/memory', ready: 'Memory' },
+  { name: 'memory-review', path: '/memory', ready: 'Memory', tab: 'Review queue' },
+  { name: 'memory-recalls', path: '/memory', ready: 'Memory', tab: 'Recall log' },
   { name: 'config', path: '/config', ready: 'Config' },
   { name: 'config-access', path: '/config?section=access', ready: 'Paired browsers' },
+  { name: 'config-environment', path: '/config?section=environment', ready: 'Set by the environment' },
+  { name: 'config-history', path: '/config?section=history', ready: 'Revision history' },
 ];
 
 test.describe('gallery', () => {
@@ -36,6 +48,73 @@ test.describe('gallery', () => {
       }),
     );
     await page.route('**/api/v1/work/synthetic-run', (route) => route.fulfill({ json: order }));
+    await page.route('**/api/v1/configuration/history*', (route) =>
+      route.fulfill({ json: configurationHistory() }),
+    );
+    await page.route('**/api/v1/system', (route) =>
+      route.fulfill({ json: { runtime_settings: runtimeSettings() } }),
+    );
+    await page.route('**/api/v1/agents/activity*', (route) =>
+      route.fulfill({
+        json: {
+          days: 7,
+          since: '2026-11-05T00:00:00Z',
+          repair_cycles: 2,
+          waiting_for_input: 1,
+          active_runs: [],
+          active_runs_truncated: false,
+          roles: [
+            {
+              role: 'developer',
+              invocations: 18,
+              completed: 15,
+              failed: 1,
+              interrupted: 2,
+              duration_ms: 812000,
+              model_calls: 18,
+              tokens: 412000,
+            },
+            {
+              role: 'analyst',
+              invocations: 9,
+              completed: 9,
+              failed: 0,
+              interrupted: 0,
+              duration_ms: 214000,
+              model_calls: 9,
+              tokens: 98000,
+            },
+            {
+              role: 'qa',
+              invocations: 7,
+              completed: 6,
+              failed: 1,
+              interrupted: 0,
+              duration_ms: 160000,
+              model_calls: 7,
+              tokens: null,
+            },
+          ],
+        },
+      }),
+    );
+    // Realistic project memory so the knowledge map, review queue and recall log can be reviewed.
+    await page.route('**/api/v1/projects/*/memory/graph*', (route) => route.fulfill({ json: memoryGraph() }));
+    await page.route('**/api/v1/projects/*/memory/review', (route) =>
+      route.fulfill({ json: memoryReview() }),
+    );
+    await page.route('**/api/v1/projects/*/memory/recalls*', (route) =>
+      route.fulfill({ json: memoryRecalls() }),
+    );
+    await page.route('**/api/v1/memory/m27', (route) => route.fulfill({ json: memoryDetail() }));
+    await page.route('**/api/v1/memory?*', (route) =>
+      route.fulfill({
+        json: [
+          memoryItem(),
+          memoryItem({ id: 'l05', kind: 'lesson', content: 'Seed the pricing suite before running it' }),
+        ],
+      }),
+    );
     await page.route('**/api/v1/panel/browsers', (route) =>
       route.fulfill({
         json: {
@@ -67,6 +146,10 @@ test.describe('gallery', () => {
     test(section.name, async ({ page }) => {
       await page.goto(section.path);
       await expect(page.getByText(section.ready, { exact: false }).first()).toBeVisible();
+      if ('tab' in section && section.tab)
+        await page.getByRole('tab', { name: section.tab, exact: true }).click();
+      if (section.name === 'memory')
+        await page.getByRole('button', { name: "Memory: Discount uses banker's rounding" }).click();
       await page.waitForLoadState('networkidle');
       await page.mouse.move(0, 0);
       await page.screenshot({
@@ -80,7 +163,7 @@ test.describe('gallery', () => {
   }
 
   test('supervisor-open', async ({ page }) => {
-    await page.goto('/work/synthetic-run');
+    await page.goto('/runs/synthetic-run');
     await page.getByRole('button', { name: 'Supervisor', exact: true }).click();
     await expect(page.getByRole('region', { name: 'Supervisor conversation' })).toBeVisible();
     await page.waitForLoadState('networkidle');

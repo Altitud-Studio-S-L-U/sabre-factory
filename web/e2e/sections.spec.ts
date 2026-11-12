@@ -71,7 +71,7 @@ test('five console sections keep inspection compact and modal drafts keyboard ac
     };
     await route.fulfill({ json: saved });
   });
-  await page.goto('/work');
+  await page.goto('/runs');
   const navigation = page.getByRole('navigation', { name: 'Main navigation' });
   await expect(navigation.getByRole('link')).toHaveCount(5);
   await expect(page.getByRole('heading', { level: 1, name: 'Runs' })).toBeVisible();
@@ -114,6 +114,8 @@ test('five console sections keep inspection compact and modal drafts keyboard ac
   await expect(mcpDialog.getByText('Discard your unsaved changes?')).toBeVisible();
   await mcpDialog.getByRole('button', { name: 'Discard changes' }).click();
   await navigation.getByRole('link', { name: 'Memory', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Nothing to map yet' })).toBeVisible();
+  await page.getByRole('tab', { name: 'Facts', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'No approved knowledge' })).toBeVisible();
   await page.getByRole('tab', { name: 'Sources', exact: true }).click();
   await expect(

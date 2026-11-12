@@ -18,11 +18,14 @@ test('cancelled runs remain inspectable in Closed with a readable final-state ba
     if (path.endsWith('/work/synthetic-run')) return route.fulfill({ json: order });
     await route.fallback();
   });
-  await page.goto('/work');
+  await page.goto('/runs');
   await page.getByRole('button', { name: 'Closed', exact: true }).click();
-  await expect(page.getByTestId('run-card')).toHaveCount(1);
-  await page.getByTestId('run-card').click();
-  await expect(page).toHaveURL(/\/work\/synthetic-run/);
+  await expect(page.getByTestId('run-row')).toHaveCount(1);
+  await page
+    .getByTestId('run-row')
+    .getByRole('link', { name: /Correct the synthetic example/ })
+    .click();
+  await expect(page).toHaveURL(/\/runs\/synthetic-run/);
   const badge = page.getByTestId('run-header').getByText('Cancelled', { exact: true });
   await expect(badge).toHaveText('Cancelled');
   await expect(badge.locator('svg.lucide')).toBeVisible();
@@ -125,13 +128,13 @@ test('cancelled run with a retained budget error shows history instead of a pend
       return route.fulfill({ json: { items: [failedStage], next_cursor: 1, has_more: false } });
     await route.fallback();
   });
-  await page.goto('/work');
+  await page.goto('/runs');
   await page.getByRole('button', { name: 'Closed', exact: true }).click();
   await page
-    .getByRole('button', { name: /Correct the synthetic example/ })
+    .getByRole('link', { name: /Correct the synthetic example/ })
     .first()
     .click();
-  await expect(page).toHaveURL(/\/work\/synthetic-run/);
+  await expect(page).toHaveURL(/\/runs\/synthetic-run/);
   const history = page.getByRole('note', { name: 'Retained run history' });
   await expect(history).toContainText('History · BUDGET_EXHAUSTED');
   await expect(history).toContainText('No decision is pending');
@@ -159,7 +162,7 @@ test('expanded run preserves inspection and exposes review and security without 
     if (path.endsWith('/work/synthetic-run')) return route.fulfill({ json: order });
     await route.fallback();
   });
-  await page.goto('/work/synthetic-run');
+  await page.goto('/runs/synthetic-run');
   const timeline = page.getByRole('region', { name: 'Execution timeline' });
   const expand = timeline.getByRole('button', { name: 'Expand workspace' });
   await timeline.getByRole('tab', { name: 'JSON', exact: true }).click();
@@ -247,7 +250,7 @@ test('legacy blocked runs expose explicit budget decisions without resuming', as
       });
     await route.fallback();
   });
-  await page.goto('/work/synthetic-run');
+  await page.goto('/runs/synthetic-run');
   await page.getByRole('button', { name: 'Review budget options' }).click();
   await expect(page.getByRole('region', { name: 'Budget decision' })).toBeVisible();
   await page.getByRole('button', { name: 'Remove a ceiling', exact: true }).click();
@@ -307,7 +310,7 @@ test('live usage updates within a phase and retains a stale ledger until explici
     }
     await route.fallback();
   });
-  await page.goto(`/work/${order.id}`);
+  await page.goto(`/runs/${order.id}`);
   const readout = page.getByLabel('Recorded run state');
   await expect(readout.getByText('100', { exact: true })).toBeVisible();
   const auditAtStart = auditRequests;
@@ -377,7 +380,7 @@ test('new run protects dirty input and pending submission from Escape or backdro
       json: { message: 'Synthetic launch could not be accepted; retained draft' },
     });
   });
-  await page.goto('/work');
+  await page.goto('/runs');
   await page
     .getByRole('button', { name: /New run/ })
     .first()
@@ -438,7 +441,7 @@ test('usage meters retain quota semantics with padded dark tracks and responsive
       });
     await route.fallback();
   });
-  await page.goto('/work/synthetic-run');
+  await page.goto('/runs/synthetic-run');
   await page.getByRole('tab', { name: 'Limits & scope', exact: true }).click();
   const panel = page.getByRole('region', { name: 'Usage and limits' });
   await expect(panel).toBeVisible();

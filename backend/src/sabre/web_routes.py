@@ -18,7 +18,7 @@ def console_sections() -> tuple[str, ...]:
     return sections
 
 
-_ENTRY = re.compile(r"(?:work/[A-Za-z0-9_-]{1,100}|" + "|".join(map(re.escape, console_sections())) + r")/?")
+_ENTRY = re.compile(r"(?:(?:runs|work)/[A-Za-z0-9_-]{1,100}|" + "|".join(map(re.escape, console_sections())) + r")/?")
 # Hashed build output never changes in place; the entry document must be revalidated so a rebuilt image is
 # picked up instead of a cached index that still points at an older bundle.
 IMMUTABLE = "public, max-age=31536000, immutable"

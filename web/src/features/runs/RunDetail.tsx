@@ -1,4 +1,5 @@
 import { Fragment, useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react';
+import { Link } from 'react-router';
 import { Check, ExternalLink } from 'lucide-react';
 import type {
   Api,
@@ -181,7 +182,11 @@ export default function RunDetail({
     <div className="grid min-w-0 gap-3">
       <header data-testid="run-header" className="grid min-w-0 gap-2">
         <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-          <nav aria-label="Run context" className="flex flex-wrap items-center gap-1.5">
+          <nav aria-label="Breadcrumb" className="flex flex-wrap items-center gap-1.5">
+            <Link to="/runs" className="text-muted-foreground hover:text-foreground">
+              Runs
+            </Link>
+            <span aria-hidden="true">/</span>
             <span>{project?.name || 'Project'}</span>
             <span aria-hidden="true">/</span>
             <span>{modeLabels[order.mode]}</span>
@@ -195,14 +200,14 @@ export default function RunDetail({
         </div>
         <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
           <div className="flex min-w-0 flex-wrap items-center gap-3">
-            <h2
+            <h1
               tabIndex={-1}
               data-focus-heading
               className="text-2xl font-semibold tracking-tight outline-none"
             >
               {order.phase === 'security_watch' ? 'Monitoring' : modeLabels[order.mode]}{' '}
               {project?.name || 'project'}
-            </h2>
+            </h1>
             <RunBadge value={order.status} />
           </div>
           <div className="flex flex-wrap items-center gap-2">

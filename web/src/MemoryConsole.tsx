@@ -2,6 +2,7 @@ import Button from './components/Button';
 import Input from './components/Input';
 import Textarea from './components/Textarea';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { Brain } from 'lucide-react';
 import {
   ApiError,
   type Api,
@@ -11,7 +12,15 @@ import {
   type WorkOrder,
   type IngestionReport,
   type AuditView,
+  type MemoryRecallPage,
+  type MemoryReview,
 } from './api';
+import StatTile, { StatGrid } from './components/StatTile';
+import MemoryLayers from './features/memory/MemoryLayers';
+import KnowledgeMap from './features/memory/KnowledgeMap';
+import MemoryInspector from './features/memory/MemoryInspector';
+import ReviewQueue from './features/memory/ReviewQueue';
+import RecallLog from './features/memory/RecallLog';
 import Dialog, { DialogActions } from './components/Dialog';
 import Field from './components/FormField';
 import Select from './components/Select';
@@ -31,7 +40,16 @@ const failure = (reason: unknown) =>
     : 'Project knowledge could not be loaded. Retry the project request.';
 const validity = (item: MemoryItem) =>
   item.invalidated_at ? 'Invalidated' : item.active ? 'Approved' : 'Needs review';
-const views = ['Facts', 'Sources', 'Proposals', 'Relations', 'Context', 'History'] as const;
+const views = [
+  'Knowledge map',
+  'Facts',
+  'Review queue',
+  'Recall log',
+  'Sources',
+  'Working memory',
+  'History',
+] as const;
+const WEEK = 7 * 86_400_000;
 type View = (typeof views)[number];
 
 /** Secondary line under a table cell or list entry. */
@@ -67,7 +85,12 @@ export default function MemoryConsole({ api, projects, connected = true }: Memor
   const [sentContext, setSentContext] = useState<AuditView['context']>(null);
   const [contextError, setContextError] = useState('');
   const [contextLoading, setContextLoading] = useState(false);
-  const [tab, setTab] = useState<View>('Facts');
+  const [tab, setTab] = useState<View>('Knowledge map');
+  const [review, setReview] = useState<MemoryReview | null>(null);
+  const [recalls, setRecalls] = useState<MemoryRecallPage | null>(null);
+  const [focus, setFocus] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [loadedAt, setLoadedAt] = useState(0);
   const [loading, setLoading] = useState(!!effectiveProjectId);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -85,6 +108,9 @@ export default function MemoryConsole({ api, projects, connected = true }: Memor
   const reset = (projectId: string) => {
     setItems([]);
     setReport(null);
+    setReview(null);
+    setRecalls(null);
+    setFocus(null);
     setIngestion(null);
     setIndexError('');
     setSelected(null);
@@ -107,13 +133,19 @@ export default function MemoryConsole({ api, projects, connected = true }: Memor
           if (current()) setIndexError(failure(reason));
           return null;
         }),
+        // Review and recall data come from newer servers; their absence must not hide the rest.
+        api.memoryReview(effectiveProjectId).catch(() => null),
+        api.memoryRecalls(effectiveProjectId, { limit: 200 }).catch(() => null),
       ])
         .then(
-          ([knowledge, memories, index]) => {
+          ([knowledge, memories, index, nextReview, nextRecalls]) => {
             if (!current()) return;
             setReport(knowledge);
             setItems(memories.filter((item) => item.project_id === effectiveProjectId));
             if (index?.project_id === effectiveProjectId) setIngestion(index);
+            setReview(nextReview && Array.isArray(nextReview.pending) ? nextReview : null);
+            setRecalls(nextRecalls && Array.isArray(nextRecalls.items) ? nextRecalls : null);
+            setLoadedAt(Date.now());
           },
           (reason: unknown) => {
             if (current()) setError(failure(reason));
@@ -136,7 +168,19 @@ export default function MemoryConsole({ api, projects, connected = true }: Memor
   const refresh = () => {
     const requestId = ++generation.current;
     reset(effectiveProjectId);
+    setRefreshKey((value) => value + 1);
     if (effectiveProjectId) void fetchKnowledge(() => requestId === generation.current);
+  };
+  /** After an owner decision: keep the view, reload the records behind it. */
+  const changed = (value: string) => {
+    setNotice(value);
+    setRefreshKey((key) => key + 1);
+    const requestId = ++generation.current;
+    if (effectiveProjectId) void fetchKnowledge(() => requestId === generation.current);
+  };
+  const inspect = (memoryId: string) => {
+    setFocus(memoryId);
+    setTab('Knowledge map');
   };
   const pendingIndex = ingestion?.jobs.some((job) => job.state === 'queued' || job.state === 'running');
   useEffect(() => {
@@ -189,10 +233,10 @@ export default function MemoryConsole({ api, projects, connected = true }: Memor
     setContextScope({ api, tab, workId: contextWorkId });
     setSentContext(null);
     setContextError('');
-    setContextLoading(tab === 'Context' && !!contextWorkId);
+    setContextLoading(tab === 'Working memory' && !!contextWorkId);
   }
   useEffect(() => {
-    if (tab !== 'Context' || !contextWorkId) return;
+    if (tab !== 'Working memory' || !contextWorkId) return;
     let active = true;
     void api
       .audit(contextWorkId)
@@ -213,35 +257,72 @@ export default function MemoryConsole({ api, projects, connected = true }: Memor
   const latestJob = ingestion?.jobs[0];
   const sourceRecord = sourceIndex ?? context;
   const rows = items.filter((item) =>
-    tab === 'Proposals'
-      ? !item.active && !item.invalidated_at
-      : tab === 'History'
-        ? !!item.invalidated_at
+    tab === 'History'
+      ? !!item.invalidated_at
+      : tab === 'Review queue'
+        ? !item.active && !item.invalidated_at
         : item.active,
   );
-  const metrics: [string, ReactNode][] = [
-    [
-      sourceIndex ? 'Indexed source files' : 'Recorded source files',
-      loading ? '—' : (sourceRecord?.files.length ?? 0),
-    ],
-    ['Approved knowledge', loading ? '—' : items.filter((item) => item.active).length],
-    [
-      'Pending proposals',
-      loading ? '—' : items.filter((item) => !item.active && !item.invalidated_at).length,
-    ],
-    [
-      'Source commit',
-      <code key="commit" className="font-mono text-sm font-medium">
-        {sourceRecord?.source_commit.slice(0, 12) || 'Not recorded'}
-      </code>,
-    ],
+  const approved = items.filter((item) => item.active);
+  const pendingCount =
+    review?.pending.length ?? items.filter((item) => !item.active && !item.invalidated_at).length;
+  const overlapping = review?.pending.filter((entry) => entry.overlaps.length > 0).length ?? 0;
+  const now = loadedAt;
+  const recentRecalls =
+    recalls?.items.filter(
+      (recall) => recall.outcome === 'recalled' && now - new Date(recall.created_at).getTime() <= WEEK,
+    ) ?? [];
+  const sourceFiles = sourceRecord?.files.length ?? 0;
+  const layers = [
+    {
+      id: 'working',
+      name: 'Working',
+      scope: 'per station',
+      value: context ? `${context.files.length} files` : '—',
+      description: 'Context window, archived reads and work notes of one station. Gone when it ends.',
+      tone: 'var(--timeline-tool)',
+    },
+    {
+      id: 'episodic',
+      name: 'Episodic',
+      scope: 'per run',
+      value: report ? `${report.checkpoints.count} checkpoints` : '—',
+      description: 'Events, checkpoints and delivery evidence: the record that facts cite.',
+      tone: 'var(--info)',
+    },
+    {
+      id: 'semantic',
+      name: 'Semantic',
+      scope: 'reviewed',
+      value: `${approved.length} approved`,
+      description: 'Facts and lessons you approved. Recalled into prompts as untrusted data.',
+      tone: 'var(--primary)',
+      highlight: true,
+    },
+    {
+      id: 'procedural',
+      name: 'Procedural',
+      scope: 'factory',
+      value: 'Pinned',
+      description: 'Skills and policies pinned by digest on each agent definition.',
+      tone: 'var(--success)',
+    },
+    {
+      id: 'source',
+      name: 'Source index',
+      scope: 'per commit',
+      value: `${sourceFiles} files`,
+      description: 'Paths and digests per commit, so a fact can point at code that may change.',
+      tone: 'var(--foreground)',
+    },
   ];
   return (
     <div className="@container grid min-w-0 gap-6">
       <PageHeader
-        eyebrow="Project knowledge"
+        icon={<Brain />}
+        iconTone="memory"
         title="Memory"
-        description="Inspect sources, reviewed knowledge and the context recorded for a specialist. Every item keeps its project and source provenance."
+        description="What the factory knows about each project, where every fact came from and when an agent recalled it. Nothing becomes memory without evidence or your approval."
         actions={
           <>
             <Button variant="secondary" disabled={loading || busy || !effectiveProjectId} onClick={refresh}>
@@ -367,19 +448,44 @@ export default function MemoryConsole({ api, projects, connected = true }: Memor
               </p>
             )}
           </Card>
-          <dl
-            aria-label="Knowledge summary"
-            className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-border bg-border @3xl:grid-cols-4"
-          >
-            {metrics.map(([label, value]) => (
-              <div key={label} className="grid min-w-0 content-start gap-1.5 bg-card px-4 py-3.5">
-                <dt className="text-xs text-muted-foreground">{label}</dt>
-                <dd className="min-w-0 text-xl font-semibold tabular-nums [overflow-wrap:anywhere]">
-                  {value}
-                </dd>
-              </div>
-            ))}
-          </dl>
+          <StatGrid label="Knowledge summary">
+            <StatTile
+              label="Approved"
+              value={loading ? '—' : approved.length}
+              note={`${approved.filter((item) => item.kind === 'fact').length} facts · ${approved.filter((item) => item.kind === 'lesson').length} lessons`}
+            />
+            <StatTile
+              label="Review queue"
+              value={loading ? '—' : pendingCount}
+              tone={pendingCount ? 'warning' : 'default'}
+              note={overlapping ? `${overlapping} overlap an existing memory` : 'No overlaps detected'}
+            />
+            <StatTile
+              label="Recalled · 7 days"
+              value={recalls ? recentRecalls.length : '—'}
+              note={
+                recalls
+                  ? `by ${new Set(recentRecalls.map((recall) => recall.role)).size} roles in ${new Set(recentRecalls.map((recall) => recall.work_id)).size} runs`
+                  : 'Recall log unavailable'
+              }
+            />
+            <StatTile
+              label="Needs revalidation"
+              value={review ? review.stale.length : '—'}
+              tone={review?.stale.length ? 'warning' : 'default'}
+              note={review?.stale.length ? 'Cited files changed since' : 'Every cited file unchanged'}
+            />
+            <StatTile
+              label={sourceIndex ? 'Source index' : 'Recorded sources'}
+              value={loading ? '—' : sourceFiles}
+              note={
+                sourceRecord?.source_commit
+                  ? `files at ${sourceRecord.source_commit.slice(0, 8)}`
+                  : 'Not recorded'
+              }
+            />
+          </StatGrid>
+          <MemoryLayers layers={layers} />
           <Tabs
             items={views.map((name) => ({ value: name, label: name }))}
             value={tab}
@@ -394,7 +500,62 @@ export default function MemoryConsole({ api, projects, connected = true }: Memor
                 </Card>
               ) : error ? null : (
                 <div className="grid min-w-0 gap-4 pt-1">
-                  {['Facts', 'Proposals', 'History'].includes(view) &&
+                  {view === 'Knowledge map' && (
+                    <div className="grid min-w-0 items-start gap-4 @5xl:grid-cols-[minmax(0,1fr)_22rem]">
+                      <KnowledgeMap
+                        api={api}
+                        projectId={effectiveProjectId}
+                        focus={focus}
+                        refreshKey={refreshKey}
+                        onFocus={setFocus}
+                      />
+                      {focus ? (
+                        <MemoryInspector
+                          key={focus}
+                          api={api}
+                          memoryId={focus}
+                          connected={connected}
+                          refreshKey={refreshKey}
+                          onChanged={changed}
+                          onFocus={setFocus}
+                        />
+                      ) : (
+                        <aside className="grid content-start gap-2 rounded-xl border border-dashed border-border p-4 text-sm text-muted-foreground">
+                          <strong className="text-foreground">Select a memory</strong>
+                          <p>
+                            Its provenance, whether it still holds at the newest commit, who recalled it and
+                            what it links to appear here.
+                          </p>
+                        </aside>
+                      )}
+                    </div>
+                  )}
+                  {view === 'Review queue' &&
+                    (review ? (
+                      <ReviewQueue
+                        api={api}
+                        review={review}
+                        connected={connected}
+                        onChanged={changed}
+                        onInspect={inspect}
+                      />
+                    ) : (
+                      <Notice tone="neutral" title="Overlap checks are not available from this server.">
+                        <p>
+                          Proposals are listed without comparison. Update SABRE to compare them with existing
+                          memories.
+                        </p>
+                      </Notice>
+                    ))}
+                  {view === 'Recall log' && (
+                    <RecallLog
+                      api={api}
+                      projectId={effectiveProjectId}
+                      refreshKey={refreshKey}
+                      onInspect={inspect}
+                    />
+                  )}
+                  {(['Facts', 'History'].includes(view) || (view === 'Review queue' && !review)) &&
                     (rows.length ? (
                       <Table>
                         <TableHeader>
@@ -440,10 +601,10 @@ export default function MemoryConsole({ api, projects, connected = true }: Memor
                     ) : (
                       <EmptyPanel
                         title={
-                          view === 'Proposals'
-                            ? 'No pending proposals'
-                            : view === 'History'
-                              ? 'No invalidated knowledge'
+                          view === 'History'
+                            ? 'No invalidated knowledge'
+                            : view === 'Review queue'
+                              ? 'No pending proposals'
                               : 'No approved knowledge'
                         }
                       >
@@ -544,51 +705,7 @@ export default function MemoryConsole({ api, projects, connected = true }: Memor
                       )}
                     </Card>
                   )}
-                  {view === 'Relations' && (
-                    <Card aria-labelledby="memory-relations-title">
-                      <div className="grid gap-1.5">
-                        <CardTitle id="memory-relations-title">Provenance relationships</CardTitle>
-                        <CardDescription>
-                          Links below come from stored source and run references.
-                        </CardDescription>
-                      </div>
-                      {items.length ? (
-                        <ul className="grid divide-y divide-border border-y border-border">
-                          {items.map((item) => (
-                            <li
-                              key={item.id}
-                              className="grid min-w-0 gap-2 py-3 text-sm @xl:grid-cols-2 @xl:gap-6"
-                            >
-                              <div className="min-w-0">
-                                <Button
-                                  variant="link"
-                                  className="h-auto min-h-8 justify-start p-0 whitespace-normal"
-                                  onClick={() => setSelected(item)}
-                                >
-                                  Memory {item.id}
-                                </Button>
-                                <Detail>
-                                  {item.kind} · {validity(item)}
-                                </Detail>
-                              </div>
-                              <div className="min-w-0 [overflow-wrap:anywhere]">
-                                Run <code className="font-mono text-xs">{item.source_work_id}</code>
-                                <Detail>
-                                  Commit <code className="font-mono">{item.source_commit.slice(0, 12)}</code>
-                                  {item.evidence_digest
-                                    ? ' · evidence digest retained'
-                                    : ' · no evidence digest recorded'}
-                                </Detail>
-                              </div>
-                            </li>
-                          ))}
-                        </ul>
-                      ) : (
-                        <p className="text-sm">No memory provenance relationships recorded.</p>
-                      )}
-                    </Card>
-                  )}
-                  {view === 'Context' && (
+                  {view === 'Working memory' && (
                     <div className="grid min-w-0 items-start gap-4 @4xl:grid-cols-2">
                       <Card aria-labelledby="memory-context-title">
                         <CardTitle id="memory-context-title">Recorded specialist context</CardTitle>

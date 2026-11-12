@@ -13,6 +13,7 @@ import type {
 } from './api';
 import Dialog, { DialogActions } from './components/Dialog';
 import Tabs from './components/Tabs';
+import CrewAvatar from './features/crew/CrewAvatar';
 import JsonView from './components/JsonView';
 import Notice from './components/Notice';
 import EmptyState from './components/EmptyState';
@@ -49,18 +50,6 @@ const responsibilities: Record<string, string> = {
   devops: 'Prepare the environment and delivery evidence. Publication remains a controlled system operation.',
   ciso: 'Assess security risks and evidence. This specialist cannot waive controls.',
 };
-
-/** Monogram placeholder for a specialist; the crew avatar replaces it. */
-function SpecialistAvatar({ label }: { label: string }) {
-  return (
-    <span
-      aria-hidden="true"
-      className="grid size-8 shrink-0 place-items-center rounded-md border border-border bg-code font-mono text-xs font-medium text-primary"
-    >
-      {label.slice(0, 2).toUpperCase()}
-    </span>
-  );
-}
 
 /** A bordered group of related controls with a small legend. */
 function FieldGroup({
@@ -275,7 +264,7 @@ export default function AgentsConsole({
                         setValidation([]);
                       }}
                     >
-                      <SpecialistAvatar label={entry.label} />
+                      <CrewAvatar role={entry.id} size={32} />
                       <span className="grid min-w-0 flex-1 gap-0.5">
                         <strong className="truncate text-sm font-semibold">{entry.label}</strong>
                         <small className="text-xs text-muted-foreground">

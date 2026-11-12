@@ -1,5 +1,5 @@
 {
   "version": 1,
-  "description": "Console sections served as the SPA entry on direct load. web/src/navigation.ts must list the same paths; tests on both sides enforce it.",
-  "sections": ["work", "agents", "tools", "memory", "config", "projects", "security", "integrations", "about"]
+  "description": "Console sections served as the SPA entry on direct load. web/src/navigation.ts must list the same paths (sections and redirects); tests on both sides enforce it.",
+  "sections": ["runs", "work", "agents", "tools", "memory", "config", "projects", "security", "integrations", "about"]
 }

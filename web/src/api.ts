@@ -8,9 +8,31 @@ export type ProjectCreate = components['schemas']['ProjectCreate'];
 export type WorkOrder = paths['/api/v1/work']['get']['responses'][200]['content']['application/json'][number];
 export type WorkOrderCreate = components['schemas']['WorkOrderCreate'];
 export type HumanQuestion = NonNullable<WorkOrder['questions']>[number];
+/** Query string from defined values only, so absent filters are not sent as empty parameters. */
+function searchQuery(values: Record<string, string | number | undefined>) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(values))
+    if (value !== undefined && value !== '') params.set(key, String(value));
+  const text = params.toString();
+  return text ? `?${text}` : '';
+}
+
 export type MemoryItem =
   paths['/api/v1/memory']['get']['responses'][200]['content']['application/json'][number];
 export type MemoryCreate = components['schemas']['MemoryCreate'];
+export type MemoryApproval = components['schemas']['MemoryApproval'];
+export type MemoryDetail = components['schemas']['MemoryDetail'];
+export type MemoryGraph = components['schemas']['MemoryGraph'];
+export type MemoryItemPage = components['schemas']['MemoryItemPage'];
+export type MemoryListItem = components['schemas']['MemoryListItem'];
+export type MemoryRecall = components['schemas']['MemoryRecall'];
+export type MemoryRecallPage = components['schemas']['MemoryRecallPage'];
+export type MemoryReview = components['schemas']['MemoryReview'];
+export type MemoryValidityRecord = components['schemas']['MemoryValidityRecord'];
+export type OverlapEntry = components['schemas']['OverlapEntry'];
+export type RuntimeSettings = components['schemas']['RuntimeSettings'];
+export type ConfigurationHistory = components['schemas']['ConfigurationHistory'];
+export type AgentActivity = components['schemas']['AgentActivity'];
 export type SecurityFinding = NonNullable<WorkOrder['findings']>[number];
 export type Answer = components['schemas']['Answer'];
 export type ScopeChange = components['schemas']['ScopeChange'];
@@ -496,6 +518,36 @@ export function createApi(csrfToken: string, onUnauthorized?: (message: string) 
       request<MemoryItem>('/memory', { method: 'POST', body: JSON.stringify(value) }),
     memoryAction: (id: string, action: 'approve' | 'invalidate') =>
       request<MemoryItem>(`/memory/${encodeURIComponent(id)}/${action}`, { method: 'POST' }),
+    approveMemory: (id: string, value: MemoryApproval) =>
+      request<MemoryItem>(`/memory/${encodeURIComponent(id)}/approve`, {
+        method: 'POST',
+        body: JSON.stringify(value),
+      }),
+    carryMemoryForward: (id: string, commit: string) =>
+      request<MemoryValidityRecord>(`/memory/${encodeURIComponent(id)}/carry-forward`, {
+        method: 'POST',
+        body: JSON.stringify({ commit }),
+      }),
+    memoryDetail: (id: string) => request<MemoryDetail>(`/memory/${encodeURIComponent(id)}`),
+    memoryItems: (
+      projectId: string,
+      query: { state?: string; kind?: string; q?: string; cursor?: string; limit?: number } = {},
+    ) =>
+      request<MemoryItemPage>(`/projects/${encodeURIComponent(projectId)}/memory/items${searchQuery(query)}`),
+    memoryGraph: (projectId: string, query: { focus?: string; depth?: number; limit?: number } = {}) =>
+      request<MemoryGraph>(`/projects/${encodeURIComponent(projectId)}/memory/graph${searchQuery(query)}`),
+    memoryRecalls: (
+      projectId: string,
+      query: { work_id?: string; memory_id?: string; cursor?: string; limit?: number } = {},
+    ) =>
+      request<MemoryRecallPage>(
+        `/projects/${encodeURIComponent(projectId)}/memory/recalls${searchQuery(query)}`,
+      ),
+    memoryReview: (projectId: string) =>
+      request<MemoryReview>(`/projects/${encodeURIComponent(projectId)}/memory/review`),
+    configurationHistory: (limit = 20) =>
+      request<ConfigurationHistory>(`/configuration/history?limit=${limit}`),
+    agentActivity: (days = 7) => request<AgentActivity>(`/agents/activity?days=${days}`),
     security: (projectId?: string) =>
       request<SecurityFinding[]>(
         `/security${projectId ? `?project_id=${encodeURIComponent(projectId)}` : ''}`,

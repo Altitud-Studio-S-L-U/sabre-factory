@@ -138,7 +138,7 @@ test('supervisor expands, retains per-run context and reveals recorded tools', a
           },
     }),
   );
-  await page.goto('/work');
+  await page.goto('/runs');
   await page.getByRole('button', { name: 'Supervisor', exact: true }).click();
   const drawer = page.getByRole('region', { name: 'Supervisor conversation' });
   await drawer.getByRole('button', { name: 'Expand chat' }).click();
@@ -189,7 +189,7 @@ test('supervisor persists an owner conversation across navigation and defaults t
     }
     await route.fulfill({ json: { items: messages, truncated: false } });
   });
-  await page.goto('/work');
+  await page.goto('/runs');
   await page.getByRole('button', { name: 'Supervisor', exact: true }).click();
   const conversation = page.getByRole('region', { name: 'Supervisor conversation' });
   await conversation
@@ -250,7 +250,7 @@ test('blocked supervisor message resumes by identity without expanding its origi
     }
     await route.fulfill({ json: { items: [message], truncated: false } });
   });
-  await page.goto('/work');
+  await page.goto('/runs');
   await page.getByRole('button', { name: 'Supervisor', exact: true }).click();
   const conversation = page.getByRole('region', { name: 'Supervisor conversation' });
   await conversation.getByRole('button', { name: 'Reconcile and resume message' }).click();

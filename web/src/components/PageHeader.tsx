@@ -18,6 +18,8 @@ export default function PageHeader({
   actions,
   className,
   titleId,
+  icon,
+  iconTone = 'primary',
 }: {
   eyebrow?: ReactNode;
   title: ReactNode;
@@ -25,16 +27,35 @@ export default function PageHeader({
   actions?: ReactNode;
   className?: string;
   titleId?: string;
+  /** Section mark shown in a chip beside the title. */
+  icon?: ReactNode;
+  iconTone?: 'primary' | 'memory';
 }) {
+  const heading = (
+    <div className="grid min-w-0 gap-1.5">
+      {eyebrow && <Eyebrow>{eyebrow}</Eyebrow>}
+      <h1 id={titleId} tabIndex={-1} className="text-2xl font-semibold tracking-tight outline-none">
+        {title}
+      </h1>
+      {description && <p className="max-w-[72ch] text-sm text-muted-foreground">{description}</p>}
+    </div>
+  );
   return (
     <header className={cn('flex min-w-0 flex-wrap items-start justify-between gap-4', className)}>
-      <div className="grid min-w-0 gap-1.5">
-        {eyebrow && <Eyebrow>{eyebrow}</Eyebrow>}
-        <h1 id={titleId} tabIndex={-1} className="text-2xl font-semibold tracking-tight outline-none">
-          {title}
-        </h1>
-        {description && <p className="max-w-[72ch] text-sm text-muted-foreground">{description}</p>}
-      </div>
+      {icon ? (
+        <div className="flex min-w-0 items-center gap-3.5">
+          <span
+            aria-hidden="true"
+            data-tone={iconTone}
+            className="grid size-11 shrink-0 place-items-center rounded-xl border border-primary/40 bg-linear-to-br from-primary/25 to-primary/5 text-primary data-[tone=memory]:border-timeline-memory/45 data-[tone=memory]:from-timeline-memory/25 data-[tone=memory]:to-timeline-memory/5 data-[tone=memory]:text-timeline-memory [&_svg]:size-[1.375rem]"
+          >
+            {icon}
+          </span>
+          {heading}
+        </div>
+      ) : (
+        heading
+      )}
       {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
     </header>
   );

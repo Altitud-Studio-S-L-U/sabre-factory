@@ -4,7 +4,7 @@ test('signed-out text retains contrast on both login panels', async ({ page }) =
   await page.route('**/api/v1/panel/session', (route) =>
     route.fulfill({ status: 401, json: { detail: 'Unauthorized' } }),
   );
-  await page.goto('/work');
+  await page.goto('/runs');
   await expect(page.getByRole('heading', { name: 'Pair this browser' })).toBeVisible();
   const measurements = await page.locator('[data-contrast]').evaluateAll((elements) => {
     const probe = document.createElement('canvas').getContext('2d')!;

@@ -3,7 +3,8 @@ import { configuration } from '../src/test/modelConfigurationFixture';
 import { factoryConfiguration } from '../src/test/factoryConfigurationFixture';
 import { agentCatalog } from '../src/test/agentCatalogFixture';
 import { runUsageSnapshot } from '../src/test/runUsageFixture';
-import type { WorkOrder } from '../src/api';
+import type { ProcessTopology, WorkOrder } from '../src/api';
+import topologies from './topology.json' with { type: 'json' };
 
 export async function captureSource(page: Page, section: string) {
   await page.evaluate(() => window.scrollTo(0, 0));
@@ -111,6 +112,20 @@ export async function mockFactoryApi(page: Page) {
     if (path.endsWith('/configuration')) json = factoryConfiguration();
     if (path.endsWith('/releases')) json = { version: 1, items: [], truncated: false };
     if (path.endsWith('/a2a-tasks')) json = [];
+    if (path.endsWith('/agents/activity'))
+      json = {
+        days: 7,
+        since: '2026-11-05T00:00:00Z',
+        roles: [],
+        repair_cycles: 0,
+        waiting_for_input: 0,
+        active_runs: [],
+        active_runs_truncated: false,
+      };
+    if (path.endsWith('/memory/graph'))
+      json = { focus: null, depth: 2, nodes: [], edges: [], truncated: false };
+    if (path.endsWith('/memory/review')) json = { commit: null, pending: [], stale: [], truncated: false };
+    if (path.endsWith('/memory/recalls')) json = { items: [], next_cursor: null };
     if (path.endsWith('/execution-events')) json = { items: [], next_cursor: 0, has_more: false };
     if (path.endsWith('/usage')) json = runUsageSnapshot(path.split('/').at(-2)!);
     if (path.endsWith('/agents')) json = path.includes('/a2a/') ? [] : agentCatalog();
@@ -183,6 +198,11 @@ export async function mockFactoryApi(page: Page) {
           { id: 'deliver', label: 'Deliver', specialist: 'DevOps', stages: ['delivery'], next: [] },
         ],
         alternatives: [],
+        // Stations come from the backend's own process_topology (regenerate topology.json when it changes).
+        stations:
+          (topologies as Record<string, ProcessTopology>)[path.split('/').at(-2) ?? 'patch']?.stations ?? [],
+        loops:
+          (topologies as Record<string, ProcessTopology>)[path.split('/').at(-2) ?? 'patch']?.loops ?? [],
       };
     if (path.endsWith('/inspection'))
       json = {

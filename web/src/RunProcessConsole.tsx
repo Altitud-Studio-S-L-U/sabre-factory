@@ -9,7 +9,15 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from 'react';
-import { ChevronRight, ChevronsDownUp, ChevronsUpDown, Maximize2, Minimize2, Radio } from 'lucide-react';
+import {
+  ChevronRight,
+  ChevronsDownUp,
+  ChevronsUpDown,
+  FoldHorizontal,
+  Maximize2,
+  Minimize2,
+  Radio,
+} from 'lucide-react';
 import type { Api, AuditView, ProcessTopology, RunInspection, SequencedEvent, WorkOrder } from './api';
 import { projectExecution, type ObservedSpan } from './executionProjection';
 import RunInspector, { specialistNames } from './RunInspector';
@@ -23,8 +31,10 @@ import { cn } from './lib/utils';
 import {
   anchoredScroll,
   clampZoom,
+  idleGaps,
+  idleLabel,
   scrollForCentre,
-  ticks,
+  timeAxis,
   viewportWindow,
   wheelZoom,
 } from './features/runs/timelineScale';
@@ -112,6 +122,7 @@ export default function RunProcessConsole({
   const [inspectorWidth, setInspectorWidth] = useState(() => readPrefs(order.id).inspector ?? 400);
   const [view, setView] = useState({ left: 0, width: 1 });
   const [follow, setFollow] = useState(true);
+  const [collapseIdle, setCollapseIdle] = useState(true);
   const [preview, setPreview] = useState<ObservedSpan | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [pinned, setPinned] = useState<ObservedSpan | null>(null);
@@ -255,9 +266,14 @@ export default function RunProcessConsole({
     ...entries.map((entry) => Date.parse(entry.event.timestamp)).filter(Number.isFinite),
   );
   const end = running ? Math.max(now, latest) : latest;
-  const horizon = Math.max(1000, origin == null ? 0 : end - origin);
+  const intervals = spans.flatMap((span) =>
+    span.start == null ? [] : [[span.start, span.end ?? end] as [number, number]],
+  );
+  // Idle stretches (long pauses, waits for the owner) can be drawn narrow so the work stays readable.
+  const hasIdle = origin != null && idleGaps(intervals, origin, Math.max(origin + 1000, end)).length > 0;
+  const axis = timeAxis(origin ?? 0, end, intervals, hasIdle && collapseIdle);
   const allExpanded = laneIds.length > 0 && laneIds.every((id) => expanded.has(id));
-  const fraction = (ms: number) => (origin == null ? 0 : Math.max(0, Math.min(1, (ms - origin) / horizon)));
+  const fraction = (ms: number) => (origin == null ? 0 : axis.fraction(ms));
   const pin = (span: ObservedSpan) => {
     setSelected(span.id);
     setPinned(span);
@@ -277,9 +293,9 @@ export default function RunProcessConsole({
     bars[Math.min(bars.length - 1, Math.max(0, index + step))]?.focus();
   };
   const renderBar = (span: ObservedSpan, index: number, total: number, attempt = index + 1) => {
-    const left =
-      origin == null || span.start == null ? null : Math.max(0, ((span.start - origin) / horizon) * 100);
-    const width = span.start == null ? 0 : Math.max(1.1, (((span.end ?? end) - span.start) / horizon) * 100);
+    const left = origin == null || span.start == null ? null : fraction(span.start) * 100;
+    const width =
+      span.start == null ? 0 : Math.max(1.1, (fraction(span.end ?? end) - fraction(span.start)) * 100);
     const active = span.event.state === 'started';
     return (
       <button
@@ -571,6 +587,19 @@ export default function RunProcessConsole({
                   Fit timeline
                 </Button>
               </div>
+              {hasIdle && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  aria-pressed={collapseIdle}
+                  className="aria-pressed:text-primary"
+                  onClick={() => setCollapseIdle((value) => !value)}
+                >
+                  <FoldHorizontal aria-hidden="true" />
+                  Collapse idle time
+                </Button>
+              )}
               {running && (
                 <Button
                   type="button"
@@ -707,7 +736,7 @@ export default function RunProcessConsole({
                     Phase / specialist
                   </div>
                   <div className="relative h-8">
-                    {ticks(horizon, zoom).map((tick, index, all) => (
+                    {axis.ticks(zoom).map((tick, index, all) => (
                       <span
                         key={tick.ms}
                         className={cn(
@@ -722,6 +751,16 @@ export default function RunProcessConsole({
                         {tick.label}
                       </span>
                     ))}
+                    {axis.gaps.map((gap) => (
+                      <span
+                        key={`ruler-${gap.start}`}
+                        title={`${idleLabel(gap.end - gap.start)} without recorded activity`}
+                        className="absolute top-1 z-10 flex h-6 -translate-x-1/2 items-center rounded-full border border-border bg-card px-2 text-[0.6875rem] whitespace-nowrap text-muted-foreground"
+                        style={{ left: `${((gap.from + gap.to) / 2) * 100}%` }}
+                      >
+                        {idleLabel(gap.end - gap.start)} idle
+                      </span>
+                    ))}
                     {running && origin != null && (
                       <span className="absolute top-0 right-0 flex h-full items-center rounded-l-sm bg-primary px-1.5 text-xs font-semibold text-primary-foreground">
                         Now
@@ -729,6 +768,26 @@ export default function RunProcessConsole({
                     )}
                   </div>
                 </div>
+                {axis.gaps.length > 0 && (
+                  <div
+                    aria-hidden="true"
+                    className="pointer-events-none absolute inset-y-0 right-0 left-44 z-[5]"
+                  >
+                    {axis.gaps.map((gap) => (
+                      <span
+                        key={gap.start}
+                        data-testid="idle-band"
+                        className="absolute inset-y-0 border-x border-dashed border-border bg-[repeating-linear-gradient(135deg,transparent_0_5px,var(--color-border)_5px_6px)] opacity-80"
+                        style={{ left: `${gap.from * 100}%`, width: `${(gap.to - gap.from) * 100}%` }}
+                      />
+                    ))}
+                  </div>
+                )}
+                {axis.gaps.map((gap) => (
+                  <span key={`label-${gap.start}`} className="sr-only">
+                    {idleLabel(gap.end - gap.start)} without recorded activity, drawn narrow.
+                  </span>
+                ))}
                 {laneIds.map((id) => {
                   const descriptor = registered.find((item) => item.id === id);
                   const activities = spans.filter((span) => laneFor(span) === id);
