@@ -372,12 +372,21 @@ def memory_identity(request: MemoryCreate) -> dict:
     return value
 
 
+class ProposedBy(Contract):
+    """Entry point that proposed a memory. The server sets it; request bodies cannot supply it."""
+
+    channel: Literal["owner_console", "owner_mcp", "supervisor_chat", "factory"]
+    role: str | None = Field(default=None, max_length=64)
+    work_id: str | None = Field(default=None, max_length=128)
+
+
 class MemoryItem(MemoryCreate):
     id: str = Field(default_factory=new_id)
     active: bool = False
     created_at: datetime = Field(default_factory=now)
     approved_at: datetime | None = None
     invalidated_at: datetime | None = None
+    proposed_by: ProposedBy | None = Field(default=None, description="Absent on memories recorded before attribution; show as unknown")
 
 
 class DomainError(Exception):

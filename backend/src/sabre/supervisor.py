@@ -28,6 +28,7 @@ from sabre.models import (
     DomainError,
     MemoryCreate,
     ProjectCreate,
+    ProposedBy,
     ScopeChange,
     WorkOrderCreate,
 )
@@ -264,7 +265,7 @@ def conversation_tools(service, store, event: ConversationMessage | OperatorCont
     @tool
     async def propose_memory(request: MemoryCreate) -> dict:
         """Propose source-linked project knowledge; this does not approve a lesson."""
-        return await checked(await service.memory.propose(request))
+        return await checked(await service.memory.propose(request, proposed_by=ProposedBy(channel="supervisor_chat", work_id=getattr(event, "work_id", None))))
 
     @tool
     async def resolve_memory(memory_id: str, approve: bool) -> dict:

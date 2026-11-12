@@ -29,6 +29,7 @@ from sabre.models import (
     MemoryItem,
     Project,
     ProjectCreate,
+    ProposedBy,
     ScopeChange,
     SecurityException,
     SecurityExceptionCreate,
@@ -294,7 +295,7 @@ def build_mcp(service):
     @server.tool(structured_output=True)
     async def sabre_propose_memory(request: MemoryCreate) -> MemoryItem:
         """Propose a source-linked memory; lessons require explicit owner approval."""
-        return (await service().memory.propose(request))
+        return (await service().memory.propose(request, proposed_by=ProposedBy(channel="owner_mcp")))
 
     @server.tool(structured_output=True)
     async def sabre_resolve_memory(memory_id: str, approve: bool) -> MemoryItem:

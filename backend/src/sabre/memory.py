@@ -3,7 +3,7 @@ import json
 import re
 
 from sabre.memory_contracts import MemoryApproval, MemoryCarryForward, MemoryValidityRecord
-from sabre.models import DomainError, MemoryCreate, MemoryItem, WorkOrder, memory_identity, now
+from sabre.models import DomainError, MemoryCreate, MemoryItem, ProposedBy, WorkOrder, memory_identity, now
 from sabre.repository import digest
 
 MAX_CONTEXT_BYTES = 6144
@@ -50,7 +50,8 @@ class MemoryService:
         self.guard = guard
         self.embeddings = embeddings
 
-    async def propose(self, request: MemoryCreate) -> MemoryItem:
+    async def propose(self, request: MemoryCreate, *, proposed_by: ProposedBy | None = None) -> MemoryItem:
+        """``proposed_by`` names the calling entry point; it is never taken from the request body."""
         self.guard.check(request.model_dump())
         work = await self.repository.work(request.source_work_id)
         if work.project_id != request.project_id or not work.evidence or work.evidence.commit != request.source_commit:
@@ -61,7 +62,8 @@ class MemoryService:
         verifiable = (request.kind == "fact" and delivered and request.content == verified_fact(work)
                       and request.evidence_digest == work.evidence.snapshot_digest and request.scope == "commit"
                       and not request.citations and request.supersedes is None)
-        item = MemoryItem(**request.model_dump(), id=digest(memory_identity(request)), active=verifiable, approved_at=now() if verifiable else None)
+        item = MemoryItem(**request.model_dump(), id=digest(memory_identity(request)), active=verifiable,
+                          approved_at=now() if verifiable else None, proposed_by=proposed_by)
         embedding = await self.embeddings.aembed_query(item.content) if self.embeddings and not verifiable else None
         return await self.repository.create_memory(item, embedding)
 

@@ -28,6 +28,7 @@ from sabre.models import (
     GateResult,
     HumanQuestion,
     MemoryCreate,
+    ProposedBy,
     SecurityFinding,
     Status,
     Task,
@@ -779,7 +780,8 @@ class Factory:
         if not work.evidence:
             raise DomainError("EVIDENCE_REQUIRED", "Cannot consolidate without delivery evidence")
         await self.memory.propose(MemoryCreate(project_id=work.project_id, kind="fact", content=verified_fact(work),
-            source_commit=work.evidence.commit, source_work_id=work.id, evidence_digest=work.evidence.snapshot_digest))
+            source_commit=work.evidence.commit, source_work_id=work.id, evidence_digest=work.evidence.snapshot_digest),
+            proposed_by=ProposedBy(channel="factory", work_id=work.id))
         await self.executor.cleanup(work.id)
         return await self.finish(work)
 

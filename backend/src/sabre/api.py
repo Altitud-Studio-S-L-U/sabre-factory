@@ -45,6 +45,7 @@ from sabre.models import (
     MemoryItem,
     Project,
     ProjectCreate,
+    ProposedBy,
     ScopeChange,
     SecretDeactivate,
     SecretMetadata,
@@ -531,7 +532,7 @@ def create_app(service=None, config=None) -> FastAPI:
 
     @application.post("/api/v1/memory", response_model=MemoryItem, status_code=201)
     async def propose_memory(body: MemoryCreate):
-        return await svc().memory.propose(body)
+        return await svc().memory.propose(body, proposed_by=ProposedBy(channel="owner_console"))
 
     @application.get("/api/v1/memory/search")
     async def memory_search(project_id: str, query: str, commit: str):

@@ -424,7 +424,7 @@ class NoMemory:
             return None
         return validate
 
-    async def propose(self, item):
+    async def propose(self, item, **kwargs):
         return item
 
 
