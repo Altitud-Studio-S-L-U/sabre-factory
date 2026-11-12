@@ -249,7 +249,7 @@ export default function ProductionLine({ api, orders }: { api: Api; orders: Work
                           <span className="text-xs leading-tight text-muted-foreground">
                             {station.agent ?? (station.kind === 'gates' ? 'Checks' : 'Rules')}
                           </span>
-                          <span className="font-mono text-[0.6875rem] text-muted-foreground/80">
+                          <span className="font-mono text-[0.6875rem] text-muted-foreground">
                             {kindShort[station.kind]}
                           </span>
                           {here.length > 0 && (
