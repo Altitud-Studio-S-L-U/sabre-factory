@@ -123,5 +123,5 @@ it('un conflicto CAS no muestra confirmación ni vuelve a enviar la operación',
   await user.click(screen.getByRole('button', { name: 'Save disabled connection' }));
   expect(await screen.findByRole('alert')).toHaveTextContent('La conexión MCP ha cambiado');
   expect(calls).toHaveLength(1);
-  expect(screen.queryByText(/Conexión guardada y desactivada/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/Connection saved and disabled/)).not.toBeInTheDocument();
 });

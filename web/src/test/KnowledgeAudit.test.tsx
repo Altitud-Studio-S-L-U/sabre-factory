@@ -183,7 +183,9 @@ describe('actividad y contexto guardados', () => {
     expect(screen.getByText(/Vector memory search is not configured/)).toBeInTheDocument();
     rerender(<ProjectKnowledge data={{ ...data, context: null, truncated: true }} />);
     expect(screen.getByText('No context is available in this bounded selection.')).toBeInTheDocument();
-    expect(screen.queryByText(/Todavía no hay un contexto de código/)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText('No source context recorded for the current revision.'),
+    ).not.toBeInTheDocument();
   });
   it('shows measured tool time and per-call tokens, keeping unreported values unknown', () => {
     const data = {
