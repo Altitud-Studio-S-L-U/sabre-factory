@@ -19,6 +19,6 @@ These specifications define the operator console's behavior and acceptance contr
 
 Keep LangGraph as execution authority and PostgreSQL as the persistent store. Do not introduce an auxiliary routing model or duplicate execution state machine. All mutations must use the shared application authorization and durable receipts.
 
-Implement the approved design in the existing React application. Reuse its form fields, Select, Icon, notices, authentication and API client. Extract cohesive shared shell, surface, status and inspector components; do not replace the application or install a second component system. Tokens should own color, spacing and translucent surfaces. Blur is limited to navigation and inspector chrome, with opaque fallbacks and readable contrast.
+Build screens from the shared components in `web/src/components` and Tailwind utilities over the SABRE tokens; do not add per-screen stylesheets or a second component system. Tokens own colour, radius and type. Blur is limited to the sticky header, the mobile tab bar and floating Supervisor chrome, with opaque fallbacks and readable contrast. Text is at least 12 px; every state reads without colour alone (text, icon or shape).
 
 Each spec closes with its observable acceptance checks. Prototype data never counts as runtime evidence.
