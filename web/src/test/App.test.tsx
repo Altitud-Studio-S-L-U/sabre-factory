@@ -1128,15 +1128,18 @@ describe('Control room', () => {
     expect(screen.getByText('WORKSPACE_SNAPSHOT_FAILED')).toBeVisible();
     const reason = screen.getByText('The workspace result could not be saved.');
     expect(reason).toBeVisible();
-    expect(
-      screen.queryByText('The run is in progress. Tasks appear when they are recorded.'),
-    ).not.toBeInTheDocument();
     const disclosure = screen.getByText('Full objective').closest('details')!;
     expect(reason.compareDocumentPosition(disclosure) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(disclosure).not.toHaveAttribute('open');
     await user.click(within(disclosure).getByText('Full objective'));
     expect(disclosure).toHaveAttribute('open');
     expect(within(disclosure).getByText(objective.trim())).toBeVisible();
+    // The empty plan states the block; it never reads as a run still in progress.
+    await user.click(screen.getByRole('tab', { name: 'Tasks & evidence' }));
+    expect(screen.getByText('The run is blocked. Review the reason before resuming.')).toBeVisible();
+    expect(
+      screen.queryByText('The run is in progress. Tasks appear when they are recorded.'),
+    ).not.toBeInTheDocument();
     expect(writes).toEqual([]);
   });
 
