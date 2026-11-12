@@ -64,7 +64,7 @@ it('saves disabled and sends only the selected contracts and roles after discove
   const { user, calls } = fixture();
   await user.click(screen.getByRole('button', { name: 'Add MCP server' }));
   await user.type(screen.getByLabelText('Connection name'), 'docs');
-  await user.type(screen.getByLabelText('Endpoint MCP'), 'https://example.com/mcp');
+  await user.type(screen.getByLabelText('MCP endpoint'), 'https://example.com/mcp');
   await user.click(screen.getByRole('button', { name: 'Save disabled connection' }));
   await waitFor(() => expect(screen.getByRole('button', { name: 'Discover tools' })).toBeEnabled());
   expect(calls[0]).toEqual({
@@ -104,8 +104,8 @@ it('discards permissions and the previously reviewed manifest when the endpoint 
   ]);
   await user.click(await screen.findByRole('button', { name: 'Configure MCP docs' }));
   expect(screen.getByLabelText('Connection name')).toBeDisabled();
-  await user.clear(screen.getByLabelText('Endpoint MCP'));
-  await user.type(screen.getByLabelText('Endpoint MCP'), 'https://example.org/mcp');
+  await user.clear(screen.getByLabelText('MCP endpoint'));
+  await user.type(screen.getByLabelText('MCP endpoint'), 'https://example.org/mcp');
   expect(screen.getByRole('button', { name: 'Discover tools' })).toBeDisabled();
   await user.click(screen.getByRole('button', { name: 'Save disabled connection' }));
   await waitFor(() => expect(calls).toHaveLength(1));

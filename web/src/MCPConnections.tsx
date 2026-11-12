@@ -306,7 +306,7 @@ export default function MCPConnections({
                   />
                 </Field>
                 <Field
-                  label="Endpoint MCP"
+                  label="MCP endpoint"
                   hint="Public HTTPS, port 443 and an exact path. Local destinations require instance configuration."
                 >
                   <Input

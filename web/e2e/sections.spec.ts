@@ -109,7 +109,7 @@ test('five console sections keep inspection compact and modal drafts keyboard ac
   await page.getByRole('button', { name: 'Add MCP connection' }).click();
   const mcpDialog = page.getByRole('dialog', { name: 'Add MCP server' });
   await mcpDialog.getByLabel('Connection name').fill('synthetic-docs');
-  await mcpDialog.getByLabel('Endpoint MCP').fill('https://tools.example.com/mcp');
+  await mcpDialog.getByLabel('MCP endpoint').fill('https://tools.example.com/mcp');
   await page.keyboard.press('Escape');
   await expect(mcpDialog.getByText('Discard your unsaved changes?')).toBeVisible();
   await mcpDialog.getByRole('button', { name: 'Discard changes' }).click();
