@@ -199,6 +199,21 @@ async def test_overlaps_are_recorded_against_active_and_pending_memories_only(re
     assert targets[approved.id]["only_source"] == ["keep", "must"] and targets[approved.id]["method"] == "shingle_jaccard_v1"
 
 
+async def test_factory_lessons_are_compared_but_delivery_facts_are_not(repository):
+    repo, project, work = await delivered(repository)
+    service = MemoryService(repo, SecretGuard())
+    factory = ProposedBy(channel="factory", work_id=work.id)
+    await service.propose(MemoryCreate(project_id=project.id, kind="fact", content="Parser keeps empty input returning zero values",
+                                       source_commit=A, source_work_id=work.id), proposed_by=factory)
+    lesson = await service.propose(proposal(project, work, "Parser keeps empty input returning zero", scope="project"),
+                                   proposed_by=ProposedBy(channel="factory", role="repair", work_id=work.id))
+    assert not lesson.active and lesson.proposed_by.role == "repair"
+    fresh = await service.propose(proposal(project, work, "The parser keeps empty input returning zero"))
+    async with repo.connection() as conn:
+        rows = await (await conn.execute("SELECT target_id FROM memory_links WHERE source_id=%s AND kind='overlaps'", (fresh.id,))).fetchall()
+    assert [row["target_id"] for row in rows] == [lesson.id]
+
+
 async def test_recall_log_pages_filters_and_stays_in_its_project(repository):
     repo, project, work = await delivered(repository)
     _, other, other_work = await delivered(repository)

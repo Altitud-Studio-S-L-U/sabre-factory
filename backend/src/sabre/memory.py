@@ -132,7 +132,9 @@ class MemoryService:
                       and not request.citations and request.supersedes is None)
         item = MemoryItem(**request.model_dump(), id=digest(memory_identity(request)), active=verifiable,
                           approved_at=now() if verifiable else None, proposed_by=proposed_by)
-        embedding = await self.embeddings.aembed_query(item.content) if self.embeddings and not verifiable else None
+        # Factory consolidation stays free of model calls, so its proposals are recalled lexically.
+        factory = proposed_by is not None and proposed_by.channel == "factory"
+        embedding = await self.embeddings.aembed_query(item.content) if self.embeddings and not verifiable and not factory else None
         return await self.repository.create_memory(item, embedding)
 
     async def update(self, memory_id: str, approve: bool, decision: MemoryApproval | None = None):
