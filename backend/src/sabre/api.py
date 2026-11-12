@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse, RedirectResponse, Response
 from pydantic.json_schema import models_json_schema
 
 from sabre import __version__
+from sabre.agent_activity import AgentActivity, agent_activity
 from sabre.agent_contracts import (
     AgentCatalog,
     AgentCatalogEntry,
@@ -299,6 +300,11 @@ def create_app(service=None, config=None) -> FastAPI:
     @application.get("/api/v1/agents", response_model=AgentCatalog)
     async def agent_catalog():
         return await svc().agent_catalog().list()
+
+    # Registered before /api/v1/agents/{agent_id} so "activity" is never read as an agent identifier.
+    @application.get("/api/v1/agents/activity", response_model=AgentActivity)
+    async def agents_activity(days: int = Query(default=7, ge=1, le=90)):
+        return await agent_activity(svc().repository, days)
 
     @application.get("/api/v1/agents/{agent_id}", response_model=AgentCatalogEntry)
     async def agent_definition(agent_id: str):

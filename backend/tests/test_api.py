@@ -58,3 +58,12 @@ async def test_live_usage_requires_owner_and_checks_work_before_reading_ledger()
     assert response.status_code == 404
     repository.work.assert_awaited_once_with("missing")
     repository.audit_usage_breakdown.assert_not_awaited()
+
+
+async def test_agent_activity_route_is_not_shadowed_by_agent_definitions_and_bounds_days():
+    application = app()
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(application), base_url="http://localhost:8000") as client:
+        headers = {"Authorization": "Bearer owner-test-token-at-least-24"}
+        assert (await client.get("/api/v1/agents/activity?days=0", headers=headers)).status_code == 422
+        assert (await client.get("/api/v1/agents/activity?days=91", headers=headers)).status_code == 422
+    assert "/api/v1/agents/activity" in application.openapi()["paths"]
