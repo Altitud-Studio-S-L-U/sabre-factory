@@ -42,13 +42,7 @@ function Detail({ children }: { children: ReactNode }) {
 /** An empty result whose title stays a level-2 heading for assistive technology. */
 function EmptyPanel({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <EmptyState
-      title={
-        <span role="heading" aria-level={2}>
-          {title}
-        </span>
-      }
-    >
+    <EmptyState as="h2" title={title}>
       {children}
     </EmptyState>
   );

@@ -57,8 +57,8 @@ export function SectionHeading({
   id?: string;
 }) {
   return (
-    <div className={cn('flex min-w-0 flex-wrap items-center justify-between gap-3', className)}>
-      <div className="grid min-w-0 gap-1">
+    <div className={cn('flex min-w-0 flex-wrap items-start justify-between gap-3', className)}>
+      <div className="grid min-w-0 flex-1 basis-72 gap-1">
         <Heading id={id} className={cn('font-semibold', Heading === 'h2' ? 'text-lg' : 'text-base')}>
           {title}
         </Heading>

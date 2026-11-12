@@ -358,13 +358,7 @@ export default function ToolsConsole({ api, projects, connected = true, onRefres
               />
             ))}
           {!loading && !filtered.length && !(['all', 'builtin'].includes(filter) && builtins.length) && (
-            <EmptyState
-              title={
-                <span role="heading" aria-level={2}>
-                  No connections in this category
-                </span>
-              }
-            >
+            <EmptyState as="h2" title="No connections in this category">
               Add an MCP endpoint to review an external tool manifest. Direct APIs use adapters registered by
               the factory.
             </EmptyState>

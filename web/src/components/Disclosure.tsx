@@ -27,11 +27,7 @@ export default function Disclosure({
   return (
     <details
       data-slot="disclosure"
-      className={cn(
-        'group/disclosure min-w-0',
-        variant === 'card' && 'rounded-lg border border-border bg-card',
-        className,
-      )}
+      className={cn('min-w-0', variant === 'card' && 'rounded-lg border border-border bg-card', className)}
       {...props}
     >
       <summary
@@ -43,12 +39,14 @@ export default function Disclosure({
         )}
       >
         <ChevronRight
-          className="size-4 shrink-0 text-muted-foreground transition-transform group-open/disclosure:rotate-90"
+          className="size-4 shrink-0 text-muted-foreground transition-transform [details[open]>summary>&]:rotate-90"
           aria-hidden="true"
         />
         {/* Direct child, so the summary text is the element's own text. */}
         {summary}
-        {meta && <span className="ml-auto shrink-0 pl-2 text-xs font-normal text-muted-foreground">{meta}</span>}
+        {meta && (
+          <span className="ml-auto shrink-0 pl-2 text-xs font-normal text-muted-foreground">{meta}</span>
+        )}
       </summary>
       <div
         className={cn(
