@@ -22,6 +22,14 @@ function Eyes({ presence }: { presence: Presence }) {
           <path d="M20 35q4-5 8 0M36 35q4-5 8 0" />
         </g>
       );
+    case 'using-tool':
+      return (
+        <g className="avatar-eyes avatar-eyes-scan">
+          <rect x="22" y="30" width="7" height="5" rx="2.5" />
+          <rect x="38" y="30" width="7" height="5" rx="2.5" />
+          <path d="M47 44l4 4m0-4l-4 4" strokeWidth="1.6" strokeLinecap="round" />
+        </g>
+      );
     case 'working':
     case 'queued':
       return (
@@ -73,6 +81,8 @@ export default function SupervisorAvatar({
         viewBox="0 0 64 64"
         width={size}
         height={size}
+        // Inline size wins over container rules such as a button's [&_svg]:size-4.
+        style={{ width: size, height: size }}
         role={labelled ? 'img' : undefined}
         aria-label={labelled ? `Supervisor · ${presenceLabels[presence]}` : undefined}
         aria-hidden={labelled ? undefined : true}

@@ -1,9 +1,16 @@
-import type { ComponentProps } from 'react';
+import { forwardRef, type ComponentProps } from 'react';
 import { Input as UiInput } from './ui/input';
-import './Controls.css';
+import { cn } from '../lib/utils';
 
-export default function Input({ className = '', type, ...props }: ComponentProps<'input'>) {
+const Input = forwardRef<HTMLInputElement, ComponentProps<'input'>>(function Input(
+  { className, type, ...props },
+  ref,
+) {
   if (type === 'checkbox' || type === 'radio')
-    return <input {...props} type={type} className={`control-input ${className}`} />;
-  return <UiInput {...props} type={type} className={`control-input ${className}`} />;
-}
+    return (
+      <input ref={ref} {...props} type={type} className={cn('size-4 shrink-0 accent-primary', className)} />
+    );
+  return <UiInput ref={ref} {...props} type={type} className={className} />;
+});
+
+export default Input;

@@ -1,23 +1,28 @@
 import Button from './components/Button';
-import Input from './components/Input';
 import Textarea from './components/Textarea';
 import MessageContent from './components/MessageContent';
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { Link, useInRouterContext } from 'react-router';
-import { ArrowUp, ArrowUpRight, LoaderCircle, Wrench } from 'lucide-react';
+import { ArrowUp, ArrowUpRight, LoaderCircle, Wrench, X } from 'lucide-react';
 import SupervisorAvatar from './features/supervisor/SupervisorAvatar';
 import { DOCK_MAX, DOCK_MIN, useSupervisorDock } from './features/supervisor/dock';
 import './features/supervisor/dock.css';
+import Disclosure from './components/Disclosure';
+import Notice from './components/Notice';
+import CheckField from './components/CheckField';
+import { Eyebrow } from './components/PageHeader';
+import { buttonVariants } from './components/ui/button';
+import { cn } from './lib/utils';
 import {
   DONE_WINDOW_MS,
   presenceFor,
   presenceLabels,
   useStablePresence,
+  type Presence,
 } from './features/supervisor/presence';
 import type { Api, OperatorMessageView, OperatorAction, WorkOrder } from './api';
 import Select from './components/Select';
 import { pendingQuestions } from './runState';
-import './SupervisorConsole.css';
 
 const noMessages: OperatorMessageView[] = [];
 
@@ -40,6 +45,23 @@ const blockedReasons: Record<string, string> = {
     'The response reached its time limit. Its checkpoint and uncertain reservations are retained.',
 };
 
+const presenceTones: Partial<Record<Presence, string>> = {
+  offline: 'border-danger-border bg-danger-bg text-danger',
+  blocked: 'border-danger-border bg-danger-bg text-danger',
+  working: 'border-info-border bg-info-bg text-info',
+  'using-tool': 'border-info-border bg-info-bg text-info',
+  queued: 'border-neutral-border bg-neutral-bg text-neutral',
+  'needs-you': 'border-warning-border bg-warning-bg text-warning',
+  done: 'border-success-border bg-success-bg text-success',
+  listening: 'border-primary/50 bg-accent text-primary',
+};
+const messageTones: Record<string, string> = {
+  queued: 'border-neutral-border bg-neutral-bg text-neutral',
+  running: 'border-info-border bg-info-bg text-info',
+  completed: 'border-success-border bg-success-bg text-success',
+  blocked: 'border-danger-border bg-danger-bg text-danger',
+};
+
 function InternalActionLink({
   to,
   children,
@@ -50,12 +72,13 @@ function InternalActionLink({
   onNavigate?: () => void;
 }) {
   const routed = useInRouterContext();
+  const className = buttonVariants({ size: 'sm' });
   return routed ? (
-    <Link className="button small" to={to} onClick={onNavigate}>
+    <Link className={className} to={to} onClick={onNavigate}>
       {children}
     </Link>
   ) : (
-    <a className="button small" href={to} onClick={onNavigate}>
+    <a className={className} href={to} onClick={onNavigate}>
       {children}
     </a>
   );
@@ -70,11 +93,12 @@ function PendingMessage({ createdAt }: { createdAt: string }) {
   const sent = Date.parse(createdAt);
   const seconds = Number.isFinite(sent) ? Math.max(0, Math.floor((now - sent) / 1000)) : null;
   return (
-    <div className="supervisor-pending">
-      <span role="status">
-        <LoaderCircle size={14} aria-hidden="true" /> Processing message
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+      <span role="status" className="flex items-center gap-1.5 text-info">
+        <LoaderCircle size={14} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />{' '}
+        Processing message
       </span>
-      <small aria-live="off">
+      <small aria-live="off" className="text-xs tabular-nums">
         {seconds === null
           ? 'Submission time unavailable'
           : `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')} since sent · includes queue time`}
@@ -135,11 +159,14 @@ function RecordedSupervisorTools({
   message,
   onNavigate,
   observe,
+  onActiveTool,
 }: {
   api: Api;
   message: OperatorMessageView;
   onNavigate: () => void;
   observe: boolean;
+  /** Receives the name of the tool this message is running now, or null. */
+  onActiveTool?: (name: string | null) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [page, setPage] = useState<Awaited<ReturnType<Api['supervisorMessageTools']>> | null>(null);
@@ -176,12 +203,23 @@ function RecordedSupervisorTools({
     page?.available && Array.isArray(page.actions)
       ? page.actions.map(readinessDestination).filter((item) => item !== null)
       : [];
+  // Report the tool this message is using right now, for the Supervisor's presence.
+  const pendingTool = active
+    ? (page?.tools.findLast((tool) => tool.status === 'pending')?.name ?? null)
+    : null;
+  useEffect(() => {
+    onActiveTool?.(pendingTool);
+  }, [onActiveTool, pendingTool]);
+  useEffect(() => () => onActiveTool?.(null), [onActiveTool]);
   return (
     <>
       {destinations.length > 0 && (
-        <div className="supervisor-action-card" aria-label="Observed setup actions">
-          <p>Continue setup</p>
-          <div>
+        <div
+          aria-label="Observed setup actions"
+          className="grid gap-2 rounded-lg border border-primary/40 bg-accent/60 p-3"
+        >
+          <p className="text-sm font-medium">Continue setup</p>
+          <div className="flex flex-wrap gap-2">
             {destinations.map((destination) => (
               <InternalActionLink key={destination.id} to={destination.to} onNavigate={onNavigate}>
                 {destination.label}
@@ -189,65 +227,89 @@ function RecordedSupervisorTools({
               </InternalActionLink>
             ))}
           </div>
-          <small>Opens the matching factory screen. No settings are changed automatically.</small>
+          <small className="text-xs text-muted-foreground">
+            Opens the matching factory screen. No settings are changed automatically.
+          </small>
         </div>
       )}
-      <details className="supervisor-tools" onToggle={(event) => setOpen(event.currentTarget.open)}>
-        <summary>
-          <Wrench size={14} aria-hidden="true" />
+      <details
+        data-testid="supervisor-tools"
+        className="group/tools rounded-lg border border-border bg-code text-xs"
+        onToggle={(event) => setOpen(event.currentTarget.open)}
+      >
+        <summary className="flex min-h-9 cursor-pointer list-none flex-wrap items-center gap-2 px-3 py-2 [&::-webkit-details-marker]:hidden">
+          <Wrench size={14} aria-hidden="true" className="text-muted-foreground" />
           <span>Recorded tool invocations{page ? ` · ${page.tools.length}` : ''}</span>
-          <span className="supervisor-inspect-label">Inspect</span>
+          <span className="ml-auto text-link group-open/tools:hidden">Inspect</span>
           {page?.available && page.tools.length > 0 && !open && (
-            <span className="supervisor-tool-peek">
+            <span className="basis-full truncate font-mono text-muted-foreground">
               {page.tools.at(-1)!.name} · {page.tools.at(-1)!.status}
             </span>
           )}
         </summary>
         {open && (
-          <>
+          <div className="grid gap-2 px-3 pb-3">
             {error && (
-              <p role="alert">
+              <p role="alert" className="flex flex-wrap items-center gap-2 text-danger">
                 {error}{' '}
-                <Button className="button small" onClick={() => setRevision((value) => value + 1)}>
+                <Button type="button" size="sm" onClick={() => setRevision((value) => value + 1)}>
                   Retry recorded tools
                 </Button>
               </p>
             )}
-            {!page && !error && <p role="status">Loading retained tool records…</p>}
+            {!page && !error && (
+              <p role="status" className="text-muted-foreground">
+                Loading retained tool records…
+              </p>
+            )}
             {page && !page.available && (
-              <p className="hint">
+              <p className="text-muted-foreground">
                 No retained checkpoint is available for this message. Tool activity cannot be reconstructed.
               </p>
             )}
             {page?.available && (
               <>
-                <p className="hint">
+                <p className="text-muted-foreground">
                   Recorded checkpoint · {page.checkpoint_id ?? 'Not identified'}. Refreshes while this message
                   is active.
                 </p>
-                {!page.tools.length && <p className="hint">No tool calls recorded for this message.</p>}
+                {!page.tools.length && (
+                  <p className="text-muted-foreground">No tool calls recorded for this message.</p>
+                )}
                 {page.tools.map((tool) => (
-                  <details className="supervisor-tool" key={tool.call_id}>
-                    <summary>
+                  <details
+                    key={tool.call_id}
+                    data-testid="supervisor-tool"
+                    className="rounded-md border border-border bg-background/50"
+                  >
+                    <summary className="cursor-pointer px-3 py-2 font-mono">
                       {tool.name} · {tool.status}
                     </summary>
-                    <p className="hint">Call {tool.call_id}</p>
-                    <strong>Input</strong>
-                    <pre>{tool.input}</pre>
-                    <strong>Result</strong>
-                    <pre>{tool.output ?? 'No result recorded.'}</pre>
-                    {(tool.redacted || tool.truncated) && (
-                      <p className="hint">
-                        {tool.redacted ? 'Sensitive content redacted. ' : ''}
-                        {tool.truncated ? 'Content truncated to the inspection limit.' : ''}
-                      </p>
-                    )}
+                    <div className="grid gap-1.5 px-3 pb-3">
+                      <p className="text-muted-foreground">Call {tool.call_id}</p>
+                      <strong className="font-medium">Input</strong>
+                      <pre className="max-h-48 overflow-auto rounded-sm bg-code p-2 font-mono whitespace-pre-wrap [overflow-wrap:anywhere]">
+                        {tool.input}
+                      </pre>
+                      <strong className="font-medium">Result</strong>
+                      <pre className="max-h-48 overflow-auto rounded-sm bg-code p-2 font-mono whitespace-pre-wrap [overflow-wrap:anywhere]">
+                        {tool.output ?? 'No result recorded.'}
+                      </pre>
+                      {(tool.redacted || tool.truncated) && (
+                        <p className="text-muted-foreground">
+                          {tool.redacted ? 'Sensitive content redacted. ' : ''}
+                          {tool.truncated ? 'Content truncated to the inspection limit.' : ''}
+                        </p>
+                      )}
+                    </div>
                   </details>
                 ))}
-                {page.truncated && <p className="hint">Only the bounded retained tool records are shown.</p>}
+                {page.truncated && (
+                  <p className="text-muted-foreground">Only the bounded retained tool records are shown.</p>
+                )}
               </>
             )}
-          </>
+          </div>
         )}
       </details>
     </>
@@ -290,6 +352,7 @@ export default function SupervisorConsole({
   const conversation = useMemo(() => history[scope] ?? noMessages, [history, scope]);
   const message = drafts[scope] ?? '';
   const [justReplied, setJustReplied] = useState(false);
+  const [activeTool, setActiveTool] = useState<string | null>(null);
   const pendingIds = useRef(new Set<string>());
   const repliedTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => clearTimeout(repliedTimer.current), []);
@@ -419,6 +482,7 @@ export default function SupervisorConsole({
       attention: attention.length,
       drafting: open && message.trim().length > 0,
       settledAgoMs: justReplied ? 0 : null,
+      activeTool,
     }),
   );
   const chooseScope = (id: string) => {
@@ -451,12 +515,17 @@ export default function SupervisorConsole({
       setBusy(false);
     }
   }
+  const docked = open && !expanded;
   return (
     <>
       <Button
         type="button"
         ref={launcher}
-        className="supervisor-launcher button"
+        variant="secondary"
+        className={cn(
+          'fixed right-4 bottom-[calc(4.25rem+env(safe-area-inset-bottom))] z-40 h-12 gap-2.5 rounded-full border-primary/60 bg-accent pr-4 pl-2 shadow-xl lg:right-6 lg:bottom-6',
+          docked && 'lg:hidden',
+        )}
         aria-expanded={open}
         aria-controls="supervisor-conversation"
         onClick={() => {
@@ -468,10 +537,13 @@ export default function SupervisorConsole({
           setExpanded(false);
         }}
       >
-        <SupervisorAvatar presence={presence} size={26} />
+        <SupervisorAvatar presence={presence} size={32} />
         Supervisor
         {attention.length > 0 && (
-          <span className="supervisor-launcher-count" aria-hidden="true">
+          <span
+            className="min-w-5 rounded-full bg-primary px-1.5 text-center text-xs leading-5 font-semibold text-primary-foreground"
+            aria-hidden="true"
+          >
             {attention.length}
           </span>
         )}
@@ -480,7 +552,15 @@ export default function SupervisorConsole({
         <section
           ref={drawer}
           id="supervisor-conversation"
-          className={`supervisor-drawer${expanded ? ' is-expanded' : ''}`}
+          data-expanded={expanded || undefined}
+          className={cn(
+            'fixed inset-2 z-50 flex min-h-0 flex-col overflow-hidden rounded-xl border border-border bg-card/95 px-3 shadow-2xl backdrop-blur-xl sm:px-5',
+            !expanded &&
+              'lg:inset-auto lg:top-[4.75rem] lg:right-5 lg:bottom-20 lg:w-[38.75rem] lg:max-w-[calc(100vw-2rem)]',
+            expanded && 'sm:inset-4 z-[90] bg-card',
+            docked &&
+              'lg:top-0 lg:right-0 lg:bottom-0 lg:z-[35] lg:w-[var(--supervisor-dock-width,440px)] lg:max-w-none lg:rounded-none lg:border-y-0 lg:border-r-0 lg:bg-card lg:shadow-none lg:backdrop-blur-none',
+          )}
           role={expanded ? 'dialog' : 'region'}
           aria-modal={expanded ? true : undefined}
           aria-label="Supervisor conversation"
@@ -518,7 +598,6 @@ export default function SupervisorConsole({
         >
           {!expanded && (
             <div
-              className="supervisor-dock-handle"
               role="separator"
               aria-orientation="vertical"
               aria-label="Resize supervisor panel"
@@ -528,31 +607,38 @@ export default function SupervisorConsole({
               tabIndex={0}
               onPointerDown={dock.startResize}
               onKeyDown={dock.resizeWithKeys}
-            />
+              className="group absolute inset-y-0 -left-1 hidden w-2 cursor-col-resize touch-none lg:block"
+            >
+              <span className="absolute top-1/2 left-[3px] h-10 w-0.5 -translate-y-1/2 rounded-full bg-input opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100" />
+            </div>
           )}
-          <div className="section-heading">
-            <div className="supervisor-profile">
+          <div className="flex shrink-0 items-center justify-between gap-2.5 pt-3 pb-3 sm:pt-4">
+            <div className="flex min-w-0 items-center gap-3">
               <SupervisorAvatar presence={presence} size={44} labelled />
-              <div>
-                <h2>
+              <div className="grid min-w-0 gap-0.5">
+                <h2 className="flex flex-wrap items-center gap-2 text-lg font-semibold">
                   Supervisor{' '}
                   <span
-                    className="supervisor-presence"
                     data-offline={disconnected}
                     data-presence={presence}
                     role="status"
+                    className={cn(
+                      'rounded-full border px-2 py-0.5 text-xs font-medium',
+                      presenceTones[presence] ?? 'border-border text-muted-foreground',
+                    )}
                   >
                     {presenceLabels[presence]}
+                    {presence === 'using-tool' && activeTool ? ` · ${activeTool}` : ''}
                   </span>
                 </h2>
-                <span className="eyebrow">Your factory coordination agent</span>
+                <Eyebrow className="hidden normal-case sm:block">Your factory coordination agent</Eyebrow>
               </div>
             </div>
-            <div className="supervisor-window-controls">
+            <div className="flex shrink-0 items-center gap-1.5">
               <Button
                 ref={expansionControl}
                 type="button"
-                className="button small"
+                size="sm"
                 aria-expanded={expanded}
                 onClick={() => setExpanded((value) => !value)}
               >
@@ -560,7 +646,8 @@ export default function SupervisorConsole({
               </Button>
               <Button
                 type="button"
-                className="icon-button"
+                variant="ghost"
+                size="icon"
                 aria-label="Close supervisor"
                 onClick={() => {
                   setExpanded(false);
@@ -568,11 +655,11 @@ export default function SupervisorConsole({
                   launcher.current?.focus();
                 }}
               >
-                ×
+                <X aria-hidden="true" />
               </Button>
             </div>
           </div>
-          <label className="supervisor-scope">
+          <label className="mb-1.5 grid shrink-0 gap-1.5 text-xs font-medium text-muted-foreground">
             Conversation context
             <Select value={scope} disabled={busy} onChange={(event) => chooseScope(event.target.value)}>
               <option value="">Factory · process coordination</option>
@@ -585,61 +672,75 @@ export default function SupervisorConsole({
               ))}
             </Select>
           </label>
-          <details className="supervisor-context">
-            <summary>Context and permissions</summary>
-            <p className="hint">
-              {scope
-                ? 'Run-scoped supervision. Other runs are outside this conversation.'
-                : 'Factory-wide coordination. Identify a run explicitly before requesting changes.'}{' '}
-              Execution budgets and permissions cannot be increased through these tools.
-            </p>
-          </details>
-          <details className="supervisor-attention">
-            <summary>
-              Attention inbox · {attention.length} {attention.length === 1 ? 'run' : 'runs'}
-            </summary>
-            <div className="supervisor-attention-list">
-              {!attention.length && <p>No pending questions or blocked runs in the current run list.</p>}
-              {attention.map(({ order, questions }) => (
-                <article key={order.id}>
-                  <strong>{order.objective}</strong>
-                  <small>
-                    {order.status.replaceAll('_', ' ')}
-                    {order.error_code ? ` · ${order.error_code}` : ''} · {questions.length} pending{' '}
-                    {questions.length === 1 ? 'question' : 'questions'}
-                  </small>
-                  {questions.map((question) => (
-                    <p key={question.id}>{question.prompt}</p>
-                  ))}
-                  <Button className="button small" disabled={busy} onClick={() => chooseScope(order.id)}>
-                    Discuss run · {order.id.slice(-8)}
-                  </Button>
-                </article>
-              ))}
-            </div>
-            <p className="hint">
-              Based on the loaded run states. Selecting a run changes chat context; it does not answer, resume
-              or resolve it.
-            </p>
-          </details>
+          <div className="grid shrink-0 gap-0.5 border-b border-border pb-2">
+            <Disclosure variant="plain" summary="Context and permissions" className="text-xs">
+              <p className="text-xs text-muted-foreground">
+                {scope
+                  ? 'Run-scoped supervision. Other runs are outside this conversation.'
+                  : 'Factory-wide coordination. Identify a run explicitly before requesting changes.'}{' '}
+                Execution budgets and permissions cannot be increased through these tools.
+              </p>
+            </Disclosure>
+            <Disclosure
+              variant="plain"
+              className="text-xs"
+              summary={`Attention inbox · ${attention.length} ${attention.length === 1 ? 'run' : 'runs'}`}
+            >
+              <div className="grid max-h-56 gap-2 overflow-auto">
+                {!attention.length && (
+                  <p className="text-xs text-muted-foreground">
+                    No pending questions or blocked runs in the current run list.
+                  </p>
+                )}
+                {attention.map(({ order, questions }) => (
+                  <article key={order.id} className="grid gap-1 rounded-md border border-border bg-code p-3">
+                    <strong className="text-sm font-medium">{order.objective}</strong>
+                    <small className="text-xs text-muted-foreground">
+                      {order.status.replaceAll('_', ' ')}
+                      {order.error_code ? ` · ${order.error_code}` : ''} · {questions.length} pending{' '}
+                      {questions.length === 1 ? 'question' : 'questions'}
+                    </small>
+                    {questions.map((question) => (
+                      <p key={question.id} className="text-sm">
+                        {question.prompt}
+                      </p>
+                    ))}
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="justify-self-start"
+                      disabled={busy}
+                      onClick={() => chooseScope(order.id)}
+                    >
+                      Discuss run · {order.id.slice(-8)}
+                    </Button>
+                  </article>
+                ))}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Based on the loaded run states. Selecting a run changes chat context; it does not answer,
+                resume or resolve it.
+              </p>
+            </Disclosure>
+          </div>
           {disconnected && (
-            <p className="notice warning">
+            <Notice tone="warning" className="mt-2 max-h-24 shrink-0 overflow-auto text-xs">
               Connection interrupted. Stored messages remain available when the factory reconnects.
-            </p>
+            </Notice>
           )}
           {error && (
-            <p role="alert" className="notice error">
+            <Notice tone="danger" role="alert" className="mt-2 max-h-24 shrink-0 overflow-auto text-xs">
               {error}
-            </p>
+            </Notice>
           )}
           {loadError && (
-            <p role="alert" className="notice error">
+            <Notice tone="danger" role="alert" className="mt-2 max-h-24 shrink-0 overflow-auto text-xs">
               {loadError}
-            </p>
+            </Notice>
           )}
           <div
             ref={historyPanel}
-            className="supervisor-history"
+            className="min-h-20 flex-1 overflow-auto overscroll-contain py-4 pr-1.5 [scrollbar-gutter:stable] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
             aria-label="Recorded supervisor messages"
             tabIndex={0}
             onScroll={(event) => {
@@ -650,16 +751,20 @@ export default function SupervisorConsole({
             aria-relevant="additions text"
           >
             {!conversation.length && (
-              <div className="supervisor-welcome">
-                <SupervisorAvatar presence={presence} size={56} />
-                <h3>What should we work on?</h3>
-                <p>Ask about recorded progress, flag a concern or plan the next run. You stay in control.</p>
-                <div className="supervisor-suggestions">
+              <div className="flex min-h-full flex-col items-center justify-center gap-3 px-3 py-6 text-center">
+                <SupervisorAvatar presence={presence} size={64} />
+                <h3 className="text-xl font-medium tracking-tight">What should we work on?</h3>
+                <p className="max-w-90 text-sm text-muted-foreground">
+                  Ask about recorded progress, flag a concern or plan the next run. You stay in control.
+                </p>
+                <div className="flex flex-wrap justify-center gap-2">
                   {['What needs my attention?', 'Summarize active runs', 'Help me plan a run'].map(
                     (prompt) => (
                       <Button
                         key={prompt}
-                        className="button small"
+                        type="button"
+                        size="sm"
+                        variant="outline"
                         onClick={() => {
                           setDrafts((prior) => ({ ...prior, [scope]: prompt }));
                           composer.current?.focus();
@@ -672,23 +777,27 @@ export default function SupervisorConsole({
                 </div>
               </div>
             )}
-            {truncated && <p className="hint">Showing the latest 100 messages.</p>}
+            {truncated && (
+              <p className="mb-3 text-xs text-muted-foreground">Showing the latest 100 messages.</p>
+            )}
             {conversation.map((item, index) => (
-              <article className="supervisor-exchange" key={item.id}>
-                <div className="supervisor-owner-message">
-                  <strong>You · {item.source === 'mcp' ? 'MCP' : 'Console'}</strong>
-                  <time className="supervisor-message-time" dateTime={item.created_at}>
-                    {new Date(item.created_at).toLocaleString()}
-                  </time>
-                  <p>{item.text}</p>
-                  <small>
+              <article key={item.id} className="mx-auto mb-6 grid max-w-[55rem] gap-3">
+                <div className="ml-6 grid gap-1 justify-self-end rounded-2xl rounded-br-sm border border-border bg-secondary px-4 py-3 sm:ml-14">
+                  <div className="flex flex-wrap items-baseline justify-between gap-x-3 text-xs">
+                    <strong className="font-medium">You · {item.source === 'mcp' ? 'MCP' : 'Console'}</strong>
+                    <time className="text-muted-foreground" dateTime={item.created_at}>
+                      {new Date(item.created_at).toLocaleString()}
+                    </time>
+                  </div>
+                  <p className="text-sm whitespace-pre-wrap [overflow-wrap:anywhere]">{item.text}</p>
+                  <small className="text-xs text-muted-foreground">
                     {item.allowed_actions.length
                       ? `Authorized tools: ${item.allowed_actions.join(', ')}`
                       : 'Read-only message'}
                   </small>
                 </div>
-                <div className="supervisor-reply">
-                  <div className="supervisor-reply-identity">
+                <div className="grid min-w-0 gap-2 text-sm">
+                  <div className="flex items-center gap-2">
                     <SupervisorAvatar
                       presence={
                         item.state === 'running'
@@ -701,15 +810,23 @@ export default function SupervisorConsole({
                       }
                       size={24}
                     />
-                    <strong>
+                    <strong className="flex items-center gap-2 text-sm font-semibold">
                       Supervisor{' '}
-                      <span className={`supervisor-message-state state-${item.state}`}>{item.state}</span>
+                      <span
+                        data-state={item.state}
+                        className={cn(
+                          'rounded-full border px-2 py-0.5 text-xs font-medium',
+                          messageTones[item.state] ?? 'border-border text-muted-foreground',
+                        )}
+                      >
+                        {item.state}
+                      </span>
                     </strong>
                   </div>
                   {item.reply ? (
                     <MessageContent text={item.reply} />
                   ) : (
-                    <p>
+                    <p className="whitespace-pre-wrap [overflow-wrap:anywhere]">
                       {item.state === 'blocked'
                         ? `Blocked · ${item.error_code ?? 'Inspect configuration before retrying'}. ${blockedReasons[item.error_code ?? ''] ?? 'Inspect the recorded outcome before resuming.'}`
                         : item.state === 'running'
@@ -724,20 +841,21 @@ export default function SupervisorConsole({
                     <>
                       <Button
                         type="button"
-                        className="button small"
+                        size="sm"
+                        className="justify-self-start"
                         disabled={busy || disconnected}
                         onClick={() => void resume(item)}
                       >
                         Reconcile and resume message
                       </Button>
-                      <p className="hint">
+                      <p className="text-xs text-muted-foreground">
                         Resumes this message with its original action grants. A model invocation may consume
                         the separately configured conversation budget.
                       </p>
                       {['MODEL_NOT_READY', 'MODEL_NOT_CONFIGURED', 'BUDGET_EXHAUSTED'].includes(
                         item.error_code ?? '',
                       ) && (
-                        <div className="supervisor-reply-actions">
+                        <div className="flex flex-wrap gap-2">
                           <InternalActionLink
                             to={
                               item.error_code === 'MODEL_NOT_CONFIGURED'
@@ -760,7 +878,7 @@ export default function SupervisorConsole({
                     </>
                   )}
                   {item.work_id && (
-                    <div className="supervisor-reply-actions">
+                    <div className="flex flex-wrap gap-2">
                       <InternalActionLink
                         to={`/work/${encodeURIComponent(item.work_id)}`}
                         onNavigate={closeForNavigation}
@@ -774,13 +892,17 @@ export default function SupervisorConsole({
                     message={item}
                     onNavigate={closeForNavigation}
                     observe={index === conversation.length - 1}
+                    onActiveTool={index === conversation.length - 1 ? setActiveTool : undefined}
                   />
                 </div>
               </article>
             ))}
           </div>
-          <form className="supervisor-composer" onSubmit={(event) => void send(event)}>
-            <label className="supervisor-compose">
+          <form
+            className="grid shrink-0 gap-2 border-t border-border py-3"
+            onSubmit={(event) => void send(event)}
+          >
+            <label className="grid gap-1.5 text-xs font-medium text-muted-foreground">
               Message
               <Textarea
                 ref={composer}
@@ -789,6 +911,7 @@ export default function SupervisorConsole({
                 required
                 value={message}
                 disabled={busy}
+                className="max-h-56 field-sizing-content resize-none text-foreground"
                 onChange={(event) => setDrafts((prior) => ({ ...prior, [scope]: event.target.value }))}
                 placeholder="Watch out: preserve the existing public API…"
                 onKeyDown={(event) => {
@@ -799,50 +922,53 @@ export default function SupervisorConsole({
                 }}
               />
             </label>
-            <details className="supervisor-grants">
-              <summary>
-                Allow actions for this message{' '}
-                <span className="muted">· {grants.length ? `${grants.length} authorized` : 'Read-only'}</span>
-              </summary>
-              <p>
+            <Disclosure
+              variant="plain"
+              className="text-xs"
+              summary={
+                <>
+                  Allow actions for this message{' '}
+                  <span className="text-muted-foreground">
+                    · {grants.length ? `${grants.length} authorized` : 'Read-only'}
+                  </span>
+                </>
+              }
+            >
+              <p className="text-xs text-muted-foreground">
                 Read-only by default. Select only the actions you authorize; the Supervisor must still follow
                 policy.
               </p>
               {actions
                 .filter((action) => !scope || action.run)
                 .map((action) => (
-                  <label key={action.id}>
-                    <Input
-                      type="checkbox"
-                      disabled={busy}
-                      checked={grants.includes(action.id)}
-                      onChange={(event) =>
-                        setGrants((prior) =>
-                          event.target.checked
-                            ? [...prior, action.id]
-                            : prior.filter((id) => id !== action.id),
-                        )
-                      }
-                    />
-                    {action.label}
-                  </label>
+                  <CheckField
+                    key={action.id}
+                    disabled={busy}
+                    checked={grants.includes(action.id)}
+                    onChange={(event) =>
+                      setGrants((prior) =>
+                        event.target.checked ? [...prior, action.id] : prior.filter((id) => id !== action.id),
+                      )
+                    }
+                    label={action.label}
+                  />
                 ))}
-            </details>
-            <div className="supervisor-sendbar">
-              <small>
+            </Disclosure>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <small className="text-xs text-muted-foreground">
                 {grants.length ? `${grants.length} actions authorized` : 'Read-only by default'} · Ctrl / ⌘ +
                 Enter
               </small>
               <Button
                 type="submit"
-                className="button primary"
+                variant="primary"
                 data-submitting={busy}
                 disabled={busy || disconnected || !message.trim()}
               >
                 {busy ? (
-                  <LoaderCircle size={15} aria-hidden="true" />
+                  <LoaderCircle className="animate-spin motion-reduce:animate-none" aria-hidden="true" />
                 ) : (
-                  <ArrowUp size={15} aria-hidden="true" />
+                  <ArrowUp aria-hidden="true" />
                 )}
                 {busy ? 'Submitting…' : 'Send message'}
               </Button>

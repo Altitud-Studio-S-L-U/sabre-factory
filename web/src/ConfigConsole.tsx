@@ -1,7 +1,7 @@
 import Button from './components/Button';
 import Input from './components/Input';
 import Textarea from './components/Textarea';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router';
 import {
   ApiError,
@@ -17,11 +17,20 @@ import {
 import { providers, SelectionFields } from './ModelConfiguration';
 import Credentials from './Credentials';
 import PairedBrowsers from './PairedBrowsers';
-import Dialog from './components/Dialog';
+import Dialog, { DialogActions } from './components/Dialog';
 import Field from './components/FormField';
 import Select from './components/Select';
 import BudgetFields, { defaultBudgetPolicy } from './components/BudgetFields';
-import './ConsoleSections.css';
+import PageHeader, { Eyebrow } from './components/PageHeader';
+import Notice from './components/Notice';
+import Disclosure from './components/Disclosure';
+import DescriptionList from './components/DescriptionList';
+import CheckField from './components/CheckField';
+import CodeBlock from './components/CodeBlock';
+import LoadingState from './components/LoadingState';
+import { Badge } from './components/ui/badge';
+import { Card, CardDescription, CardHeader, CardTitle } from './components/ui/card';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './components/ui/table';
 
 const failure = (reason: unknown) =>
   reason instanceof ApiError
@@ -47,6 +56,30 @@ const phaseNames = [
 ] as const;
 const skills = ['engineering', 'verification', 'review', 'security'] as const;
 const encode = (value: FactoryConfiguration) => JSON.stringify(value, null, 2);
+const modes = ['Guided setup', 'YAML / JSON', 'Policies & limits', 'Context & storage', 'Access'];
+const steps = ['Connect provider', 'Choose model', 'Connect project', 'Review readiness'];
+
+/** Explanatory fine print under a control or panel. */
+const note = 'text-xs leading-relaxed text-muted-foreground';
+/** Rows of a bordered list: one record per row, its state on the right. */
+const rows = 'grid divide-y divide-border border-y border-border';
+const row = 'flex min-w-0 items-start justify-between gap-3 py-3 text-sm';
+
+function Secondary({ children }: { children: ReactNode }) {
+  return (
+    <small className="mt-1 block text-xs text-muted-foreground [overflow-wrap:anywhere]">{children}</small>
+  );
+}
+
+function PanelHeading({ id, title, description }: { id?: string; title: string; description?: ReactNode }) {
+  return (
+    <div className="grid min-w-0 gap-1.5">
+      <CardTitle id={id}>{title}</CardTitle>
+      {description && <CardDescription>{description}</CardDescription>}
+    </div>
+  );
+}
+
 export interface ConfigConsoleProps {
   api: Api;
   projects: Project[];
@@ -84,37 +117,51 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
     domain: 'ui' as 'ui' | 'architecture' | 'infrastructure' | 'delivery' | 'security',
     value: '',
   });
-  const accept = (value: ConfigurationView) => {
+  const accept = useCallback((value: ConfigurationView) => {
     setSaved(value);
     setDraft(value.configuration);
     setDocument(value.yaml);
     setPreview(null);
     setValidatedDocument('');
     setApproved(false);
-  };
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError('');
-    try {
-      const [configuration, models, integrations, metadata] = await Promise.all([
+  }, []);
+  const fetchConfiguration = useCallback(
+    (current: () => boolean) =>
+      Promise.all([
         api.configuration(),
         api.modelConfiguration(),
         api.integrations(),
         api.secrets().catch(() => null),
-      ]);
-      accept(configuration);
-      setRunners(models.runners);
-      setModelIntegrations(integrations.filter((item) => item.kind === 'model'));
-      setCredentialMetadata(metadata);
-    } catch (reason) {
-      setError(failure(reason));
-    } finally {
-      setLoading(false);
-    }
-  }, [api]);
+      ])
+        .then(
+          ([configuration, models, integrations, metadata]) => {
+            if (!current()) return;
+            accept(configuration);
+            setRunners(models.runners);
+            setModelIntegrations(integrations.filter((item) => item.kind === 'model'));
+            setCredentialMetadata(metadata);
+          },
+          (reason: unknown) => {
+            if (current()) setError(failure(reason));
+          },
+        )
+        .finally(() => {
+          if (current()) setLoading(false);
+        }),
+    [api, accept],
+  );
   useEffect(() => {
-    void load();
-  }, [load]);
+    let active = true;
+    void fetchConfiguration(() => active);
+    return () => {
+      active = false;
+    };
+  }, [fetchConfiguration]);
+  const load = () => {
+    setLoading(true);
+    setError('');
+    void fetchConfiguration(() => true);
+  };
   const dirty =
     !!saved &&
     !!draft &&
@@ -242,82 +289,78 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
       ].sort()
     : [];
   return (
-    <div className="operator-page">
-      <header className="operator-heading">
-        <div>
-          <span className="operator-eyebrow">Factory settings</span>
-          <h1>Config</h1>
-          <p>
-            Connect a provider, select an explicit model and review project readiness. Guided editing and YAML
-            share one validated contract.
-          </p>
-        </div>
-        <div className="operator-actions">
-          <span className="operator-tag">
-            {saved ? `Revision ${saved.revision}` : 'Loading configuration'}
-          </span>
-          <Button className="button" disabled={loading || busy || dirty} onClick={() => void load()}>
-            Refresh
-          </Button>
-        </div>
-      </header>
+    <div className="@container grid min-w-0 gap-6">
+      <PageHeader
+        eyebrow="Factory settings"
+        title="Config"
+        description="Connect a provider, select an explicit model and review project readiness. Guided editing and YAML share one validated contract."
+        actions={
+          <>
+            <Badge variant="outline">{saved ? `Revision ${saved.revision}` : 'Loading configuration'}</Badge>
+            <Button variant="secondary" disabled={loading || busy || dirty} onClick={load}>
+              Refresh
+            </Button>
+          </>
+        }
+      />
       {!connected && (
-        <p className="notice warning" role="status">
+        <Notice tone="warning" role="status">
           Disconnected. Draft edits stay in this view; validation and saving require reconnection.
-        </p>
+        </Notice>
       )}
       {error && (
-        <p className="notice error" role="alert">
+        <Notice tone="danger" role="alert">
           {error}
-        </p>
+        </Notice>
       )}
       {notice && (
-        <p className="notice neutral" role="status">
+        <Notice tone="neutral" role="status">
           {notice}
-        </p>
+        </Notice>
       )}
-      {loading && !draft && (
-        <div className="operator-panel" role="status">
-          Loading the effective configuration…
-        </div>
-      )}
+      {loading && !draft && <LoadingState label="Loading the effective configuration…" />}
       {draft && saved && selection && (
         <>
-          <div className="operator-tabs" aria-label="Configuration views">
-            {['Guided setup', 'YAML / JSON', 'Policies & limits', 'Context & storage', 'Access'].map(
-              (name) => (
-                <Button
-                  key={name}
-                  disabled={busy}
-                  aria-pressed={mode === name}
-                  onClick={() => void switchMode(name)}
-                >
-                  {name}
-                </Button>
-              ),
-            )}
+          <div
+            role="group"
+            aria-label="Configuration views"
+            className="flex w-full max-w-full gap-0.5 overflow-x-auto overscroll-x-contain border-b border-border [scrollbar-width:thin]"
+          >
+            {modes.map((name) => (
+              <Button
+                key={name}
+                disabled={busy}
+                aria-pressed={mode === name}
+                className="-mb-px inline-flex min-h-10 shrink-0 cursor-pointer items-center border-b-2 border-transparent px-3 py-1.5 text-sm font-medium whitespace-nowrap text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-50 aria-pressed:border-primary aria-pressed:text-foreground"
+                onClick={() => void switchMode(name)}
+              >
+                {name}
+              </Button>
+            ))}
           </div>
           {mode === 'Guided setup' && (
             <>
-              <div className="operator-steps" aria-label="Setup steps">
-                {['Connect provider', 'Choose model', 'Connect project', 'Review readiness'].map(
-                  (name, index) => (
-                    <Button key={name} aria-pressed={step === index} onClick={() => setStep(index)}>
-                      {String(index + 1).padStart(2, '0')} · {name}
-                    </Button>
-                  ),
-                )}
+              <div role="group" aria-label="Setup steps" className="grid grid-cols-2 gap-2 @3xl:grid-cols-4">
+                {steps.map((name, index) => (
+                  <Button
+                    key={name}
+                    aria-pressed={step === index}
+                    className="flex min-h-10 cursor-pointer items-center justify-center rounded-md border border-border bg-card px-3 py-2 text-center text-sm text-muted-foreground transition-colors hover:bg-hover hover:text-foreground aria-pressed:border-primary aria-pressed:bg-accent aria-pressed:text-foreground"
+                    onClick={() => setStep(index)}
+                  >
+                    {String(index + 1).padStart(2, '0')} · {name}
+                  </Button>
+                ))}
               </div>
-              <div className="operator-split">
-                <section className="operator-panel">
-                  <span className="operator-eyebrow">Step {step + 1} of 4</span>
+              <div className="grid min-w-0 items-start gap-5 @5xl:grid-cols-[minmax(0,1.45fr)_minmax(18rem,1fr)]">
+                <Card>
+                  <Eyebrow>Step {step + 1} of 4</Eyebrow>
                   {step === 0 && (
                     <>
-                      <h2 style={{ marginTop: 10 }}>Connect a model provider</h2>
-                      <p className="muted">
-                        Choose how specialists access the model. Each method retains its own authentication
-                        and destination.
-                      </p>
+                      <PanelHeading
+                        title="Connect a model provider"
+                        description="Choose how specialists access the model. Each method retains its own authentication and destination."
+                      />
                       <Field label="Model provider">
                         <Select
                           value={selection.provider}
@@ -346,15 +389,18 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
                           </optgroup>
                         </Select>
                       </Field>
-                      <div className="operator-section-divider">
-                        <h3>{cli ? 'Official account session' : 'Destination-scoped API credential'}</h3>
-                        <p>
+                      <div className="grid justify-items-start gap-2.5 border-t border-border pt-4">
+                        <h3 className="text-base font-semibold">
+                          {cli ? 'Official account session' : 'Destination-scoped API credential'}
+                        </h3>
+                        <p className="text-sm">
                           {cli
                             ? 'Connect the dedicated factory runner from your own terminal using the official CLI login. Your everyday CLI session is not imported.'
                             : 'Store a write-only credential for the registered destination. Its value is never included in this document or its exports.'}
                         </p>
-                        <span
-                          className={`operator-tag ${cli ? (runner?.authenticated ? 'good' : 'warning') : providerConfigured ? 'good' : 'warning'}`}
+                        <Badge
+                          variant={(cli ? runner?.authenticated : providerConfigured) ? 'success' : 'warning'}
+                          className="whitespace-normal"
                         >
                           {cli
                             ? runner?.busy
@@ -371,47 +417,51 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
                                 : providerConfigured
                                   ? 'Credential present · validity not checked'
                                   : 'Credential not configured'}
-                        </span>
+                        </Badge>
                         {cli && (
-                          <p className="operator-readonly">
+                          <p className={note}>
                             In the SABRE terminal:{' '}
-                            <code>
+                            <code className="font-mono text-foreground">
                               node infra/ops.mjs{' '}
                               {selection.provider === 'claude_cli' ? 'claude-login' : 'codex-login'}
                             </code>
                           </p>
                         )}
                         {!cli && providerTargetIds.length ? (
-                          <p>
-                            <Button
-                              className="button"
-                              onClick={() => setCredentialIds(providerTargetIds)}
-                              disabled={!connected}
-                            >
-                              Manage provider credential
-                            </Button>
-                          </p>
+                          <Button
+                            variant="secondary"
+                            onClick={() => setCredentialIds(providerTargetIds)}
+                            disabled={!connected}
+                          >
+                            Manage provider credential
+                          </Button>
                         ) : null}
                       </div>
-                      <p className="notice neutral">
-                        Context destination:{' '}
-                        <code>{selection.destination || 'Explicit endpoint required'}</code>.{' '}
-                        {cli
-                          ? 'Subscription limits are managed by the provider.'
-                          : 'API spend requires separate run authorization.'}
-                      </p>
-                      <Button className="button primary" onClick={() => setStep(1)}>
-                        Continue to model
-                      </Button>
+                      <Notice tone="neutral">
+                        <span>
+                          Context destination:{' '}
+                          <code className="font-mono">
+                            {selection.destination || 'Explicit endpoint required'}
+                          </code>
+                          .{' '}
+                          {cli
+                            ? 'Subscription limits are managed by the provider.'
+                            : 'API spend requires separate run authorization.'}
+                        </span>
+                      </Notice>
+                      <div>
+                        <Button variant="primary" onClick={() => setStep(1)}>
+                          Continue to model
+                        </Button>
+                      </div>
                     </>
                   )}
                   {step === 1 && (
                     <>
-                      <h2 style={{ marginTop: 10 }}>Choose the default model</h2>
-                      <p className="muted">
-                        Use one explicit model for the team, then override only the specialists that need a
-                        different selection.
-                      </p>
+                      <PanelHeading
+                        title="Choose the default model"
+                        description="Use one explicit model for the team, then override only the specialists that need a different selection."
+                      />
                       <Field
                         label="Model identifier"
                         hint="Use an identifier available to your provider account. Saving a name does not prove model availability."
@@ -424,135 +474,132 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
                           onChange={(event) => changeDefault({ ...selection, name: event.target.value })}
                         />
                       </Field>
-                      <p>
-                        Provider: <strong>{providers[selection.provider].title}</strong>
+                      <p className="text-sm text-muted-foreground">
+                        Provider:{' '}
+                        <strong className="text-foreground">{providers[selection.provider].title}</strong>
                       </p>
-                      <details className="operator-section-divider">
-                        <summary>Advanced model settings</summary>
-                        <div style={{ marginTop: 18 }}>
-                          <Field label="Destination">
-                            <Input
-                              type="url"
-                              readOnly={selection.provider !== 'local'}
-                              value={selection.destination}
-                              onChange={(event) =>
-                                changeDefault({ ...selection, destination: event.target.value })
-                              }
-                            />
-                          </Field>
-                          <Field label="Maximum output tokens">
-                            <Input
-                              type="number"
-                              min={128}
-                              max={32768}
-                              value={selection.max_output_tokens}
-                              onChange={(event) =>
-                                changeDefault({ ...selection, max_output_tokens: Number(event.target.value) })
-                              }
-                            />
-                          </Field>
-                          {!cli && (
-                            <div className="operator-two">
-                              <Field label="USD per million input tokens">
-                                <Input
-                                  type="number"
-                                  min={0}
-                                  step="any"
-                                  value={selection.input_usd_per_million}
-                                  onChange={(event) =>
-                                    changeDefault({
-                                      ...selection,
-                                      input_usd_per_million: Number(event.target.value),
-                                    })
-                                  }
-                                />
-                              </Field>
-                              <Field label="USD per million output tokens">
-                                <Input
-                                  type="number"
-                                  min={0}
-                                  step="any"
-                                  value={selection.output_usd_per_million}
-                                  onChange={(event) =>
-                                    changeDefault({
-                                      ...selection,
-                                      output_usd_per_million: Number(event.target.value),
-                                    })
-                                  }
-                                />
-                              </Field>
-                            </div>
-                          )}
-                        </div>
-                      </details>
-                      <details className="operator-section-divider">
-                        <summary>Specialist overrides</summary>
-                        <ul className="operator-checks">
+                      <Disclosure summary="Advanced model settings" contentClassName="gap-4 @container">
+                        <Field label="Destination">
+                          <Input
+                            type="url"
+                            readOnly={selection.provider !== 'local'}
+                            value={selection.destination}
+                            onChange={(event) =>
+                              changeDefault({ ...selection, destination: event.target.value })
+                            }
+                          />
+                        </Field>
+                        <Field label="Maximum output tokens">
+                          <Input
+                            type="number"
+                            min={128}
+                            max={32768}
+                            value={selection.max_output_tokens}
+                            onChange={(event) =>
+                              changeDefault({ ...selection, max_output_tokens: Number(event.target.value) })
+                            }
+                          />
+                        </Field>
+                        {!cli && (
+                          <div className="grid gap-4 @md:grid-cols-2">
+                            <Field label="USD per million input tokens">
+                              <Input
+                                type="number"
+                                min={0}
+                                step="any"
+                                value={selection.input_usd_per_million}
+                                onChange={(event) =>
+                                  changeDefault({
+                                    ...selection,
+                                    input_usd_per_million: Number(event.target.value),
+                                  })
+                                }
+                              />
+                            </Field>
+                            <Field label="USD per million output tokens">
+                              <Input
+                                type="number"
+                                min={0}
+                                step="any"
+                                value={selection.output_usd_per_million}
+                                onChange={(event) =>
+                                  changeDefault({
+                                    ...selection,
+                                    output_usd_per_million: Number(event.target.value),
+                                  })
+                                }
+                              />
+                            </Field>
+                          </div>
+                        )}
+                      </Disclosure>
+                      <Disclosure summary="Specialist overrides" contentClassName="pt-0">
+                        <ul className={rows}>
                           {Object.entries(draft.models.roles).map(([name, value]) => (
-                            <li key={name}>
-                              <div>
+                            <li key={name} className={row}>
+                              <div className="min-w-0">
                                 {roleNames[name] ?? name}
-                                <small>
+                                <Secondary>
                                   {value
                                     ? `${providers[value.provider].title} · ${value.name || 'Model required'}`
                                     : `Inherits default · ${selection.name || 'Model required'}`}
-                                </small>
+                                </Secondary>
                               </div>
-                              <Button className="button small" onClick={() => setRole(name)}>
+                              <Button variant="secondary" size="sm" onClick={() => setRole(name)}>
                                 Edit
                               </Button>
                             </li>
                           ))}
                         </ul>
-                      </details>
-                      <Button
-                        className="button primary"
-                        style={{ marginTop: 20 }}
-                        disabled={!selection.name.trim()}
-                        onClick={() => setStep(2)}
-                      >
-                        Continue to project
-                      </Button>
+                      </Disclosure>
+                      <div>
+                        <Button
+                          variant="primary"
+                          disabled={!selection.name.trim()}
+                          onClick={() => setStep(2)}
+                        >
+                          Continue to project
+                        </Button>
+                      </div>
                     </>
                   )}
                   {step === 2 && (
                     <>
-                      <h2 style={{ marginTop: 10 }}>Connect a project</h2>
-                      <p className="muted">
-                        GitHub supplies source access and draft PR delivery. Read, publish and repository
-                        creation use separate scoped credentials.
-                      </p>
+                      <PanelHeading
+                        title="Connect a project"
+                        description="GitHub supplies source access and draft PR delivery. Read, publish and repository creation use separate scoped credentials."
+                      />
                       {projects.length ? (
-                        <ul className="operator-checks">
+                        <ul className={rows}>
                           {projects.map((project) => (
-                            <li key={project.id}>
-                              <div>
-                                <strong>{project.name}</strong>
-                                <small>{project.repository}</small>
-                                <small>
+                            <li key={project.id} className={row}>
+                              <div className="min-w-0">
+                                <strong className="font-semibold">{project.name}</strong>
+                                <Secondary>{project.repository}</Secondary>
+                                <Secondary>
                                   {project.profile} · {project.gate_commands.length} configured checks ·{' '}
                                   {project.default_branch}
-                                </small>
+                                </Secondary>
                               </div>
-                              <span className="operator-tag">Registered</span>
+                              <Badge variant="outline">Registered</Badge>
                             </li>
                           ))}
                         </ul>
                       ) : (
-                        <p className="notice warning">
+                        <Notice tone="warning">
                           No project is registered. Add a repository from the project selector or browse
                           GitHub in Tools.
-                        </p>
+                        </Notice>
                       )}
-                      <p className="operator-readonly">
+                      <p className={note}>
                         Repository permissions and executable checks are checked at launch. A saved credential
                         alone does not establish readiness.
                       </p>
-                      <div className="operator-actions">
-                        <Link className="button" to="/tools">
-                          Manage repository access
-                        </Link>
-                        <Button className="button primary" onClick={() => setStep(3)}>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Button variant="secondary" asChild>
+                          <Link to="/tools">Manage repository access</Link>
+                        </Button>
+                        <Button variant="primary" onClick={() => setStep(3)}>
                           Review readiness
                         </Button>
                       </div>
@@ -560,60 +607,64 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
                   )}
                   {step === 3 && (
                     <>
-                      <h2 style={{ marginTop: 10 }}>Review readiness</h2>
-                      <p className="muted">
-                        These checks describe the saved revision. Draft changes must be validated and saved
-                        before they affect future runs.
-                      </p>
-                      <ul className="operator-checks">
+                      <PanelHeading
+                        title="Review readiness"
+                        description="These checks describe the saved revision. Draft changes must be validated and saved before they affect future runs."
+                      />
+                      <ul className={rows}>
                         {saved.readiness.map((item) => (
-                          <li key={item.id}>
-                            <div>
+                          <li key={item.id} className={row}>
+                            <div className="min-w-0">
                               {item.message}
-                              <small>{item.action}</small>
+                              <Secondary>{item.action}</Secondary>
                             </div>
-                            <span className={`operator-tag ${item.status === 'ready' ? 'good' : 'warning'}`}>
+                            <Badge variant={item.status === 'ready' ? 'success' : 'warning'}>
                               {item.status === 'ready'
                                 ? 'Configured'
                                 : item.status === 'unavailable'
                                   ? 'Unavailable'
                                   : 'Action needed'}
-                            </span>
+                            </Badge>
                           </li>
                         ))}
                       </ul>
-                      <p className="notice neutral">
+                      <Notice tone="neutral">
                         Connection, explicit model, repository access and delivery authorization are separate.
                         Final model and permission checks run before dispatch.
-                      </p>
+                      </Notice>
                     </>
                   )}
-                </section>
-                <aside className="operator-panel operator-sticky">
-                  <span className="operator-eyebrow">Effective draft</span>
-                  <h2 style={{ marginTop: 12 }}>What the factory will use</h2>
-                  <dl className="operator-kv">
-                    <dt>Provider</dt>
-                    <dd>{providers[selection.provider].title}</dd>
-                    <dt>Model</dt>
-                    <dd>{selection.name || 'Not selected'}</dd>
-                    <dt>Team</dt>
-                    <dd>
-                      {Object.values(draft.models.roles).filter(Boolean).length} overrides ·{' '}
-                      {Object.values(draft.models.roles).filter((value) => !value).length} inherited
-                    </dd>
-                    <dt>Routing order</dt>
-                    <dd>Run phase → flow phase → specialist → default</dd>
-                    <dt>Source</dt>
-                    <dd>{dirty ? 'Unsaved draft' : `Saved revision ${saved.revision}`}</dd>
-                    <dt>Permissions</dt>
-                    <dd>Resolved and pinned at launch</dd>
-                  </dl>
-                  <details>
-                    <summary>View secret-free contract</summary>
-                    <pre className="operator-code">{encode(draft)}</pre>
-                  </details>
-                  <p className="operator-readonly">
+                </Card>
+                <aside
+                  aria-labelledby="config-effective-title"
+                  className="flex min-w-0 flex-col gap-4 rounded-lg border border-border bg-card p-5 @5xl:sticky @5xl:top-20"
+                >
+                  <div className="grid gap-1.5">
+                    <Eyebrow>Effective draft</Eyebrow>
+                    <h2 id="config-effective-title" className="text-lg leading-snug font-semibold">
+                      What the factory will use
+                    </h2>
+                  </div>
+                  <DescriptionList
+                    termWidth="8rem"
+                    items={[
+                      ['Provider', providers[selection.provider].title],
+                      ['Model', selection.name || 'Not selected'],
+                      [
+                        'Team',
+                        `${Object.values(draft.models.roles).filter(Boolean).length} overrides · ${
+                          Object.values(draft.models.roles).filter((value) => !value).length
+                        } inherited`,
+                      ],
+                      ['Routing order', 'Run phase → flow phase → specialist → default'],
+                      ['Source', dirty ? 'Unsaved draft' : `Saved revision ${saved.revision}`],
+                      ['Permissions', 'Resolved and pinned at launch'],
+                    ]}
+                  />
+                  <Disclosure summary="View secret-free contract" variant="plain" contentClassName="pl-0">
+                    <CodeBlock label="Secret-free configuration contract">{encode(draft)}</CodeBlock>
+                  </Disclosure>
+                  <p className={note}>
                     Saving configuration never starts a run or publishes repository changes.
                   </p>
                 </aside>
@@ -621,19 +672,19 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
             </>
           )}
           {mode === 'YAML / JSON' && (
-            <section className="operator-panel">
-              <h2>Versioned configuration contract</h2>
-              <p className="muted">
-                The server validates YAML and JSON against the same schema as guided setup. Aliases, duplicate
-                keys, unknown capabilities and input over 64 KiB are rejected.
-              </p>
+            <Card aria-labelledby="config-contract-title">
+              <PanelHeading
+                id="config-contract-title"
+                title="Versioned configuration contract"
+                description="The server validates YAML and JSON against the same schema as guided setup. Aliases, duplicate keys, unknown capabilities and input over 64 KiB are rejected."
+              />
               <Field label="Configuration document">
                 <Textarea
                   value={document}
                   maxLength={65536}
                   rows={24}
                   spellCheck={false}
-                  style={{ fontFamily: 'Consolas,monospace', fontSize: 12 }}
+                  className="font-mono text-xs leading-relaxed"
                   onChange={(event) => {
                     setDocument(event.target.value);
                     setPreview(null);
@@ -641,68 +692,69 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
                   }}
                 />
               </Field>
-              <Button
-                className="button"
-                disabled={
-                  document !== saved.yaml &&
-                  !(preview?.valid && preview.yaml && validatedDocument === document)
-                }
-                onClick={() => {
-                  const exportDocument =
-                    preview?.valid && validatedDocument === document ? preview.yaml : saved.yaml;
-                  if (!exportDocument) return;
-                  const url = URL.createObjectURL(new Blob([exportDocument], { type: 'application/yaml' }));
-                  const link = window.document.createElement('a');
-                  link.href = url;
-                  link.download = 'sabre-configuration.yaml';
-                  link.click();
-                  URL.revokeObjectURL(url);
-                }}
-              >
-                Download document
-              </Button>
-              <p className="operator-readonly">
-                Exports use the saved or server-validated secret-free contract. Validate draft edits before
-                downloading.
-              </p>
-            </section>
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                <Button
+                  variant="secondary"
+                  disabled={
+                    document !== saved.yaml &&
+                    !(preview?.valid && preview.yaml && validatedDocument === document)
+                  }
+                  onClick={() => {
+                    const exportDocument =
+                      preview?.valid && validatedDocument === document ? preview.yaml : saved.yaml;
+                    if (!exportDocument) return;
+                    const url = URL.createObjectURL(new Blob([exportDocument], { type: 'application/yaml' }));
+                    const link = window.document.createElement('a');
+                    link.href = url;
+                    link.download = 'sabre-configuration.yaml';
+                    link.click();
+                    URL.revokeObjectURL(url);
+                  }}
+                >
+                  Download document
+                </Button>
+                <p className={note}>
+                  Exports use the saved or server-validated secret-free contract. Validate draft edits before
+                  downloading.
+                </p>
+              </div>
+            </Card>
           )}
           {mode === 'Policies & limits' && (
             <>
-              <section className="operator-panel">
-                <div className="operator-heading">
-                  <div>
-                    <h2>Policy domains</h2>
-                    <p>
-                      Required rules use registered validators. Preferences guide work and require human
-                      review.
-                    </p>
-                  </div>
-                  <Button className="button" onClick={() => setNewPreference(true)}>
+              <Card aria-labelledby="config-policies-title">
+                <CardHeader>
+                  <PanelHeading
+                    id="config-policies-title"
+                    title="Policy domains"
+                    description="Required rules use registered validators. Preferences guide work and require human review."
+                  />
+                  <Button variant="secondary" onClick={() => setNewPreference(true)}>
                     Add preference
                   </Button>
-                </div>
-                <ul className="operator-checks">
+                </CardHeader>
+                <ul className={rows}>
                   {draft.policies.map((policy, index) => (
-                    <li key={policy.id}>
-                      <div style={{ flex: 1 }}>
-                        <strong>{policy.id}</strong>
-                        <small>
-                          {policy.domain} ·{' '}
-                          {policy.mode === 'required'
-                            ? `Validator: ${policy.validator}`
-                            : 'Advisory · human review'}{' '}
-                          · version {policy.version} · factory contract
-                        </small>
+                    <li key={policy.id} className={row}>
+                      <div className="grid min-w-0 flex-1 gap-2">
+                        <div>
+                          <strong className="font-semibold">{policy.id}</strong>
+                          <Secondary>
+                            {policy.domain} ·{' '}
+                            {policy.mode === 'required'
+                              ? `Validator: ${policy.validator}`
+                              : 'Advisory · human review'}{' '}
+                            · version {policy.version} · factory contract
+                          </Secondary>
+                        </div>
                         {policy.mode === 'required' ? (
-                          <p>{policy.value}</p>
+                          <p className="text-sm">{policy.value}</p>
                         ) : (
                           <Textarea
                             aria-label={`Preference ${policy.id}`}
                             value={policy.value}
                             maxLength={4000}
                             rows={2}
-                            style={{ marginTop: 10 }}
                             onChange={(event) =>
                               update({
                                 ...draft,
@@ -714,20 +766,20 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
                           />
                         )}
                       </div>
-                      <span className={`operator-tag ${policy.mode === 'required' ? 'warning' : ''}`}>
+                      <Badge variant={policy.mode === 'required' ? 'warning' : 'outline'}>
                         {policy.mode === 'required' ? 'Required' : 'Preference'}
-                      </span>
+                      </Badge>
                     </li>
                   ))}
                 </ul>
-              </section>
-              <section className="operator-panel">
-                <h2>Flow defaults</h2>
-                <p className="muted">
-                  Choose a registered flow, then refine permissions and phase overrides. Runs pin the resolved
-                  configuration.
-                </p>
-                <Field label="Flow">
+              </Card>
+              <Card aria-labelledby="config-flows-title">
+                <PanelHeading
+                  id="config-flows-title"
+                  title="Flow defaults"
+                  description="Choose a registered flow, then refine permissions and phase overrides. Runs pin the resolved configuration."
+                />
+                <Field label="Flow" className="max-w-80">
                   <Select value={flow} onChange={(event) => setFlow(event.target.value as typeof flow)}>
                     {['patch', 'maintain', 'create', 'audit'].map((name) => (
                       <option key={name} value={name}>
@@ -736,7 +788,7 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
                     ))}
                   </Select>
                 </Field>
-                <div className="operator-two">
+                <div className="grid items-start gap-5 @3xl:grid-cols-2">
                   {!draft.flows[flow].budget_policy && (
                     <Field
                       label="Repair cycles"
@@ -759,64 +811,58 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
                       />
                     </Field>
                   )}
-                  <div>
-                    <p>Flow permissions</p>
+                  <div className="grid gap-2.5">
+                    <p className="text-sm font-medium">Flow permissions</p>
                     {(['architecture', 'dependency_changes', 'draft_pull_request'] as const).map((name) => (
-                      <label className="check-line" key={name}>
-                        <Input
-                          type="checkbox"
-                          checked={draft.flows[flow].permissions?.[name] ?? name !== 'dependency_changes'}
-                          onChange={(event) =>
-                            update({
-                              ...draft,
-                              flows: {
-                                ...draft.flows,
-                                [flow]: {
-                                  ...draft.flows[flow],
-                                  permissions: {
-                                    ...draft.flows[flow].permissions,
-                                    [name]: event.target.checked,
-                                  },
+                      <CheckField
+                        key={name}
+                        label={name.replaceAll('_', ' ')}
+                        checked={draft.flows[flow].permissions?.[name] ?? name !== 'dependency_changes'}
+                        onChange={(event) =>
+                          update({
+                            ...draft,
+                            flows: {
+                              ...draft.flows,
+                              [flow]: {
+                                ...draft.flows[flow],
+                                permissions: {
+                                  ...draft.flows[flow].permissions,
+                                  [name]: event.target.checked,
                                 },
                               },
-                            })
-                          }
-                        />
-                        {name.replaceAll('_', ' ')}
-                      </label>
+                            },
+                          })
+                        }
+                      />
                     ))}
                   </div>
                 </div>
-                <details className="operator-section-divider">
-                  <summary>Run budgets and recovery</summary>
-                  <label className="check-line" style={{ marginTop: 18 }}>
-                    <Input
-                      type="checkbox"
-                      checked={!!draft.flows[flow].budget_policy}
-                      onChange={(event) =>
-                        update({
-                          ...draft,
-                          flows: {
-                            ...draft.flows,
-                            [flow]: {
-                              ...draft.flows[flow],
-                              budget_policy: event.target.checked
-                                ? {
-                                    ...defaultBudgetPolicy,
-                                    repairs: {
-                                      primary: draft.flows[flow].repair_cycles,
-                                      reserve: 0,
-                                      absolute: draft.flows[flow].repair_cycles,
-                                    },
-                                  }
-                                : null,
-                            },
+                <Disclosure summary="Run budgets and recovery" contentClassName="gap-4">
+                  <CheckField
+                    label="Use a versioned budget policy for this flow"
+                    checked={!!draft.flows[flow].budget_policy}
+                    onChange={(event) =>
+                      update({
+                        ...draft,
+                        flows: {
+                          ...draft.flows,
+                          [flow]: {
+                            ...draft.flows[flow],
+                            budget_policy: event.target.checked
+                              ? {
+                                  ...defaultBudgetPolicy,
+                                  repairs: {
+                                    primary: draft.flows[flow].repair_cycles,
+                                    reserve: 0,
+                                    absolute: draft.flows[flow].repair_cycles,
+                                  },
+                                }
+                              : null,
                           },
-                        })
-                      }
-                    />
-                    Use a versioned budget policy for this flow
-                  </label>
+                        },
+                      })
+                    }
+                  />
                   {draft.flows[flow].budget_policy ? (
                     <BudgetFields
                       value={draft.flows[flow].budget_policy!}
@@ -828,49 +874,51 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
                       }
                     />
                   ) : (
-                    <p className="operator-readonly">
+                    <p className={note}>
                       This flow keeps its existing launch-budget behavior until an explicit policy is
                       selected.
                     </p>
                   )}
-                </details>
-                <details className="operator-section-divider">
-                  <summary>Advanced phase models and skills</summary>
-                  {phaseNames
-                    .filter((phase) =>
-                      flow === 'audit'
-                        ? !['design', 'planning', 'implementation'].includes(phase)
-                        : flow === 'create' || phase !== 'design',
-                    )
-                    .map((phase) => {
-                      const phaseValue = draft.flows[flow].phases?.[phase];
-                      const override = draft.flows[flow].phase_models?.[phase];
-                      return (
-                        <details
-                          key={phase}
-                          style={{ padding: '16px 0', borderBottom: '1px solid var(--line)' }}
-                        >
-                          <summary>
-                            {phase} ·{' '}
-                            {override?.name || phaseValue?.model?.name || 'inherits specialist/default'}
-                          </summary>
-                          <div style={{ marginTop: 16 }}>
-                            <label className="check-line">
-                              <Input
-                                type="checkbox"
-                                checked={!!override}
-                                onChange={(event) => {
-                                  const phase_models = { ...draft.flows[flow].phase_models };
-                                  if (event.target.checked) phase_models[phase] = { ...selection };
-                                  else delete phase_models[phase];
-                                  update({
-                                    ...draft,
-                                    flows: { ...draft.flows, [flow]: { ...draft.flows[flow], phase_models } },
-                                  });
-                                }}
-                              />
-                              Override model for this flow phase
-                            </label>
+                </Disclosure>
+                <Disclosure summary="Advanced phase models and skills" contentClassName="gap-0 pt-0">
+                  <div className={rows}>
+                    {phaseNames
+                      .filter((phase) =>
+                        flow === 'audit'
+                          ? !['design', 'planning', 'implementation'].includes(phase)
+                          : flow === 'create' || phase !== 'design',
+                      )
+                      .map((phase) => {
+                        const phaseValue = draft.flows[flow].phases?.[phase];
+                        const override = draft.flows[flow].phase_models?.[phase];
+                        return (
+                          <Disclosure
+                            key={phase}
+                            variant="plain"
+                            className="py-1.5 [&:not([open])>summary>svg]:rotate-0"
+                            contentClassName="gap-4 pb-3"
+                            summary={
+                              <span className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
+                                <span className="capitalize">{phase}</span>
+                                <span className="text-xs font-normal text-muted-foreground">
+                                  {override?.name || phaseValue?.model?.name || 'inherits specialist/default'}
+                                </span>
+                              </span>
+                            }
+                          >
+                            <CheckField
+                              label="Override model for this flow phase"
+                              checked={!!override}
+                              onChange={(event) => {
+                                const phase_models = { ...draft.flows[flow].phase_models };
+                                if (event.target.checked) phase_models[phase] = { ...selection };
+                                else delete phase_models[phase];
+                                update({
+                                  ...draft,
+                                  flows: { ...draft.flows, [flow]: { ...draft.flows[flow], phase_models } },
+                                });
+                              }}
+                            />
                             {override && (
                               <SelectionFields
                                 value={override}
@@ -888,74 +936,68 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
                                 }
                               />
                             )}
-                            <fieldset>
-                              <legend>Registered skills</legend>
+                            <fieldset className="grid gap-2.5">
+                              <legend className="mb-2.5 text-sm font-medium">Registered skills</legend>
                               {skills.map((skill) => (
-                                <label className="check-line" key={skill}>
-                                  <Input
-                                    type="checkbox"
-                                    checked={phaseValue?.skills?.includes(skill) ?? false}
-                                    onChange={(event) => {
-                                      const selectedSkills = phaseValue?.skills ?? [];
-                                      const nextSkills = event.target.checked
-                                        ? [...selectedSkills, skill]
-                                        : selectedSkills.filter((item) => item !== skill);
-                                      update({
-                                        ...draft,
-                                        flows: {
-                                          ...draft.flows,
-                                          [flow]: {
-                                            ...draft.flows[flow],
-                                            phases: {
-                                              ...draft.flows[flow].phases,
-                                              [phase]: { ...phaseValue, skills: nextSkills },
-                                            },
+                                <CheckField
+                                  key={skill}
+                                  label={skill}
+                                  checked={phaseValue?.skills?.includes(skill) ?? false}
+                                  onChange={(event) => {
+                                    const selectedSkills = phaseValue?.skills ?? [];
+                                    const nextSkills = event.target.checked
+                                      ? [...selectedSkills, skill]
+                                      : selectedSkills.filter((item) => item !== skill);
+                                    update({
+                                      ...draft,
+                                      flows: {
+                                        ...draft.flows,
+                                        [flow]: {
+                                          ...draft.flows[flow],
+                                          phases: {
+                                            ...draft.flows[flow].phases,
+                                            [phase]: { ...phaseValue, skills: nextSkills },
                                           },
                                         },
-                                      });
-                                    }}
-                                  />
-                                  {skill}
-                                </label>
+                                      },
+                                    });
+                                  }}
+                                />
                               ))}
                             </fieldset>
-                          </div>
-                        </details>
-                      );
-                    })}
-                </details>
-              </section>
+                          </Disclosure>
+                        );
+                      })}
+                  </div>
+                </Disclosure>
+              </Card>
             </>
           )}
           {mode === 'Access' && <PairedBrowsers api={api} />}
           {mode === 'Context & storage' && (
-            <div className="operator-two">
-              <section className="operator-panel">
-                <h2>Context preparation</h2>
-                <p>
-                  Bound input and preserve source references. Context settings cannot grant execution
-                  permissions.
-                </p>
-                <label className="check-line">
-                  <Input
-                    type="checkbox"
+            <div className="grid min-w-0 items-start gap-5 @4xl:grid-cols-2">
+              <Card aria-labelledby="config-context-title">
+                <PanelHeading
+                  id="config-context-title"
+                  title="Context preparation"
+                  description="Bound input and preserve source references. Context settings cannot grant execution permissions."
+                />
+                <div className="grid gap-2.5">
+                  <CheckField
+                    label="Deduplicate repeated context"
                     checked={draft.context.deduplicate}
                     onChange={(event) =>
                       update({ ...draft, context: { ...draft.context, deduplicate: event.target.checked } })
                     }
                   />
-                  Deduplicate repeated context
-                </label>
-                <label className="check-line">
-                  <Input
-                    type="checkbox"
+                  <CheckField
+                    label="Archive recorded source reads"
                     checked={draft.context.archive_reads}
                     onChange={(event) =>
                       update({ ...draft, context: { ...draft.context, archive_reads: event.target.checked } })
                     }
                   />
-                  Archive recorded source reads
-                </label>
+                </div>
                 <Field
                   label="Maximum input bytes"
                   hint="Between 4,096 and 98,304 bytes. Retrieval remains project scoped."
@@ -973,137 +1015,130 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
                     }
                   />
                 </Field>
-              </section>
-              <section className="operator-panel">
-                <h2>Storage and provenance</h2>
-                <dl className="operator-kv">
-                  <dt>Persistent store</dt>
-                  <dd>PostgreSQL</dd>
-                  <dt>Source navigation</dt>
-                  <dd>Project-scoped text search</dd>
-                  <dt>Semantic retrieval</dt>
-                  <dd>Optional provider; inspect each project in Memory</dd>
-                  <dt>Credentials</dt>
-                  <dd>Encrypted, write-only and destination scoped</dd>
-                </dl>
-                <p className="muted">
+              </Card>
+              <Card aria-labelledby="config-storage-title">
+                <PanelHeading id="config-storage-title" title="Storage and provenance" />
+                <DescriptionList
+                  items={[
+                    ['Persistent store', 'PostgreSQL'],
+                    ['Source navigation', 'Project-scoped text search'],
+                    ['Semantic retrieval', 'Optional provider; inspect each project in Memory'],
+                    ['Credentials', 'Encrypted, write-only and destination scoped'],
+                  ]}
+                />
+                <p className="text-sm text-muted-foreground">
                   The active storage system is managed by the instance. No migration or database change is
                   performed by this form.
                 </p>
-              </section>
+              </Card>
             </div>
           )}
           {mode !== 'Access' && (
-            <section className="operator-panel">
-              <h2>Validate and review</h2>
-              <p className="muted">
-                Preview the server-resolved contract and changed fields before saving. Validation does not run
-                agents, grant permissions or publish.
-              </p>
-              <div className="operator-actions">
-                <Button
-                  className="button primary"
-                  disabled={busy || !connected}
-                  onClick={() => void validate()}
-                >
-                  {busy ? 'Checking…' : 'Validate & preview'}
-                </Button>
-                {dirty && (
-                  <Button className="button" disabled={busy} onClick={() => accept(saved)}>
-                    Discard draft
+            <Card aria-labelledby="config-validate-title">
+              <CardHeader>
+                <PanelHeading
+                  id="config-validate-title"
+                  title="Validate and review"
+                  description="Preview the server-resolved contract and changed fields before saving. Validation does not run agents, grant permissions or publish."
+                />
+                <div className="flex flex-wrap items-center gap-2">
+                  {dirty && (
+                    <Button variant="secondary" disabled={busy} onClick={() => accept(saved)}>
+                      Discard draft
+                    </Button>
+                  )}
+                  <Button variant="primary" disabled={busy || !connected} onClick={() => void validate()}>
+                    {busy ? 'Checking…' : 'Validate & preview'}
                   </Button>
-                )}
-              </div>
+                </div>
+              </CardHeader>
               {preview && (
-                <div className="operator-section-divider">
-                  <span className={`operator-tag ${preview.valid ? 'good' : 'warning'}`}>
+                <div className="grid min-w-0 justify-items-start gap-4 border-t border-border pt-4">
+                  <Badge variant={preview.valid ? 'success' : 'warning'}>
                     {preview.valid ? 'Schema validated' : 'Changes required'}
-                  </span>
+                  </Badge>
                   {preview.diagnostics.length > 0 && (
-                    <ul role="alert">
+                    <ul
+                      role="alert"
+                      className="grid w-full gap-1.5 rounded-lg border border-danger-border bg-danger-bg px-4 py-3 text-sm text-danger"
+                    >
                       {preview.diagnostics.map((item, index) => (
-                        <li key={`${item.path}-${index}`}>
-                          <code>{item.path}</code>: {item.message}
+                        <li key={`${item.path}-${index}`} className="[overflow-wrap:anywhere]">
+                          <code className="font-mono text-xs">{item.path}</code>: {item.message}
                         </li>
                       ))}
                     </ul>
                   )}
                   {preview.valid && (
-                    <>
+                    <div className="grid w-full min-w-0 gap-4">
                       {preview.safe_diff.length ? (
-                        <div className="operator-table-wrap" style={{ marginTop: 18 }}>
-                          <table className="operator-table">
-                            <thead>
-                              <tr>
-                                <th>Field</th>
-                                <th>Saved value</th>
-                                <th>Proposed value</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {preview.safe_diff.map((change) => (
-                                <tr key={change.path}>
-                                  <td>
-                                    <code>{change.path}</code>
-                                  </td>
-                                  <td>
-                                    <code style={{ overflowWrap: 'anywhere' }}>
-                                      {change.before ?? 'Not set'}
-                                    </code>
-                                  </td>
-                                  <td>
-                                    <code style={{ overflowWrap: 'anywhere' }}>
-                                      {change.after ?? 'Removed'}
-                                    </code>
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Field</TableHead>
+                              <TableHead>Saved value</TableHead>
+                              <TableHead>Proposed value</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {preview.safe_diff.map((change) => (
+                              <TableRow key={change.path}>
+                                <TableCell>
+                                  <code className="font-mono text-xs">{change.path}</code>
+                                </TableCell>
+                                <TableCell>
+                                  <code className="font-mono text-xs">{change.before ?? 'Not set'}</code>
+                                </TableCell>
+                                <TableCell>
+                                  <code className="font-mono text-xs">{change.after ?? 'Removed'}</code>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
                       ) : (
-                        <p>No configuration changes.</p>
+                        <p className="text-sm">No configuration changes.</p>
                       )}
-                      <details style={{ marginTop: 18 }}>
-                        <summary>Resolved contract</summary>
-                        <pre className="operator-code">{preview.yaml}</pre>
-                      </details>
-                      <div style={{ marginTop: 18 }}>
-                        <p>Approved data destinations for default and specialist models:</p>
-                        <ul>
+                      <Disclosure summary="Resolved contract" variant="plain" contentClassName="pl-0">
+                        <CodeBlock label="Resolved configuration contract">{preview.yaml}</CodeBlock>
+                      </Disclosure>
+                      <div className="grid gap-3">
+                        <p className="text-sm">
+                          Approved data destinations for default and specialist models:
+                        </p>
+                        <ul className="grid list-disc gap-1 pl-5 text-sm">
                           {destinations.map((destination) => (
-                            <li key={destination}>
-                              <code>{destination}</code>
+                            <li key={destination} className="[overflow-wrap:anywhere]">
+                              <code className="font-mono text-xs">{destination}</code>
                             </li>
                           ))}
                         </ul>
-                        <label className="check-line">
-                          <Input
-                            type="checkbox"
-                            checked={approved}
-                            onChange={(event) => setApproved(event.target.checked)}
-                          />
-                          I approve the listed model data destinations for this configuration.
-                        </label>
-                        <Button
-                          className="button primary"
-                          disabled={
-                            !connected ||
-                            busy ||
-                            !approved ||
-                            !preview.safe_diff.length ||
-                            validatedDocument !== document
-                          }
-                          onClick={() => void save()}
-                        >
-                          {busy ? 'Saving…' : 'Save configuration'}
-                        </Button>
+                        <CheckField
+                          label="I approve the listed model data destinations for this configuration."
+                          checked={approved}
+                          onChange={(event) => setApproved(event.target.checked)}
+                        />
+                        <div>
+                          <Button
+                            variant="primary"
+                            disabled={
+                              !connected ||
+                              busy ||
+                              !approved ||
+                              !preview.safe_diff.length ||
+                              validatedDocument !== document
+                            }
+                            onClick={() => void save()}
+                          >
+                            {busy ? 'Saving…' : 'Save configuration'}
+                          </Button>
+                        </div>
                       </div>
-                    </>
+                    </div>
                   )}
                 </div>
               )}
-            </section>
+            </Card>
           )}
           <Dialog
             open={!!role}
@@ -1113,26 +1148,23 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
             onClose={() => setRole(null)}
           >
             {role && (
-              <>
-                <label className="check-line">
-                  <Input
-                    type="checkbox"
-                    checked={!draft.models.roles[role as keyof typeof draft.models.roles]}
-                    onChange={(event) =>
-                      update({
-                        ...draft,
-                        models: {
-                          ...draft.models,
-                          roles: {
-                            ...draft.models.roles,
-                            [role]: event.target.checked ? null : { ...selection },
-                          },
+              <div className="grid gap-4">
+                <CheckField
+                  label="Inherit default model"
+                  checked={!draft.models.roles[role as keyof typeof draft.models.roles]}
+                  onChange={(event) =>
+                    update({
+                      ...draft,
+                      models: {
+                        ...draft.models,
+                        roles: {
+                          ...draft.models.roles,
+                          [role]: event.target.checked ? null : { ...selection },
                         },
-                      })
-                    }
-                  />
-                  Inherit default model
-                </label>
+                      },
+                    })
+                  }
+                />
                 {draft.models.roles[role as keyof typeof draft.models.roles] && (
                   <SelectionFields
                     value={draft.models.roles[role as keyof typeof draft.models.roles]!}
@@ -1144,10 +1176,8 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
                     }
                   />
                 )}
-                <p className="operator-readonly">
-                  Changes remain in the configuration draft until reviewed and saved.
-                </p>
-              </>
+                <p className={note}>Changes remain in the configuration draft until reviewed and saved.</p>
+              </div>
             )}
           </Dialog>
           <Dialog open={!!credentialIds} title="Provider credential" onClose={() => setCredentialIds(null)}>
@@ -1173,6 +1203,7 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
             onClose={() => setNewPreference(false)}
           >
             <form
+              className="grid gap-4"
               onSubmit={(event) => {
                 event.preventDefault();
                 if (draft.policies.some((item) => item.id === preference.id)) {
@@ -1220,7 +1251,9 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
                   onChange={(event) => setPreference({ ...preference, value: event.target.value })}
                 />
               </Field>
-              <Button className="button primary">Add to draft</Button>
+              <DialogActions>
+                <Button variant="primary">Add to draft</Button>
+              </DialogActions>
             </form>
           </Dialog>
         </>

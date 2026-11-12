@@ -1829,6 +1829,11 @@ export interface components {
              * @default 0
              */
             tool_responses: number;
+            /**
+             * Notes Recorded
+             * @default 0
+             */
+            notes_recorded: number;
             /** Last Checkpoint At */
             last_checkpoint_at: string | null;
             /** Duration Ms */

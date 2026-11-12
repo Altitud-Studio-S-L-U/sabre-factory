@@ -10,6 +10,7 @@ export type Presence =
   | 'listening'
   | 'queued'
   | 'working'
+  | 'using-tool'
   | 'needs-you'
   | 'done'
   | 'blocked';
@@ -24,6 +25,8 @@ export interface PresenceFacts {
   drafting: boolean;
   /** Milliseconds since the latest message settled, when it did. */
   settledAgoMs?: number | null;
+  /** Name of a tool call recorded as pending for the running message. */
+  activeTool?: string | null;
 }
 
 export const presenceLabels: Record<Presence, string> = {
@@ -32,6 +35,7 @@ export const presenceLabels: Record<Presence, string> = {
   listening: 'Listening',
   queued: 'Message queued',
   working: 'Working',
+  'using-tool': 'Using a tool',
   'needs-you': 'Needs you',
   done: 'Replied',
   blocked: 'Blocked',
@@ -44,7 +48,8 @@ export const DONE_WINDOW_MS = 8000;
 export function presenceFor(facts: PresenceFacts): Presence {
   if (facts.disconnected) return 'offline';
   const latest = facts.messages.at(-1);
-  if (facts.messages.some((message) => message.state === 'running')) return 'working';
+  if (facts.messages.some((message) => message.state === 'running'))
+    return facts.activeTool ? 'using-tool' : 'working';
   if (facts.messages.some((message) => message.state === 'queued')) return 'queued';
   if (latest?.state === 'blocked') return 'blocked';
   if (facts.attention > 0) return 'needs-you';

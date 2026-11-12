@@ -3,7 +3,13 @@
 import hashlib
 from dataclasses import dataclass
 
-from sabre.agent_context import successful_reads
+from sabre.agent_context import (
+    ARCHIVED_RESULT_TOOLS,
+    OUTPUT_TOOLS,
+    answered_arguments,
+    execution_output,
+    successful_reads,
+)
 from sabre.models import DomainError
 
 
@@ -19,15 +25,29 @@ READ_CONTEXT_PAGE = 8192
 class ContextArchive:
     def __init__(self, artifacts, guard):
         self.artifacts, self.guard = artifacts, guard
-        self._allowed: dict[str, ArchivedRead] = {}
+        self._allowed: dict[tuple[str, str], ArchivedRead] = {}
         self._restored_pages = 0
         self._unknown_interval = False
 
     def bind(self, messages, *, restored=False):
         # Authority comes from original LangGraph messages, never a reference's text.
         self.guard.check([message.model_dump(mode="json") for message in messages])
-        self._allowed = {message.tool_call_id: ArchivedRead(hashlib.sha256(message.content.encode()).hexdigest(), len(message.content.encode()))
-            for _, message, _ in successful_reads(messages)}
+        allowed: dict[tuple[str, str], ArchivedRead] = {}
+
+        def allow(tool_call_id: str, response_digest: str, original_bytes: int):
+            allowed[(tool_call_id, response_digest)] = ArchivedRead(response_digest, original_bytes)
+
+        for _, message, call in successful_reads(messages, ARCHIVED_RESULT_TOOLS):
+            raw = message.content.encode()
+            allow(message.tool_call_id, hashlib.sha256(raw).hexdigest(), len(raw))
+            # A bounded command result names its complete output artifact.
+            full = execution_output(message.content) if call.get("name") in OUTPUT_TOOLS else None
+            if full is not None:
+                allow(message.tool_call_id, full["output_digest"], full["output_bytes"])
+        for _, call, _, value in answered_arguments(messages):
+            raw = value.encode()
+            allow(call["id"], hashlib.sha256(raw).hexdigest(), len(raw))
+        self._allowed = allowed
         self._unknown_interval = self._unknown_interval or restored
 
     @property
@@ -39,8 +59,8 @@ class ContextArchive:
         self._unknown_interval = False
 
     async def read(self, tool_call_id: str, response_digest: str, offset: int = 0, limit: int = READ_CONTEXT_PAGE):
-        allowed = self._allowed.get(tool_call_id)
-        if allowed is None or allowed.response_digest != response_digest:
+        allowed = self._allowed.get((tool_call_id, response_digest))
+        if allowed is None:
             raise DomainError("CONTEXT_REFERENCE_NOT_ALLOWED", "The reference does not belong to a read by this agent", 403)
         if type(offset) is not int or type(limit) is not int or offset < 0 or not 1 <= limit <= READ_CONTEXT_PAGE:
             raise DomainError("INVALID_CONTEXT_RANGE", f"Use a nonnegative offset and between 1 and {READ_CONTEXT_PAGE} characters", 422)

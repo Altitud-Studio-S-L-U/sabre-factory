@@ -2,7 +2,12 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { ApiError, type Api, type ModelConfiguration as Configuration, type ModelSelection } from './api';
 import Field from './components/FormField';
 import Select from './components/Select';
-import './ModelConfiguration.css';
+import Input from './components/Input';
+import Button from './components/Button';
+import Notice from './components/Notice';
+import Disclosure from './components/Disclosure';
+import CheckField from './components/CheckField';
+import { SectionHeading } from './components/PageHeader';
 
 export const providers: Record<ModelSelection['provider'], { title: string; destination: string }> = {
   codex_cli: { title: 'Codex · CLI', destination: 'http://codex-runner:8091' },
@@ -37,101 +42,107 @@ export function SelectionFields({
 }) {
   const cli = value.provider === 'codex_cli' || value.provider === 'claude_cli';
   return (
-    <div className="model-fields">
-      <Field label="Provider">
-        <Select
-          value={value.provider}
-          onChange={(event) => {
-            const provider = event.target.value as ModelSelection['provider'];
-            onChange({
-              ...value,
-              provider,
-              destination: providers[provider].destination,
-              name: '',
-              input_usd_per_million: 0,
-              output_usd_per_million: 0,
-            });
-          }}
+    <div className="@container min-w-0">
+      <div className="grid min-w-0 items-start gap-4 @lg:grid-cols-2">
+        <Field label="Provider">
+          <Select
+            value={value.provider}
+            onChange={(event) => {
+              const provider = event.target.value as ModelSelection['provider'];
+              onChange({
+                ...value,
+                provider,
+                destination: providers[provider].destination,
+                name: '',
+                input_usd_per_million: 0,
+                output_usd_per_million: 0,
+              });
+            }}
+          >
+            {Object.entries(providers).map(([id, provider]) => (
+              <option key={id} value={id}>
+                {provider.title}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field
+          label="Model"
+          hint={
+            cli
+              ? 'Choose an explicit model for reproducible flow configuration. Providers never switch automatically.'
+              : 'Identifier of the authorized model.'
+          }
         >
-          {Object.entries(providers).map(([id, provider]) => (
-            <option key={id} value={id}>
-              {provider.title}
-            </option>
-          ))}
-        </Select>
-      </Field>
-      <Field
-        label="Model"
-        hint={
-          cli
-            ? 'Choose an explicit model for reproducible flow configuration. Providers never switch automatically.'
-            : 'Identifier of the authorized model.'
-        }
-      >
-        <input
-          value={value.name}
-          maxLength={128}
-          pattern={'[A-Za-z0-9._:\\/\\-]*'}
-          required={!cli}
-          autoComplete="off"
-          onChange={(event) => onChange({ ...value, name: event.target.value })}
-        />
-      </Field>
-      <Field
-        label="Destination"
-        hint={
-          cli
-            ? `Private SABRE bridge. Context is sent to ${value.provider === 'claude_cli' ? 'Anthropic through Claude' : 'OpenAI through Codex'}.`
-            : 'Context for this role will be sent to this service.'
-        }
-      >
-        <input
-          type="url"
-          value={value.destination}
-          required
-          readOnly={value.provider !== 'local'}
-          autoComplete="off"
-          onChange={(event) => onChange({ ...value, destination: event.target.value })}
-        />
-      </Field>
-      <Field
-        label={cli ? 'Output reference' : 'Maximum output'}
-        hint="The CLI retains its internal limits; SABRE controls duration and concurrency."
-      >
-        <input
-          type="number"
-          min={128}
-          max={32768}
-          step={1}
-          required
-          value={value.max_output_tokens}
-          onChange={(event) => onChange({ ...value, max_output_tokens: Number(event.target.value) })}
-        />
-      </Field>
-      {!cli && (
-        <>
-          <Field label="USD per million input tokens">
-            <input
-              type="number"
-              min={0}
-              step="any"
-              required
-              value={value.input_usd_per_million}
-              onChange={(event) => onChange({ ...value, input_usd_per_million: Number(event.target.value) })}
-            />
-          </Field>
-          <Field label="USD per million output tokens">
-            <input
-              type="number"
-              min={0}
-              step="any"
-              required
-              value={value.output_usd_per_million}
-              onChange={(event) => onChange({ ...value, output_usd_per_million: Number(event.target.value) })}
-            />
-          </Field>
-        </>
-      )}
+          <Input
+            value={value.name}
+            maxLength={128}
+            pattern={'[A-Za-z0-9._:\\/\\-]*'}
+            required={!cli}
+            autoComplete="off"
+            onChange={(event) => onChange({ ...value, name: event.target.value })}
+          />
+        </Field>
+        <Field
+          label="Destination"
+          hint={
+            cli
+              ? `Private SABRE bridge. Context is sent to ${value.provider === 'claude_cli' ? 'Anthropic through Claude' : 'OpenAI through Codex'}.`
+              : 'Context for this role will be sent to this service.'
+          }
+        >
+          <Input
+            type="url"
+            value={value.destination}
+            required
+            readOnly={value.provider !== 'local'}
+            autoComplete="off"
+            onChange={(event) => onChange({ ...value, destination: event.target.value })}
+          />
+        </Field>
+        <Field
+          label={cli ? 'Output reference' : 'Maximum output'}
+          hint="The CLI retains its internal limits; SABRE controls duration and concurrency."
+        >
+          <Input
+            type="number"
+            min={128}
+            max={32768}
+            step={1}
+            required
+            value={value.max_output_tokens}
+            onChange={(event) => onChange({ ...value, max_output_tokens: Number(event.target.value) })}
+          />
+        </Field>
+        {!cli && (
+          <>
+            <Field label="USD per million input tokens">
+              <Input
+                type="number"
+                min={0}
+                step="any"
+                required
+                value={value.input_usd_per_million}
+                onChange={(event) =>
+                  onChange({ ...value, input_usd_per_million: Number(event.target.value) })
+                }
+              />
+            </Field>
+            <Field label="USD per million output tokens">
+              <Input
+                type="number"
+                min={0}
+                step="any"
+                required
+                value={value.output_usd_per_million}
+                onChange={(event) =>
+                  onChange({ ...value, output_usd_per_million: Number(event.target.value) })
+                }
+              />
+            </Field>
+          </>
+        )}
+      </div>
     </div>
   );
 }
@@ -160,20 +171,35 @@ export default function ModelConfiguration({
     setOverrides(Object.fromEntries(value.roles.map((role) => [role.role, role.override ?? null])));
     setApproved(false);
   }, []);
-  const load = useCallback(async () => {
+  const fetchModels = useCallback(
+    (current: () => boolean) =>
+      api
+        .modelConfiguration()
+        .then(
+          (value) => {
+            if (current()) accept(value);
+          },
+          (reason: unknown) => {
+            if (current()) setError(message(reason));
+          },
+        )
+        .finally(() => {
+          if (current()) setLoading(false);
+        }),
+    [api, accept],
+  );
+  useEffect(() => {
+    let active = true;
+    void fetchModels(() => active);
+    return () => {
+      active = false;
+    };
+  }, [fetchModels]);
+  const load = () => {
     setLoading(true);
     setError('');
-    try {
-      accept(await api.modelConfiguration());
-    } catch (reason) {
-      setError(message(reason));
-    } finally {
-      setLoading(false);
-    }
-  }, [api, accept]);
-  useEffect(() => {
-    void load();
-  }, [load]);
+    void fetchModels(() => true);
+  };
   const dirty =
     !!saved &&
     !!general &&
@@ -223,49 +249,55 @@ export default function ModelConfiguration({
     }
   };
   return (
-    <section className="model-configuration" aria-labelledby="model-configuration-title">
-      <div className="section-heading">
-        <div>
-          <h2 id="model-configuration-title">
-            {scope === 'agents'
-              ? 'Agent model assignments'
-              : scope === 'default'
-                ? 'Factory default model'
-                : 'Models and team'}
-          </h2>
-          <p className="muted">
-            Assign a model to each specialty. SABRE retains control of the flow, memory and permissions.
-          </p>
-        </div>
-        <button
-          type="button"
-          className="button small"
-          disabled={loading || saving}
-          onClick={() => void load()}
-        >
-          Refresh models
-        </button>
-      </div>
+    <section className="grid min-w-0 gap-5" aria-labelledby="model-configuration-title">
+      <SectionHeading
+        id="model-configuration-title"
+        title={
+          scope === 'agents'
+            ? 'Agent model assignments'
+            : scope === 'default'
+              ? 'Factory default model'
+              : 'Models and team'
+        }
+        description="Assign a model to each specialty. SABRE retains control of the flow, memory and permissions."
+        actions={
+          <Button type="button" variant="secondary" size="sm" disabled={loading || saving} onClick={load}>
+            Refresh models
+          </Button>
+        }
+      />
       {error && (
-        <p className="notice error" role="alert">
+        <Notice tone="danger" role="alert">
           {error}
-        </p>
+        </Notice>
       )}
       {notice && (
-        <p className="notice neutral" role="status">
+        <Notice tone="neutral" role="status">
           {notice}
+        </Notice>
+      )}
+      {loading && !saved && (
+        <p role="status" className="text-sm text-muted-foreground">
+          Loading models…
         </p>
       )}
-      {loading && !saved && <p role="status">Loading models…</p>}
       {saved && general && (
         <>
-          <ul className="model-runners" aria-label="Runner sessions">
+          <ul
+            className="grid min-w-0 [grid-template-columns:repeat(auto-fit,minmax(min(100%,16rem),1fr))] gap-3"
+            aria-label="Runner sessions"
+          >
             {saved.runners.map((runner) => (
-              <li key={runner.provider}>
-                <strong>
+              <li
+                key={runner.provider}
+                className="grid min-w-0 content-start gap-1 rounded-lg border border-border bg-card p-4 text-sm"
+              >
+                <strong className="font-semibold">
                   {providers[runner.provider as ModelSelection['provider']]?.title ?? runner.provider}
                 </strong>
-                <span>
+                <span
+                  className={runner.authenticated && !runner.busy ? 'text-success' : 'text-muted-foreground'}
+                >
                   {runner.busy
                     ? 'Busy · session not checked'
                     : !runner.available
@@ -275,12 +307,14 @@ export default function ModelConfiguration({
                         : 'Session connection required'}
                 </span>
                 {runner.error_code === 'CLAUDE_POLICY_UNSUPPORTED' && (
-                  <small>Use an account supported by the official CLI and your organization policies.</small>
+                  <small className="text-xs text-muted-foreground [overflow-wrap:anywhere]">
+                    Use an account supported by the official CLI and your organization policies.
+                  </small>
                 )}
                 {!runner.busy &&
                   runner.authenticated !== true &&
                   runner.error_code !== 'CLAUDE_POLICY_UNSUPPORTED' && (
-                    <small>
+                    <small className="text-xs text-muted-foreground [overflow-wrap:anywhere]">
                       {runner.provider === 'claude_cli'
                         ? 'Connect from the SABRE terminal: node infra/ops.mjs claude-login'
                         : 'Connect from the SABRE terminal: node infra/ops.mjs codex-login'}
@@ -290,17 +324,21 @@ export default function ModelConfiguration({
             ))}
           </ul>
           {scope === 'agents' && (
-            <div className="agent-selector" aria-label="Runtime specialists">
+            <div
+              role="group"
+              className="grid min-w-0 [grid-template-columns:repeat(auto-fill,minmax(min(100%,13rem),1fr))] gap-2"
+              aria-label="Runtime specialists"
+            >
               {saved.roles.map((role) => (
                 <button
                   type="button"
-                  className="button"
+                  className="grid min-h-10 min-w-0 cursor-pointer gap-1 rounded-md border border-border bg-card px-3 py-2.5 text-left text-sm transition-colors hover:bg-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring aria-pressed:border-primary aria-pressed:bg-accent"
                   key={role.role}
                   aria-pressed={selectedRole === role.role}
                   onClick={() => setSelectedRole(role.role)}
                 >
-                  <strong>{roles[role.role] ?? role.role}</strong>
-                  <small>
+                  <strong className="font-semibold">{roles[role.role] ?? role.role}</strong>
+                  <small className="text-xs text-muted-foreground [overflow-wrap:anywhere]">
                     {overrides[role.role]
                       ? `${providers[overrides[role.role]!.provider].title} · ${overrides[role.role]!.name || 'Not selected'}`
                       : `Inherits factory default · ${general.name || 'Not selected'}`}
@@ -310,15 +348,21 @@ export default function ModelConfiguration({
             </div>
           )}
           <form onSubmit={(event) => void submit(event)}>
-            <fieldset disabled={loading || saving} className="model-settings">
-              <legend>Team configuration · revision {saved.revision}</legend>
-              <details open={scope !== 'agents'} className="model-role">
-                <summary>
-                  <strong>Default model</strong>
-                  <span>
-                    {providers[general.provider].title} · {general.name || 'Not selected'}
+            <fieldset disabled={loading || saving} className="grid min-w-0 gap-3">
+              <legend className="mb-3 text-sm text-muted-foreground">
+                Team configuration · revision {saved.revision}
+              </legend>
+              <Disclosure
+                open={scope !== 'agents'}
+                summary={
+                  <span className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
+                    <strong className="font-semibold">Default model</strong>
+                    <span className="text-xs font-normal text-muted-foreground">
+                      {providers[general.provider].title} · {general.name || 'Not selected'}
+                    </span>
                   </span>
-                </summary>
+                }
+              >
                 <SelectionFields
                   value={general}
                   onChange={(value) => {
@@ -327,7 +371,7 @@ export default function ModelConfiguration({
                     setNotice('');
                   }}
                 />
-              </details>
+              </Disclosure>
               {scope !== 'default' &&
                 saved.roles
                   .filter((role) => scope !== 'agents' || role.role === selectedRole)
@@ -335,76 +379,72 @@ export default function ModelConfiguration({
                     const value = overrides[role.role] ?? null;
                     const effective = value ?? general;
                     return (
-                      <details
-                        className="model-role"
+                      <Disclosure
                         key={role.role}
                         open={scope === 'agents' ? true : undefined}
-                      >
-                        <summary>
-                          <strong>{roles[role.role] ?? role.role}</strong>
-                          <span>
-                            {value ? providers[effective.provider].title : 'Inherits the default model'} ·{' '}
-                            {effective.name || 'Not selected'}
+                        summary={
+                          <span className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
+                            <strong className="font-semibold">{roles[role.role] ?? role.role}</strong>
+                            <span className="text-xs font-normal text-muted-foreground">
+                              {value ? providers[effective.provider].title : 'Inherits the default model'} ·{' '}
+                              {effective.name || 'Not selected'}
+                            </span>
                           </span>
-                        </summary>
-                        <label className="model-inherit">
-                          <input
-                            type="checkbox"
-                            checked={!value}
-                            onChange={(event) =>
-                              change(role.role, event.target.checked ? null : { ...general })
-                            }
-                          />
-                          Inherit the default model
-                        </label>
+                        }
+                      >
+                        <CheckField
+                          label="Inherit the default model"
+                          checked={!value}
+                          onChange={(event) =>
+                            change(role.role, event.target.checked ? null : { ...general })
+                          }
+                        />
                         {value && (
                           <SelectionFields value={value} onChange={(next) => change(role.role, next)} />
                         )}
                         {role.credential_target && (
-                          <p className="muted">
-                            Saved credential target: <code>{role.credential_target}</code>. Manage keys in the
-                            model connection.
+                          <p className="text-sm text-muted-foreground">
+                            Saved credential target:{' '}
+                            <code className="font-mono text-xs">{role.credential_target}</code>. Manage keys
+                            in the model connection.
                           </p>
                         )}
-                      </details>
+                      </Disclosure>
                     );
                   })}
-              <div className="model-destinations">
+              <div className="grid gap-2.5 py-1 text-sm">
                 <p>Team destinations for this configuration</p>
-                <ul>
+                <ul className="grid list-disc gap-1 pl-5">
                   {destinations.map((destination) => (
-                    <li key={destination}>
-                      <code>{destination || 'Destination required'}</code>
+                    <li key={destination} className="[overflow-wrap:anywhere]">
+                      <code className="font-mono text-xs">{destination || 'Destination required'}</code>
                     </li>
                   ))}
                 </ul>
-                <label className="model-inherit">
-                  <input
-                    type="checkbox"
-                    checked={approved}
-                    onChange={(event) => setApproved(event.target.checked)}
-                  />
-                  I authorize sending each role context to its listed destinations.
-                </label>
+                <CheckField
+                  label="I authorize sending each role context to its listed destinations."
+                  checked={approved}
+                  onChange={(event) => setApproved(event.target.checked)}
+                />
               </div>
-              <div className="integration-actions">
-                <button type="submit" className="button primary" disabled={!dirty || !approved || saving}>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button type="submit" variant="primary" disabled={!dirty || !approved || saving}>
                   {saving ? 'Saving…' : 'Save models'}
-                </button>
+                </Button>
                 {dirty && (
-                  <button
+                  <Button
                     type="button"
-                    className="button"
+                    variant="secondary"
                     onClick={() => {
                       accept(saved);
                       setNotice('');
                     }}
                   >
                     Discard changes
-                  </button>
+                  </Button>
                 )}
               </div>
-              <p className="muted">
+              <p className="text-xs leading-relaxed text-muted-foreground">
                 Changing provider does not transfer credentials or increase run budgets. CLI subscription fees
                 are separate from recorded API charges.
               </p>

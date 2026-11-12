@@ -1,5 +1,11 @@
+import type { ReactNode } from 'react';
 import type { AuditView } from './api';
-import './KnowledgeAudit.css';
+import Disclosure from './components/Disclosure';
+import DescriptionList from './components/DescriptionList';
+import Notice from './components/Notice';
+import { SectionHeading } from './components/PageHeader';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './components/ui/table';
+import CrewAvatar from './features/crew/CrewAvatar';
 
 const roles: Record<string, string> = {
   supervisor: 'Supervisor',
@@ -19,6 +25,7 @@ const tools: Record<string, string> = {
   write_file: 'Write file',
   edit_source: 'Edit source fragment',
   read_context: 'Recover historical read',
+  record_note: 'Record work note',
   read_memory: 'Read verified memory',
   execute: 'Execute command',
   prepare_dependencies: 'Prepare dependencies',
@@ -77,64 +84,65 @@ export function toolTotals(timings: ToolTiming[]) {
 
 type ContextUsageSummary = NonNullable<AuditView['context']>;
 
+const note = 'text-xs leading-relaxed text-muted-foreground';
+const caution = 'rounded-md border border-warning-border bg-warning-bg px-3 py-2 text-xs text-warning';
+const row = 'grid min-w-0 gap-1 rounded-lg border border-border bg-card px-4 py-3 text-sm';
+
+function Subsection({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section aria-label={title} className="grid min-w-0 gap-2">
+      <h3 className="text-sm font-semibold">{title}</h3>
+      {children}
+    </section>
+  );
+}
+
 function ContextUsage({ data }: { data: ContextUsageSummary | null | undefined }) {
   return (
-    <section aria-label="Sent context">
-      <h3>Sent context</h3>
+    <Subsection title="Sent context">
       {!data ? (
-        <p className="audit-note">This history has no measurements for sent context or recovered reads.</p>
+        <p className={note}>This history has no measurements for sent context or recovered reads.</p>
       ) : (
         <>
-          <p className="audit-note">
+          <p className={note}>
             Measured in {count(data.requests_with_context)} of{' '}
             {count(data.requests_with_context + data.requests_without_context)} recorded invocations.
             {data.requests_without_context > 0 &&
               ` ${count(data.requests_without_context)} have no context measurement.`}
           </p>
-          <dl className="knowledge-provenance">
-            <div>
-              <dt>Before compaction</dt>
-              <dd>{count(data.original_bytes)} bytes</dd>
-            </div>
-            <div>
-              <dt>Sent</dt>
-              <dd>{count(data.sent_bytes)} bytes</dd>
-            </div>
-            <div>
-              <dt>Referenced reads</dt>
-              <dd>{count(data.compacted_results)}</dd>
-            </div>
-            <div>
-              <dt>Recoveries</dt>
-              <dd>
-                {data.restored_pages === null
+          <DescriptionList
+            className="rounded-lg border border-border bg-card p-4"
+            items={[
+              ['Before compaction', `${count(data.original_bytes)} bytes`],
+              ['Sent', `${count(data.sent_bytes)} bytes`],
+              ['Referenced reads', count(data.compacted_results)],
+              [
+                'Recoveries',
+                data.restored_pages === null
                   ? 'Not measured'
-                  : `${count(data.restored_pages)} pages · measured in ${count(data.requests_with_restored_pages)} of ${count(data.requests_with_context)} invocations`}
-              </dd>
-            </div>
-          </dl>
-          <p className="audit-note">
+                  : `${count(data.restored_pages)} pages · measured in ${count(data.requests_with_restored_pages)} of ${count(data.requests_with_context)} invocations`,
+              ],
+            ]}
+          />
+          <p className={note}>
             Context measured before the CLI wrapper. Bytes are not equivalent to tokens or cost savings.
           </p>
           {data.references_truncated && (
-            <p className="audit-caution">
-              Reference details are bounded; totals include all referenced reads.
-            </p>
+            <p className={caution}>Reference details are bounded; totals include all referenced reads.</p>
           )}
-          <details className="audit-reference">
-            <summary>Recorded context policies</summary>
-            <ul>
+          <Disclosure variant="plain" summary="Recorded context policies">
+            <ul className="grid gap-1 text-xs">
               {data.policies.map((policy) => (
                 <li key={`${policy.version}:${policy.policy}:${policy.input_limit_bytes}`}>
-                  <code>{policy.policy}</code> · version {policy.version} · limit{' '}
+                  <code className="font-mono">{policy.policy}</code> · version {policy.version} · limit{' '}
                   {count(policy.input_limit_bytes)} bytes per request
                 </li>
               ))}
             </ul>
-          </details>
+          </Disclosure>
         </>
       )}
-    </section>
+    </Subsection>
   );
 }
 
@@ -148,118 +156,121 @@ export default function WorkAudit({
   error?: string;
 }) {
   return (
-    <section className="work-audit" aria-labelledby="work-audit-title">
-      <div className="section-heading">
-        <h2 id="work-audit-title">Agents and tools</h2>
-      </div>
-      <p className="audit-intro">
-        Agent invocations and tools. Verification and security retain their own evidence.
-      </p>
+    <section aria-labelledby="work-audit-title" className="grid min-w-0 gap-4">
+      <SectionHeading
+        id="work-audit-title"
+        title="Agents and tools"
+        description="Agent invocations and tools. Verification and security retain their own evidence."
+      />
       {error && (
-        <p role="alert" className="audit-error">
+        <Notice tone="danger" role="alert">
           {error}
+        </Notice>
+      )}
+      {loading && !data && (
+        <p role="status" className="text-sm text-muted-foreground">
+          Loading activity…
         </p>
       )}
-      {loading && !data && <p role="status">Loading activity…</p>}
       {data && (
         <>
-          <div className="audit-totals">
-            <span>
-              <strong>{count(data.usage.calls)}</strong> recorded calls
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+            <span className={row}>
+              <strong className="text-lg font-semibold tabular-nums">{count(data.usage.calls)}</strong>{' '}
+              recorded calls
             </span>
-            <span>
-              <strong>{count(data.usage.tokens)}</strong> measured tokens
+            <span className={row}>
+              <strong className="text-lg font-semibold tabular-nums">{count(data.usage.tokens)}</strong>{' '}
+              measured tokens
             </span>
-            <span>
-              <strong>
+            <span className={row}>
+              <strong className="text-lg font-semibold tabular-nums">
                 {data.usage.cost_usd.toLocaleString('en-US', { style: 'currency', currency: 'USD' })}
               </strong>{' '}
               recorded API cost
             </span>
           </div>
           {data.usage.unsettled_calls > 0 && (
-            <p className="audit-caution">
+            <p className={caution}>
               {count(data.usage.settled_calls)} calls with measured usage. {count(data.usage.unsettled_calls)}{' '}
               with unconfirmed usage: {count(data.usage.unknown_reserved_tokens)} tokens remain reserved. They
               are not attributed to an agent without evidence.
             </p>
           )}
-          <p className="audit-note">
+          <p className={note}>
             API cost excludes subscription fees. Durations come from measured execution boundaries; runs
             recorded before this measurement show them as unknown.
           </p>
           <ContextUsage data={data.context} />
           {!!data.tool_timings?.length && (
-            <section aria-label="Tool time">
-              <h3>Tool time</h3>
-              <ul className="audit-agents">
+            <Subsection title="Tool time">
+              <ul className="grid gap-2">
                 {toolTotals(data.tool_timings).map((tool) => (
-                  <li key={tool.name}>
-                    <strong>{tools[tool.name] ?? 'Tool'}</strong>
+                  <li key={tool.name} className={row}>
+                    <strong className="font-medium">{tools[tool.name] ?? 'Tool'}</strong>
                     <span>
                       {count(tool.count)} calls · {formatMs(tool.total_ms)} total · slowest{' '}
                       {formatMs(tool.max_ms)}
                       {tool.failed > 0 ? ` · ${count(tool.failed)} failed` : ''}
                     </span>
-                    <small>Results sent to the model: {formatBytes(tool.output_bytes)}</small>
+                    <small className="text-xs text-muted-foreground">
+                      Results sent to the model: {formatBytes(tool.output_bytes)}
+                    </small>
                   </li>
                 ))}
               </ul>
-            </section>
+            </Subsection>
           )}
           {!!data.calls?.length && (
-            <details className="audit-tools">
-              <summary>View {count(data.calls.length)} model calls</summary>
-              <p className="audit-note">
+            <Disclosure summary={`View ${count(data.calls.length)} model calls`}>
+              <p className={note}>
                 Reserved tokens are held before each call; measured tokens are what the provider reported.
                 Cached input is part of input.
               </p>
-              <table className="audit-calls">
-                <thead>
-                  <tr>
-                    <th scope="col">#</th>
-                    <th scope="col">Role</th>
-                    <th scope="col">Reserved</th>
-                    <th scope="col">Input</th>
-                    <th scope="col">Cached</th>
-                    <th scope="col">Output</th>
-                    <th scope="col">Sent</th>
-                    <th scope="col">Duration</th>
-                  </tr>
-                </thead>
-                <tbody>
+              <Table className="tabular-nums">
+                <TableHeader>
+                  <TableRow>
+                    {['#', 'Role', 'Reserved', 'Input', 'Cached', 'Output', 'Sent', 'Duration'].map(
+                      (heading) => (
+                        <TableHead key={heading} scope="col">
+                          {heading}
+                        </TableHead>
+                      ),
+                    )}
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
                   {data.calls.map((call) => (
-                    <tr key={call.sequence}>
-                      <td>{call.sequence}</td>
-                      <td>{call.role ? (roles[call.role] ?? call.role) : 'Unrecorded'}</td>
-                      <td>{count(call.reserved_tokens)}</td>
-                      <td>{known(call.input_tokens)}</td>
-                      <td>{known(call.cache_read_tokens)}</td>
-                      <td>{known(call.output_tokens)}</td>
-                      <td>{formatBytes(call.sent_bytes)}</td>
-                      <td>{formatMs(call.call_ms)}</td>
-                    </tr>
+                    <TableRow key={call.sequence}>
+                      <TableCell>{call.sequence}</TableCell>
+                      <TableCell>{call.role ? (roles[call.role] ?? call.role) : 'Unrecorded'}</TableCell>
+                      <TableCell>{count(call.reserved_tokens)}</TableCell>
+                      <TableCell>{known(call.input_tokens)}</TableCell>
+                      <TableCell>{known(call.cache_read_tokens)}</TableCell>
+                      <TableCell>{known(call.output_tokens)}</TableCell>
+                      <TableCell>{formatBytes(call.sent_bytes)}</TableCell>
+                      <TableCell>{formatMs(call.call_ms)}</TableCell>
+                    </TableRow>
                   ))}
-                </tbody>
-              </table>
-              {data.calls_truncated && <p className="audit-caution">Only the first calls are listed.</p>}
-            </details>
+                </TableBody>
+              </Table>
+              {data.calls_truncated && <p className={caution}>Only the first calls are listed.</p>}
+            </Disclosure>
           )}
           {!!data.models?.length && (
-            <section aria-label="Usage by model">
-              <h3>Usage by model</h3>
-              <p className="audit-note">
+            <Subsection title="Usage by model">
+              <p className={note}>
                 Selection recorded when each call was reserved. CLI aliases and defaults do not identify a
                 resolved model version.
               </p>
-              <ul className="audit-agents">
+              <ul className="grid gap-2">
                 {data.models.map((model, index) => (
-                  <li key={index}>
-                    <strong>
+                  <li key={index} className={row}>
+                    <strong className="font-medium">
                       {model.model_provider ?? 'Unrecorded provider'} ·{' '}
                       {model.model_name || 'Default or unrecorded model'}
                     </strong>
-                    <span>
+                    <span className="text-muted-foreground">
                       {model.role ? roles[model.role] : 'Unrecorded role'} · configuration{' '}
                       {model.configuration_revision ?? 'not recorded'}
                     </span>
@@ -270,84 +281,90 @@ export default function WorkAudit({
                   </li>
                 ))}
               </ul>
-            </section>
+            </Subsection>
           )}
           {data.agents.length === 0 ? (
-            <p className="audit-empty">No agent activity has been recorded yet.</p>
+            <p className="rounded-md border border-dashed border-border px-4 py-3 text-sm text-muted-foreground">
+              No agent activity has been recorded yet.
+            </p>
           ) : (
-            <ul className="audit-agents" aria-label="Activity by agent">
+            <ul className="grid gap-2" aria-label="Activity by agent">
               {data.agents.map((agent) => (
-                <li key={agent.id}>
-                  <div>
-                    <strong>{roles[agent.role] ?? agent.role}</strong>
-                    <span className="audit-revision">Review {agent.plan_revision}</span>
+                <li key={agent.id} className={row}>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <CrewAvatar role={agent.role} size={22} />
+                    <strong className="font-medium">{roles[agent.role] ?? agent.role}</strong>
+                    <span className="text-xs text-muted-foreground">Review {agent.plan_revision}</span>
                   </div>
-                  {agent.duration_ms !== null && <small>Active {formatMs(agent.duration_ms)}</small>}
+                  {agent.duration_ms !== null && (
+                    <small className="text-xs text-muted-foreground">
+                      Active {formatMs(agent.duration_ms)}
+                    </small>
+                  )}
                   {agent.model_responses ? (
                     <>
                       <span>
                         {count(agent.model_responses)} responses ·{' '}
                         {count(agent.input_tokens + agent.output_tokens)} measured tokens
                       </span>
-                      <small>
+                      <small className="text-xs text-muted-foreground">
                         Input {count(agent.input_tokens)} · output {count(agent.output_tokens)} · cached input{' '}
                         {count(agent.cache_read_tokens)}
                       </small>
-                      <small>
+                      <small className="text-xs text-muted-foreground">
                         {count(agent.tool_requests)} tools requested · {count(agent.tool_responses)} responses
                         received
+                        {agent.notes_recorded ? ` · ${count(agent.notes_recorded)} work notes` : ''}
                       </small>
                     </>
                   ) : (
-                    <span>No recorded model response</span>
+                    <span className="text-muted-foreground">No recorded model response</span>
                   )}
                 </li>
               ))}
             </ul>
           )}
           {data.tools.length > 0 && (
-            <details className="audit-tools">
-              <summary>View {count(data.tools.length)} tool requests</summary>
-              <p className="audit-note">
+            <Disclosure summary={`View ${count(data.tools.length)} tool requests`}>
+              <p className={note}>
                 Ordered within each agent. Receiving a response does not mean a check passed.
               </p>
-              <ol>
-                {data.tools.map((tool) => (
-                  <li key={tool.id}>
-                    <div>
-                      <strong>{tools[tool.name] ?? 'Tool'}</strong>
-                      <small>
-                        {roles[tool.role] ?? tool.role} · revision {tool.plan_revision}
-                      </small>
-                    </div>
-                    <span
-                      className={
-                        tool.response === 'error' || (tool.exit_code !== null && tool.exit_code !== 0)
-                          ? 'audit-result-error'
-                          : 'audit-result'
-                      }
-                    >
-                      {tool.response === 'requested'
-                        ? 'Request with no recorded response'
-                        : tool.response === 'error'
-                          ? 'Error response'
-                          : tool.exit_code !== null
-                            ? `Command finished · exit ${tool.exit_code}`
-                            : 'Response received'}
-                    </span>
-                    {tool.output_digest && (
-                      <details className="audit-reference">
-                        <summary>Result reference</summary>
-                        <code>{tool.output_digest}</code>
-                      </details>
-                    )}
-                  </li>
-                ))}
+              <ol className="grid gap-2">
+                {data.tools.map((tool) => {
+                  const failed =
+                    tool.response === 'error' || (tool.exit_code !== null && tool.exit_code !== 0);
+                  return (
+                    <li key={tool.id} data-state={failed ? 'failed' : 'ok'} className={row}>
+                      <div className="flex flex-wrap items-baseline justify-between gap-2">
+                        <strong className="font-medium">{tools[tool.name] ?? 'Tool'}</strong>
+                        <small className="text-xs text-muted-foreground">
+                          {roles[tool.role] ?? tool.role} · revision {tool.plan_revision}
+                        </small>
+                      </div>
+                      <span className={failed ? 'text-danger' : 'text-muted-foreground'}>
+                        {tool.response === 'requested'
+                          ? 'Request with no recorded response'
+                          : tool.response === 'error'
+                            ? 'Error response'
+                            : tool.exit_code !== null
+                              ? `Command finished · exit ${tool.exit_code}`
+                              : 'Response received'}
+                      </span>
+                      {tool.output_digest && (
+                        <Disclosure variant="plain" summary="Result reference" className="text-xs">
+                          <code className="font-mono text-xs [overflow-wrap:anywhere]">
+                            {tool.output_digest}
+                          </code>
+                        </Disclosure>
+                      )}
+                    </li>
+                  );
+                })}
               </ol>
-            </details>
+            </Disclosure>
           )}
           {data.truncated && (
-            <p className="audit-caution">
+            <p className={caution}>
               History is bounded in this view. Usage totals cover the complete record.
             </p>
           )}

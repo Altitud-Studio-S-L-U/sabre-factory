@@ -419,6 +419,15 @@ beforeEach(() => {
   window.history.replaceState(null, '', '/');
 });
 
+/** Open one step of the New run wizard from its step list. */
+async function wizardStep(user: ReturnType<typeof userEvent.setup>, name: string) {
+  await user.click(
+    screen.getByRole('button', {
+      name: (accessible) => /^Step \d+:/.test(accessible) && accessible.replace(/^Step \d+:\s*/, '') === name,
+    }),
+  );
+}
+
 describe('Control room', () => {
   it('keeps the selected snapshot and draft answer while disconnected and blocks every run mutation until recovery', async () => {
     const snapshot = 'a'.repeat(64);
@@ -656,7 +665,7 @@ describe('Control room', () => {
     mockApi();
     const user = await enter();
     await user.click(screen.getByRole('link', { name: 'Tools' }));
-    await user.click(await screen.findByRole('button', { name: 'Credentials' }));
+    await user.click(await screen.findByRole('tab', { name: 'Credentials' }));
     expect(await screen.findByRole('heading', { name: 'SABRE credentials' })).toBeVisible();
     expect(await screen.findByText('No saved credentials yet.')).toBeVisible();
     expect(writes).toEqual([]);
@@ -1002,9 +1011,9 @@ describe('Control room', () => {
   });
 
   it.each([
-    { exitCode: 0, matchingSnapshot: true, verdict: 'Superada' },
-    { exitCode: 1, matchingSnapshot: true, verdict: 'Fallida' },
-    { exitCode: 0, matchingSnapshot: false, verdict: 'Evidencia ajena' },
+    { exitCode: 0, matchingSnapshot: true, verdict: 'Passed' },
+    { exitCode: 1, matchingSnapshot: true, verdict: 'Failed' },
+    { exitCode: 0, matchingSnapshot: false, verdict: 'Foreign evidence' },
   ])(
     'presenta evidencia antes del plan sin aprobar gates inválidos: $verdict',
     async ({ exitCode, matchingSnapshot, verdict }) => {
@@ -1046,7 +1055,7 @@ describe('Control room', () => {
       expect(gate).toHaveTextContent('npm run check');
       expect(gate).toHaveTextContent(`Exit ${exitCode}`);
       expect(gate).toHaveTextContent(verdict);
-      expect(gate).toHaveClass(exitCode === 0 && matchingSnapshot ? 'passed' : 'failed');
+      expect(gate).toHaveAttribute('data-state', exitCode === 0 && matchingSnapshot ? 'passed' : 'failed');
       if (matchingSnapshot) expect(section.queryByRole('alert')).not.toBeInTheDocument();
       else expect(section.getByRole('alert')).toHaveTextContent('snapshots do not match');
       expect(section.getByText(evidence.commit)).not.toBeVisible();
@@ -1258,8 +1267,11 @@ describe('Control room', () => {
     const user = await enter();
     await user.click(screen.getByRole('button', { name: '+ New run' }));
     await user.type(screen.getByLabelText('What do you need?'), 'Añadir validación de entradas');
+    await user.click(screen.getByRole('button', { name: 'Next' }));
     await user.type(screen.getByLabelText('Acceptance criteria'), 'Rechaza entradas vacías');
+    await user.click(screen.getByRole('button', { name: 'Next' }));
     await user.type(screen.getByLabelText('Maximum paid API spend · USD'), '2');
+    await user.click(screen.getByRole('button', { name: 'Next' }));
     await user.click(screen.getByRole('button', { name: 'Launch flow' }));
     await waitFor(() => expect(writes.some((write) => write.path === '/work')).toBe(true));
     const body = writes.find((write) => write.path === '/work')!.body!;
@@ -1291,6 +1303,7 @@ describe('Control room', () => {
     mockApi({ 'GET /status': { status: 200, body: cliStatus } });
     const user = await enter();
     await user.click(screen.getByRole('button', { name: '+ New run' }));
+    await wizardStep(user, 'Flow & limits');
     expect(screen.getByLabelText('Tokens policy')).toHaveValue('bounded');
     expect(screen.getByLabelText('Tokens primary ceiling')).toHaveValue(100000);
     await user.selectOptions(screen.getByLabelText('Tokens policy'), 'uncapped');
@@ -1306,8 +1319,11 @@ describe('Control room', () => {
       'Repair cycles policy',
     ])
       await user.selectOptions(screen.getByLabelText(label), 'uncapped');
+    await wizardStep(user, 'Work');
     await user.type(screen.getByLabelText('What do you need?'), 'Añadir validación de entradas');
+    await wizardStep(user, 'Acceptance');
     await user.type(screen.getByLabelText('Acceptance criteria'), 'Rechaza entradas vacías');
+    await wizardStep(user, 'Review');
     await user.click(screen.getByRole('button', { name: 'Launch flow' }));
     await waitFor(() => expect(writes.find((write) => write.path === '/work')).toBeDefined());
     expect(writes.find((write) => write.path === '/work')!.body?.budget).toEqual({
@@ -1335,6 +1351,7 @@ describe('Control room', () => {
     });
     const user = await enter();
     await user.click(screen.getByRole('button', { name: '+ New run' }));
+    await wizardStep(user, 'Flow & limits');
     expect(screen.queryByLabelText('Run controls')).not.toBeInTheDocument();
     expect(screen.getByLabelText('Tokens primary ceiling')).toHaveValue(100000);
     expect(screen.getByLabelText('Model invocations primary ceiling')).toHaveValue(40);
@@ -1438,8 +1455,11 @@ describe('Control room', () => {
     const user = await enter();
     await user.click(screen.getByRole('button', { name: '+ New run' }));
     await user.type(screen.getByLabelText('What do you need?'), 'Añadir validación de entradas');
+    await user.click(screen.getByRole('button', { name: 'Next' }));
     await user.type(screen.getByLabelText('Acceptance criteria'), 'Rechaza entradas vacías');
+    await user.click(screen.getByRole('button', { name: 'Next' }));
     await user.type(screen.getByLabelText('Maximum paid API spend · USD'), '2');
+    await user.click(screen.getByRole('button', { name: 'Next' }));
     await user.click(screen.getByRole('button', { name: 'Launch flow' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Servicio temporalmente ocupado');
     await user.click(screen.getByRole('button', { name: 'Launch flow' }));
@@ -1472,7 +1492,7 @@ describe('Control room', () => {
     mockApi();
     const user = await enter();
     await user.click(screen.getByRole('link', { name: 'Memory' }));
-    await user.click(await screen.findByRole('button', { name: 'Proposals' }));
+    await user.click(await screen.findByRole('tab', { name: 'Proposals' }));
     await user.click(await screen.findByRole('button', { name: 'Inspect memory memory-one' }));
     const inspector = screen.getByRole('dialog', { name: 'Memory provenance' });
     await user.click(within(inspector).getByRole('button', { name: 'Approve memory' }));
@@ -1556,7 +1576,7 @@ describe('Control room', () => {
         body: undefined,
       }),
     );
-    expect(await screen.findByText(/^Revocada /)).toBeVisible();
+    expect(await screen.findByText(/^Revoked /)).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Revoke exception' })).not.toBeInTheDocument();
   });
 

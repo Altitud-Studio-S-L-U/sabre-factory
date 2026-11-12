@@ -21,6 +21,10 @@ export default defineConfig({
   plugins: [react(), tailwindcss(), buildManifest()],
   define: { 'import.meta.env.VITE_SABRE_BUILD': JSON.stringify(build) },
   resolve: { alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) } },
-  server: { proxy: { '/api': 'http://127.0.0.1:8000', '/mcp': 'http://127.0.0.1:8000' } },
+  // Browser journeys run with SABRE_E2E=1 and no proxy: an unmocked request fails in the test
+  // instead of reaching the owner's real factory on :8000.
+  server: process.env.SABRE_E2E
+    ? {}
+    : { proxy: { '/api': 'http://127.0.0.1:8000', '/mcp': 'http://127.0.0.1:8000' } },
   build: { sourcemap: false },
 });

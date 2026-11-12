@@ -19,5 +19,6 @@ export default defineConfig({
     command: `node node_modules/vite/bin/vite.js --host 127.0.0.1 --port ${port} --strictPort`,
     url: `http://127.0.0.1:${port}`,
     reuseExistingServer: false,
+    env: { SABRE_E2E: '1' },
   },
 });

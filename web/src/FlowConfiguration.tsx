@@ -7,7 +7,13 @@ import {
   type AgentCatalogEntry,
 } from './api';
 import { SelectionFields } from './ModelConfiguration';
-import './ExecutionTimeline.css';
+import Button from './components/Button';
+import CheckField from './components/CheckField';
+import Disclosure from './components/Disclosure';
+import Notice from './components/Notice';
+import Textarea from './components/Textarea';
+
+const note = 'text-xs leading-relaxed text-muted-foreground';
 
 const roles = {
   analysis: 'analyst',
@@ -68,95 +74,110 @@ export default function FlowConfiguration({
       : mode === 'create' || phase !== 'design',
   );
   return (
-    <fieldset className="flow-configuration">
-      <legend>Flow configuration</legend>
-      <p>Choose models before launch. Each run keeps its own configuration and skill versions.</p>
-      {error && <p role="alert">{error}</p>}
-      <ol className="flow-preview" aria-label="Execution phases">
-        <li>Preflight</li>
-        {phases.map(([phase]) => (
-          <li key={phase}>{phase}</li>
-        ))}
-        <li>{mode === 'audit' ? 'Report' : 'Draft PR'}</li>
+    <fieldset className="grid min-w-0 gap-4 border-t border-border pt-5">
+      <legend className="float-left mb-1 w-full text-base font-semibold">Flow configuration</legend>
+      <p className="text-sm text-muted-foreground">
+        Choose models before launch. Each run keeps its own configuration and skill versions.
+      </p>
+      {error && (
+        <Notice tone="danger" role="alert">
+          {error}
+        </Notice>
+      )}
+      <ol className="flex flex-wrap gap-2" aria-label="Execution phases">
+        {['Preflight', ...phases.map(([phase]) => phase), mode === 'audit' ? 'Report' : 'Draft PR'].map(
+          (name) => (
+            <li
+              key={name}
+              className="rounded-md border border-border bg-secondary px-2 py-1 text-xs text-muted-foreground capitalize"
+            >
+              {name}
+            </li>
+          ),
+        )}
       </ol>
-      {models &&
-        phases.map(([phase, role]) => {
-          const specialist = specialists.find((entry) => entry.legacy_roles.includes(role));
-          const authorizationRole = role === 'designer' ? 'architect' : role === 'devops' ? 'qa' : role;
-          const legacy = models.roles.find((item) => item.role === authorizationRole);
-          const flowModel = value.phases?.[phase]?.model;
-          const publishedModel = specialist?.published.definition.model;
-          const inherited = flowModel ?? publishedModel ?? legacy?.effective ?? models.default;
-          const selected = value.phase_models?.[phase];
-          const origin = selected
-            ? 'Run phase override'
-            : flowModel
-              ? 'Flow phase override'
-              : publishedModel
-                ? `Published ${specialist.label} · version ${specialist.published.version}`
-                : legacy?.override
-                  ? `Configured ${authorizationRole} role`
-                  : 'Factory default';
-          return (
-            <details className="phase-configuration" key={phase}>
-              <summary>
-                <strong>{phase}</strong>
-                <span>
-                  {selected?.provider || inherited.provider} ·{' '}
-                  {selected?.name || inherited.name || 'Model required'}
-                </span>
-              </summary>
-              <p className="hint">
-                Model source: {origin}. Run phase → flow phase → published specialist → configured role →
-                factory default.
-              </p>
-              <label className="inline-check">
-                <input
-                  type="checkbox"
+      {models && (
+        <div className="grid min-w-0 divide-y divide-border border-y border-border">
+          {phases.map(([phase, role]) => {
+            const specialist = specialists.find((entry) => entry.legacy_roles.includes(role));
+            const authorizationRole = role === 'designer' ? 'architect' : role === 'devops' ? 'qa' : role;
+            const legacy = models.roles.find((item) => item.role === authorizationRole);
+            const flowModel = value.phases?.[phase]?.model;
+            const publishedModel = specialist?.published.definition.model;
+            const inherited = flowModel ?? publishedModel ?? legacy?.effective ?? models.default;
+            const selected = value.phase_models?.[phase];
+            const origin = selected
+              ? 'Run phase override'
+              : flowModel
+                ? 'Flow phase override'
+                : publishedModel
+                  ? `Published ${specialist.label} · version ${specialist.published.version}`
+                  : legacy?.override
+                    ? `Configured ${authorizationRole} role`
+                    : 'Factory default';
+            return (
+              <Disclosure
+                key={phase}
+                variant="plain"
+                className="py-1.5"
+                contentClassName="gap-3 pb-3"
+                summary={
+                  <span className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
+                    <strong className="font-medium capitalize">{phase}</strong>
+                    <span className="text-xs font-normal text-muted-foreground [overflow-wrap:anywhere]">
+                      {selected?.provider || inherited.provider} ·{' '}
+                      {selected?.name || inherited.name || 'Model required'}
+                    </span>
+                  </span>
+                }
+              >
+                <p className={note}>
+                  Model source: {origin}. Run phase → flow phase → published specialist → configured role →
+                  factory default.
+                </p>
+                <CheckField
+                  label="Override this phase for this run"
                   checked={Boolean(selected)}
                   onChange={(event) => updateModel(phase, event.target.checked ? { ...inherited } : null)}
                 />
-                Override this phase for this run
-              </label>
-              {selected && (
-                <SelectionFields value={selected} onChange={(model) => updateModel(phase, model)} />
-              )}
-              <p className="hint">Destinations must already be approved in Integrations.</p>
-            </details>
-          );
-        })}
-      <label className="inline-check">
-        <input
-          type="checkbox"
-          checked={value.permissions?.dependency_changes ?? false}
-          onChange={(event) =>
-            onChange({
-              ...value,
-              permissions: {
-                architecture: true,
-                draft_pull_request: true,
-                ...value.permissions,
-                dependency_changes: event.target.checked,
-              },
-            })
-          }
-        />
-        Allow dependency changes within this request
-      </label>
-      <details className="phase-configuration">
-        <summary>Import YAML configuration</summary>
-        <label>
+                {selected && (
+                  <SelectionFields value={selected} onChange={(model) => updateModel(phase, model)} />
+                )}
+                <p className={note}>Destinations must already be approved in Integrations.</p>
+              </Disclosure>
+            );
+          })}
+        </div>
+      )}
+      <CheckField
+        label="Allow dependency changes within this request"
+        checked={value.permissions?.dependency_changes ?? false}
+        onChange={(event) =>
+          onChange({
+            ...value,
+            permissions: {
+              architecture: true,
+              draft_pull_request: true,
+              ...value.permissions,
+              dependency_changes: event.target.checked,
+            },
+          })
+        }
+      />
+      <Disclosure summary="Import YAML configuration" variant="plain" contentClassName="justify-items-start">
+        <label className="grid w-full gap-1.5 text-sm font-medium">
           Versioned configuration
-          <textarea
+          <Textarea
             aria-label="Flow YAML"
+            className="font-mono text-xs"
             value={yaml}
             rows={8}
             onChange={(event) => setYaml(event.target.value)}
             spellCheck={false}
           />
         </label>
-        <button
-          className="button"
+        <Button
+          variant="secondary"
           type="button"
           disabled={loading}
           onClick={async () => {
@@ -172,8 +193,8 @@ export default function FlowConfiguration({
           }}
         >
           {loading ? 'Validating…' : 'Apply configuration'}
-        </button>
-      </details>
+        </Button>
+      </Disclosure>
     </fieldset>
   );
 }

@@ -83,7 +83,7 @@ class TestTeam:
         self.calls = []
         self.on_review = None
 
-    async def run(self, role, work, project, instruction, memory=None, source_context=None, analysis_handoff=None, task_context=None, memory_tools=None):
+    async def run(self, role, work, project, instruction, memory=None, source_context=None, analysis_handoff=None, task_context=None, memory_tools=None, work_notes=None):
         assert source_context.brief["project_id"] == work.project_id
         assert source_context.brief["role"] == role
         self.calls.append(role)

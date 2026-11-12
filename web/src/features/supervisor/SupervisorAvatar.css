@@ -48,7 +48,8 @@
     opacity: 0.75;
   }
   .supervisor-avatar-root[data-presence='queued'],
-  .supervisor-avatar-root[data-presence='working'] {
+  .supervisor-avatar-root[data-presence='working'],
+  .supervisor-avatar-root[data-presence='using-tool'] {
     --avatar-lamp: var(--info);
   }
   .supervisor-avatar-root[data-presence='needs-you'] {
@@ -64,13 +65,15 @@
   }
 
   @media (prefers-reduced-motion: no-preference) {
-    .supervisor-avatar-root[data-presence='working'] .avatar-lamp {
+    .supervisor-avatar-root[data-presence='working'] .avatar-lamp,
+    .supervisor-avatar-root[data-presence='using-tool'] .avatar-lamp {
       animation: avatar-pulse 1.2s ease-in-out infinite;
     }
     .supervisor-avatar-root[data-presence='queued'] .avatar-lamp {
       animation: avatar-pulse 2.4s ease-in-out infinite;
     }
-    .supervisor-avatar-root[data-presence='working'] .avatar-eyes-scan {
+    .supervisor-avatar-root[data-presence='working'] .avatar-eyes-scan,
+    .supervisor-avatar-root[data-presence='using-tool'] .avatar-eyes-scan {
       animation: avatar-scan 1.6s ease-in-out infinite alternate;
     }
     .supervisor-avatar-root[data-presence='idle'] .avatar-eyes-blink {

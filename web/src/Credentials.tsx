@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { ApiError, type Api, type SecretMetadata, type SecretTarget } from './api';
+import Button from './components/Button';
+import Dialog, { DialogActions } from './components/Dialog';
+import Field from './components/FormField';
+import Input from './components/Input';
+import LoadingState from './components/LoadingState';
+import Notice from './components/Notice';
 import Select from './components/Select';
-import Dialog from './components/Dialog';
+import { Badge } from './components/ui/badge';
 
 type Editor = { id: string; expectedVersion: number | null };
 
@@ -51,52 +57,68 @@ export default function Credentials({
   const [editor, setEditor] = useState<Editor | null>(null);
   const [deactivating, setDeactivating] = useState<SecretMetadata | null>(null);
   const password = useRef<HTMLInputElement>(null);
-  const destinationId = useId();
-  const valueId = useId();
-  const valueHint = useId();
+  const titleId = useId();
   const loadGeneration = useRef(0);
   const targetFilter = targetIds?.join('\n') ?? null;
-  const load = useCallback(async () => {
-    const generation = ++loadGeneration.current;
+  // A new destination scope closes any open editor before its metadata loads; the
+  // write-only field unmounts with the editor, so no value survives the change.
+  const [scope, setScope] = useState({ api, targetFilter, targetPrefix });
+  if (scope.api !== api || scope.targetFilter !== targetFilter || scope.targetPrefix !== targetPrefix) {
+    setScope({ api, targetFilter, targetPrefix });
+    setHasSecret(false);
+    setEditor(null);
+    setDeactivating(null);
+    setLoading(true);
+  }
+  // State is applied in promise callbacks, so the mount effect never sets state synchronously.
+  const fetchMetadata = useCallback(() => {
+    const generation = (loadGeneration.current += 1);
+    return Promise.all([api.secrets(), api.secretTargets()])
+      .then(
+        ([metadata, nextTargets]) => {
+          if (generation !== loadGeneration.current) return;
+          const allowed = targetFilter === null ? null : new Set(targetFilter.split('\n'));
+          setItems(
+            metadata
+              .filter(
+                (item) =>
+                  (!allowed || allowed.has(item.id)) && (!targetPrefix || item.id.startsWith(targetPrefix)),
+              )
+              .map(metadataOnly)
+              .sort((a, b) => a.id.localeCompare(b.id)),
+          );
+          setTargets(
+            nextTargets
+              .filter(
+                (item) =>
+                  (!allowed || allowed.has(item.id)) && (!targetPrefix || item.id.startsWith(targetPrefix)),
+              )
+              .map(({ id, label }) => ({ id, label })),
+          );
+          setLoadError('');
+        },
+        (error: unknown) => {
+          if (generation === loadGeneration.current) setLoadError(credentialError(error));
+        },
+      )
+      .finally(() => {
+        if (generation === loadGeneration.current) setLoading(false);
+      });
+  }, [api, targetFilter, targetPrefix]);
+  useEffect(() => {
+    void fetchMetadata();
+    return () => {
+      loadGeneration.current += 1;
+    };
+  }, [fetchMetadata]);
+  const load = async () => {
     if (password.current) password.current.value = '';
     setHasSecret(false);
     setEditor(null);
     setDeactivating(null);
     setLoading(true);
-    try {
-      const [metadata, nextTargets] = await Promise.all([api.secrets(), api.secretTargets()]);
-      if (generation !== loadGeneration.current) return;
-      const allowed = targetFilter === null ? null : new Set(targetFilter.split('\n'));
-      setItems(
-        metadata
-          .filter(
-            (item) =>
-              (!allowed || allowed.has(item.id)) && (!targetPrefix || item.id.startsWith(targetPrefix)),
-          )
-          .map(metadataOnly)
-          .sort((a, b) => a.id.localeCompare(b.id)),
-      );
-      setTargets(
-        nextTargets
-          .filter(
-            (item) =>
-              (!allowed || allowed.has(item.id)) && (!targetPrefix || item.id.startsWith(targetPrefix)),
-          )
-          .map(({ id, label }) => ({ id, label })),
-      );
-      setLoadError('');
-    } catch (error) {
-      if (generation === loadGeneration.current) setLoadError(credentialError(error));
-    } finally {
-      if (generation === loadGeneration.current) setLoading(false);
-    }
-  }, [api, targetFilter, targetPrefix]);
-  useEffect(() => {
-    void load();
-    return () => {
-      loadGeneration.current++;
-    };
-  }, [load]);
+    await fetchMetadata();
+  };
 
   const label = (id: string) => targets.find((target) => target.id === id)?.label || id;
   const choose = (id: string) => {
@@ -176,108 +198,143 @@ export default function Credentials({
   };
   const available = !loading && !loadError && !busy && connected;
   return (
-    <section className="credentials-section" aria-labelledby="credentials-title">
-      <div className="section-heading">
-        <h2 id="credentials-title">SABRE credentials</h2>
-        <button
-          className="button small"
-          disabled={loading || busy}
-          onClick={() => {
-            if (password.current) password.current.value = '';
-            setEditor(null);
-            setDeactivating(null);
-            setNotice('');
-            setRefreshWarning(false);
-            setActionError('');
-            void load();
-          }}
-        >
-          Refresh metadata
-        </button>
-      </div>
-      <p className="credentials-context">
-        Credentials are encrypted in the control database. The master key stays outside that database. The
-        control service decrypts values in memory when making calls.
-      </p>
-      {loadError && (
-        <div className="notice error" role="alert">
-          {loadError} Visible metadata may be outdated.
+    <section className="grid min-w-0 gap-4" aria-labelledby={titleId}>
+      <div className="grid min-w-0 gap-1.5">
+        <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
+          <h2 id={titleId} className="text-base font-semibold">
+            SABRE credentials
+          </h2>
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            disabled={loading || busy}
+            onClick={() => {
+              if (password.current) password.current.value = '';
+              setEditor(null);
+              setDeactivating(null);
+              setNotice('');
+              setRefreshWarning(false);
+              setActionError('');
+              void load();
+            }}
+          >
+            Refresh metadata
+          </Button>
         </div>
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          Credentials are encrypted in the control database. The master key stays outside that database. The
+          control service decrypts values in memory when making calls.
+        </p>
+      </div>
+      {loadError && (
+        <Notice tone="danger" role="alert">
+          {loadError} Visible metadata may be outdated.
+        </Notice>
       )}
       {actionError && (
-        <div className="notice error" role="alert">
+        <Notice tone="danger" role="alert">
           {actionError}
-        </div>
+        </Notice>
       )}
       {notice && (
-        <div className="notice neutral" role="status">
+        <Notice tone="neutral" role="status">
           {notice}
-        </div>
+        </Notice>
       )}
       {refreshWarning && (
-        <div className="notice warning" role="status">
+        <Notice
+          tone="warning"
+          role="status"
+          actions={
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              disabled={busy}
+              onClick={() => void refreshPublicStatus()}
+            >
+              Refresh overall status
+            </Button>
+          }
+        >
           <p>The credential operation is confirmed. Overall status could not be refreshed.</p>
-          <button className="button small" disabled={busy} onClick={() => void refreshPublicStatus()}>
-            Refresh overall status
-          </button>
-        </div>
+        </Notice>
       )}
-      {loading && (
-        <div className="quiet-state" role="status">
-          Loading credential metadata…
-        </div>
-      )}
+      {loading && <LoadingState label="Loading credential metadata…" />}
       {!loading && !loadError && items.length === 0 && (
-        <p className="quiet-state">No saved credentials yet.</p>
+        <p className="rounded-lg border border-dashed border-border px-4 py-5 text-center text-sm text-muted-foreground">
+          No saved credentials yet.
+        </p>
       )}
       {items.length > 0 && (
-        <div className="credentials-list">
+        <div className="@container divide-y divide-border rounded-lg border border-border">
           {items.map((item) => {
             const target = targets.find((candidate) => candidate.id === item.id);
             return (
-              <article className="credential-row" key={item.id}>
-                <div>
-                  <h3>{target?.label || item.id}</h3>
+              <article
+                className="grid min-w-0 gap-3 px-4 py-3.5 @md:grid-cols-[minmax(0,1fr)_auto] @md:items-start"
+                key={item.id}
+              >
+                <div className="grid min-w-0 gap-1">
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
+                    <h3 className="text-sm font-semibold [overflow-wrap:anywhere]">
+                      {target?.label || item.id}
+                    </h3>
+                    <Badge variant={item.configured ? 'success' : 'warning'}>
+                      {item.configured ? 'Configured' : 'Disabled'}
+                    </Badge>
+                  </div>
                   <p>
-                    <code>{item.id}</code>
+                    <code className="font-mono text-xs text-muted-foreground [overflow-wrap:anywhere]">
+                      {item.id}
+                    </code>
                   </p>
-                  <p>
+                  <p className="text-xs text-muted-foreground">
                     Version {item.version} · Updated {new Date(item.updated_at).toLocaleString('en-US')}
                   </p>
-                  {!target && <small>Outside the destinations registered by this instance.</small>}
-                </div>
-                <span className={`badge ${item.configured ? 'badge-completed' : 'badge-paused'}`}>
-                  {item.configured ? 'Configured' : 'Disabled'}
-                </span>
-                <div className="credential-actions">
-                  {target && (
-                    <button
-                      className="button small"
-                      aria-label={`${item.configured ? 'Replace' : 'Configure'} ${target.label}`}
-                      disabled={!available}
-                      onClick={() => choose(item.id)}
-                    >
-                      {item.configured ? 'Replace' : 'Configure'}
-                    </button>
-                  )}
-                  {item.configured && (
-                    <button
-                      className="text-button danger-quiet"
-                      aria-label={`Disable ${target?.label || item.id}`}
-                      disabled={!available}
-                      onClick={() => {
-                        if (password.current) password.current.value = '';
-                        setEditor(null);
-                        setNotice('');
-                        setRefreshWarning(false);
-                        setActionError('');
-                        setDeactivating(item);
-                      }}
-                    >
-                      Disable
-                    </button>
+                  {!target && (
+                    <small className="text-xs text-warning">
+                      Outside the destinations registered by this instance.
+                    </small>
                   )}
                 </div>
+                {(target || item.configured) && (
+                  <div className="flex flex-wrap items-center gap-1">
+                    {target && (
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        aria-label={`${item.configured ? 'Replace' : 'Configure'} ${target.label}`}
+                        disabled={!available}
+                        onClick={() => choose(item.id)}
+                      >
+                        {item.configured ? 'Replace' : 'Configure'}
+                      </Button>
+                    )}
+                    {item.configured && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="text-danger hover:enabled:bg-danger-bg"
+                        aria-label={`Disable ${target?.label || item.id}`}
+                        disabled={!available}
+                        onClick={() => {
+                          if (password.current) password.current.value = '';
+                          setEditor(null);
+                          setNotice('');
+                          setRefreshWarning(false);
+                          setActionError('');
+                          setDeactivating(item);
+                        }}
+                      >
+                        Disable
+                      </Button>
+                    )}
+                  </div>
+                )}
               </article>
             );
           })}
@@ -290,26 +347,29 @@ export default function Credentials({
         onClose={() => setDeactivating(null)}
       >
         {deactivating && (
-          <div className="notice warning">
-            <div>
-              <strong>Disable {label(deactivating.id)} in SABRE?</strong>
+          <div className="grid gap-5">
+            <Notice tone="warning" title={`Disable ${label(deactivating.id)} in SABRE?`}>
               <p>
                 The stored value will be removed. This does not revoke the credential at the external
                 provider.
               </p>
-            </div>
-            <button className="button danger" disabled={busy} onClick={() => void deactivate()}>
-              Confirm deactivation
-            </button>
-            <button className="text-button" disabled={busy} onClick={() => setDeactivating(null)}>
-              Back
-            </button>
+            </Notice>
+            <DialogActions>
+              <Button type="button" variant="ghost" disabled={busy} onClick={() => setDeactivating(null)}>
+                Back
+              </Button>
+              <Button type="button" variant="danger" disabled={busy} onClick={() => void deactivate()}>
+                Confirm deactivation
+              </Button>
+            </DialogActions>
           </div>
         )}
       </Dialog>
       {!editor && (
-        <button
-          className="button"
+        <Button
+          type="button"
+          variant="secondary"
+          className="justify-self-start"
           disabled={!available || targets.length === 0}
           onClick={() => {
             const target =
@@ -320,7 +380,7 @@ export default function Credentials({
           }}
         >
           Save credential
-        </button>
+        </Button>
       )}
       <Dialog
         open={!!editor}
@@ -335,34 +395,27 @@ export default function Credentials({
         }}
       >
         {editor && (
-          <form className="form-panel credential-editor" onSubmit={submit} autoComplete="off">
-            <div className="section-heading">
-              <h3>
-                {editor.expectedVersion === null
-                  ? 'Save a credential'
-                  : `Replace version ${editor.expectedVersion}`}
-              </h3>
-            </div>
-            <div className="field">
-              <label htmlFor={destinationId}>Credential destination</label>
-              <Select
-                id={destinationId}
-                value={editor.id}
-                disabled={busy}
-                onChange={(event) => choose(event.target.value)}
-              >
+          <form className="grid min-w-0 gap-5" onSubmit={submit} autoComplete="off">
+            <h3 className="text-base font-semibold">
+              {editor.expectedVersion === null
+                ? 'Save a credential'
+                : `Replace version ${editor.expectedVersion}`}
+            </h3>
+            <Field label="Credential destination">
+              <Select value={editor.id} disabled={busy} onChange={(event) => choose(event.target.value)}>
                 {targets.map((target) => (
                   <option key={target.id} value={target.id}>
                     {target.label}
                   </option>
                 ))}
               </Select>
-            </div>
-            <div className="field">
-              <label htmlFor={valueId}>New credential value</label>
-              <input
+            </Field>
+            <Field
+              label="New credential value"
+              hint="Only the new value is sent. The field clears on submission, including errors. The previous value is never retrieved."
+            >
+              <Input
                 ref={password}
-                id={valueId}
                 type="password"
                 required
                 maxLength={65536}
@@ -370,28 +423,25 @@ export default function Credentials({
                 spellCheck={false}
                 autoCapitalize="none"
                 disabled={busy}
-                aria-describedby={valueHint}
                 onChange={(event) => setHasSecret(event.target.value.length > 0)}
               />
-              <small id={valueHint}>
-                Only the new value is sent. The field clears on submission, including errors. The previous
-                value is never retrieved.
-              </small>
-            </div>
-            <div className="form-actions">
-              <span>The value will be saved for this destination and version.</span>
-              <button className="button primary" disabled={!available}>
+            </Field>
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
+              <span className="text-xs text-muted-foreground">
+                The value will be saved for this destination and version.
+              </span>
+              <Button type="submit" variant="primary" disabled={!available}>
                 {busy
                   ? 'Saving…'
                   : editor.expectedVersion === null
                     ? 'Save encrypted value'
                     : 'Replace encrypted value'}
-              </button>
+              </Button>
             </div>
           </form>
         )}
       </Dialog>
-      <p className="credentials-footnote">
+      <p className="text-xs leading-relaxed text-muted-foreground">
         Configure provider, model and spending limits in the instance settings. Saving a credential does not
         validate it with the provider or start work.
       </p>

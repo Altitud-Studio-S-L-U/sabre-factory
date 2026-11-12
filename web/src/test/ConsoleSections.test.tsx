@@ -264,7 +264,8 @@ it('shows memory provenance by project and keeps proposals separate from approve
   expect(await screen.findByText('Synthetic reviewed lesson')).toBeVisible();
   expect(screen.queryByText('Synthetic proposal')).not.toBeInTheDocument();
   expect(screen.queryByText('Other project must not appear')).not.toBeInTheDocument();
-  await user.click(screen.getByRole('button', { name: 'Proposals' }));
+  await user.click(screen.getByRole('tab', { name: 'Proposals' }));
+  expect(screen.getByRole('tab', { name: 'Proposals' })).toHaveAttribute('aria-selected', 'true');
   await user.click(screen.getByRole('button', { name: 'Inspect memory proposal' }));
   const dialog = screen.getByRole('dialog', { name: 'Memory provenance' });
   expect(within(dialog).getByText('synthetic-run')).toBeVisible();

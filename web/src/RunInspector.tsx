@@ -1,9 +1,15 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import type { Api, ProcessTopology, RunInspection, WorkOrder } from './api';
 import type { ObservedSpan } from './executionProjection';
 import Tabs from './components/Tabs';
 import JsonView from './components/JsonView';
+import Notice from './components/Notice';
+import Button from './components/Button';
+import Select from './components/Select';
+import { Eyebrow } from './components/PageHeader';
+import { Badge } from './components/ui/badge';
 import BrowserReportsPanel from './BrowserReportsPanel';
+import CrewAvatar from './features/crew/CrewAvatar';
 import { isControlCode } from './runState';
 
 type InspectionTab = 'State' | 'Messages' | 'Tools' | 'Memory' | 'Evals' | 'Logs' | 'JSON' | 'Trace';
@@ -29,6 +35,37 @@ export const specialistNames: Record<string, string> = {
   devops: 'DevOps',
 };
 const memoryTools = new Set(['read_memory', 'propose_memory', 'resolve_memory', 'read_context']);
+const stateTones: Record<string, 'neutral' | 'info' | 'success' | 'danger' | 'warning'> = {
+  started: 'info',
+  completed: 'success',
+  failed: 'danger',
+  interrupted: 'warning',
+};
+
+function Caption({ children }: { children: ReactNode }) {
+  return <p className="text-xs leading-relaxed text-muted-foreground">{children}</p>;
+}
+
+function Empty({ children }: { children: ReactNode }) {
+  return (
+    <p className="rounded-md border border-dashed border-border px-4 py-3 text-sm text-muted-foreground">
+      {children}
+    </p>
+  );
+}
+
+function Facts({ items }: { items: [string, ReactNode][] }) {
+  return (
+    <dl className="grid grid-cols-[8rem_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm">
+      {items.map(([term, value]) => (
+        <div key={term} className="contents">
+          <dt className="text-muted-foreground">{term}</dt>
+          <dd className="min-w-0 [overflow-wrap:anywhere]">{value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
 
 export default function RunInspector({
   api,
@@ -63,120 +100,128 @@ export default function RunInspector({
   );
   const recordList = (items: typeof records, empty: string) =>
     items.length ? (
-      <div className="inspection-records">
+      <div className="grid gap-2">
         {items.map((record) => (
           <article
-            className={`inspection-record record-${record.kind}`}
             key={`${record.sequence}-${record.id}`}
+            data-kind={record.kind}
+            className="grid min-w-0 gap-2 rounded-md border border-border bg-code p-3"
           >
-            <header>
-              <strong>
+            <header className="flex min-w-0 flex-wrap items-center justify-between gap-2 text-xs">
+              <strong className="font-medium">
                 {specialistNames[record.sender] ?? record.sender} →{' '}
                 {specialistNames[record.recipient] ?? record.recipient}
               </strong>
-              <span>{record.tool ?? record.kind.replaceAll('_', ' ')}</span>
+              <span className="font-mono text-muted-foreground">
+                {record.tool ?? record.kind.replaceAll('_', ' ')}
+              </span>
             </header>
-            <pre>{record.content}</pre>
+            <pre className="max-h-72 overflow-auto font-mono text-xs leading-relaxed whitespace-pre-wrap [overflow-wrap:anywhere]">
+              {record.content}
+            </pre>
             {record.truncated && (
-              <small>Preview truncated. The original remains in its recorded checkpoint.</small>
+              <Caption>Preview truncated. The original remains in its recorded checkpoint.</Caption>
             )}
-            {record.redacted && <small>Secret policy applied.</small>}
+            {record.redacted && <Caption>Secret policy applied.</Caption>}
           </article>
         ))}
       </div>
     ) : (
-      <p className="inspector-empty">{empty}</p>
+      <Empty>{empty}</Empty>
     );
+  const role = current?.event.kind === 'agent' ? current.event.name : (lane?.specialist ?? 'system');
+  const state = current?.event.state ?? 'planned';
   return (
-    <section className="console-inspector" aria-label="Execution inspector">
-      <header className="inspector-heading">
-        <span>INSPECTOR</span>
-        <h3>
-          {current
-            ? (specialistNames[current.event.name] ?? current.event.name.replaceAll('_', ' '))
-            : (lane?.label ?? 'Run state')}
-        </h3>
-        <span className={`inspector-status ${current?.event.state ?? 'planned'}`}>
+    <section aria-label="Execution inspector" className="grid min-w-0 content-start gap-4 p-4">
+      <header className="flex min-w-0 items-center gap-3">
+        <CrewAvatar role={role} size={36} />
+        <div className="grid min-w-0 flex-1 gap-0.5">
+          <Eyebrow>Inspector</Eyebrow>
+          <h3 className="truncate text-base font-semibold">
+            {current
+              ? (specialistNames[current.event.name] ?? current.event.name.replaceAll('_', ' '))
+              : (lane?.label ?? 'Run state')}
+          </h3>
+        </div>
+        <Badge variant={stateTones[state] ?? 'outline'} className="capitalize">
           {current?.event.state ?? 'Planned'}
-        </span>
+        </Badge>
       </header>
       {historicalSelection && (
-        <p className="notice warning">
+        <Notice tone="warning">
           Pinned historical event. New events have moved beyond this timeline window; this selection has not
           changed.
-        </p>
+        </Notice>
       )}
       {error && (
-        <p className="notice warning" role="alert">
+        <Notice tone="warning" role="alert">
           {error}
-        </p>
+        </Notice>
       )}
       <Tabs items={tabs} value={tab} onChange={setTab} label="Execution inspection">
         {(active) => (
-          <>
+          <div className="grid min-w-0 gap-4 pt-4">
             {active === 'State' && (
               <>
-                <dl>
-                  <dt>Specialist</dt>
-                  <dd>
-                    {current?.event.kind === 'agent'
-                      ? (specialistNames[current.event.name] ?? current.event.name)
-                      : (lane?.specialist ?? 'System')}
-                  </dd>
-                  <dt>Status</dt>
-                  <dd>{current?.event.state ?? 'No execution recorded'}</dd>
-                  <dt>Provider</dt>
-                  <dd>
-                    {current?.event.provider ??
-                      (current?.event.kind === 'stage' ? 'System step' : 'Not recorded')}
-                  </dd>
-                  <dt>Model</dt>
-                  <dd>{current?.event.model ?? 'Not attributed'}</dd>
-                  <dt>Duration</dt>
-                  <dd>
-                    {current?.event.duration_ms == null
-                      ? 'Not recorded'
-                      : `${(current.event.duration_ms / 1000).toFixed(2)} s`}
-                  </dd>
-                  <dt>Event sequence</dt>
-                  <dd>{current?.records.at(-1)?.sequence ?? 'Not recorded'}</dd>
-                </dl>
+                <Facts
+                  items={[
+                    [
+                      'Specialist',
+                      current?.event.kind === 'agent'
+                        ? (specialistNames[current.event.name] ?? current.event.name)
+                        : (lane?.specialist ?? 'System'),
+                    ],
+                    ['Status', current?.event.state ?? 'No execution recorded'],
+                    [
+                      'Provider',
+                      current?.event.provider ??
+                        (current?.event.kind === 'stage' ? 'System step' : 'Not recorded'),
+                    ],
+                    ['Model', current?.event.model ?? 'Not attributed'],
+                    [
+                      'Duration',
+                      current?.event.duration_ms == null
+                        ? 'Not recorded'
+                        : `${(current.event.duration_ms / 1000).toFixed(2)} s`,
+                    ],
+                    ['Event sequence', current?.records.at(-1)?.sequence ?? 'Not recorded'],
+                  ]}
+                />
                 {current?.event.error_code &&
                   (isControlCode(current.event.error_code) ? (
-                    <div className="notice neutral">
-                      <strong>Owner control</strong>
+                    <Notice tone="neutral" title="Owner control">
                       <p>Stopped by an owner pause or cancellation request. This is not a failure.</p>
-                    </div>
+                    </Notice>
                   ) : currentStop ? (
-                    <div className="notice error">
-                      <strong>Current stop reason · {current.event.error_code}</strong>
+                    <Notice tone="danger" title={`Current stop reason · ${current.event.error_code}`}>
                       <p>{order.summary}</p>
-                    </div>
+                    </Notice>
                   ) : (
-                    <div className="notice warning">
-                      <strong>
-                        Historical record · {current.event.error_code}
-                        {current.records.at(-1) ? ` · event #${current.records.at(-1)!.sequence}` : ''}
-                      </strong>
+                    <Notice
+                      tone="warning"
+                      title={`Historical record · ${current.event.error_code}${
+                        current.records.at(-1) ? ` · event #${current.records.at(-1)!.sequence}` : ''
+                      }`}
+                    >
                       <p>
                         Recorded by this step. It is not the run&apos;s current state; inspect the saved logs
                         for details.
                       </p>
-                    </div>
+                    </Notice>
                   ))}
               </>
             )}
             {active === 'Messages' && (
               <>
-                <p className="inspector-caption">
+                <Caption>
                   Invocation checkpoint snapshot; messages may include later steps/retries, not a
                   reconstruction at selected event time. Historical stage events may have no invocation
                   binding. Hidden reasoning is not collected.
-                </p>
+                </Caption>
                 {inspection?.agents.length ? (
-                  <label className="inspection-agent-picker">
+                  <label className="grid gap-1.5 text-xs font-medium text-muted-foreground">
                     Invocation
-                    <select
+                    <Select
                       value={inspection.agent_id ?? ''}
                       onChange={(event) => onInspect?.(undefined, event.target.value)}
                     >
@@ -186,7 +231,7 @@ export default function RunInspector({
                           {agent.id.slice(0, 6)}
                         </option>
                       ))}
-                    </select>
+                    </Select>
                   </label>
                 ) : null}
                 {recordList(
@@ -203,20 +248,20 @@ export default function RunInspector({
                   records.filter((record) => record.tool && memoryTools.has(record.tool)),
                   'No memory retrieval or write recorded in this invocation.',
                 )}
-                <h4>Context receipt</h4>
+                <h4 className="text-sm font-semibold">Context receipt</h4>
                 {inspection?.context ? (
                   <JsonView value={inspection.context} label="Recorded context use" />
                 ) : (
-                  <p className="inspector-empty">No context measurement recorded.</p>
+                  <Empty>No context measurement recorded.</Empty>
                 )}
               </>
             )}
             {active === 'Evals' && (
               <>
-                <p className="inspector-caption">
+                <Caption>
                   Run-level evaluation evidence from the current snapshot; it is not a reconstruction at the
-                  selected span's time.
-                </p>
+                  selected span&apos;s time.
+                </Caption>
                 {api && (
                   <BrowserReportsPanel
                     api={api}
@@ -227,38 +272,50 @@ export default function RunInspector({
                 )}
                 {inspection?.evaluations.length ? (
                   inspection.evaluations.map((evaluation) => (
-                    <article className="inspection-evaluation" key={evaluation.id}>
-                      <strong>
+                    <article
+                      key={evaluation.id}
+                      className="grid gap-1 rounded-md border border-border bg-code p-3 text-sm"
+                    >
+                      <strong className="font-medium">
                         {evaluation.kind} · {evaluation.status}
                       </strong>
                       <p>{evaluation.criterion}</p>
-                      {evaluation.snapshot_digest && <code>Snapshot: {evaluation.snapshot_digest}</code>}
-                      {evaluation.artifact_digest && <code>Evidence: {evaluation.artifact_digest}</code>}
+                      {evaluation.snapshot_digest && (
+                        <code className="font-mono text-xs [overflow-wrap:anywhere] text-muted-foreground">
+                          Snapshot: {evaluation.snapshot_digest}
+                        </code>
+                      )}
+                      {evaluation.artifact_digest && (
+                        <code className="font-mono text-xs [overflow-wrap:anywhere] text-muted-foreground">
+                          Evidence: {evaluation.artifact_digest}
+                        </code>
+                      )}
                     </article>
                   ))
                 ) : (
-                  <p className="inspector-empty">
-                    No recorded evaluation evidence yet. Planned checks are not results.
-                  </p>
+                  <Empty>No recorded evaluation evidence yet. Planned checks are not results.</Empty>
                 )}
               </>
             )}
             {active === 'Logs' && (
               <>
-                <p className="inspector-caption">
+                <Caption>
                   Run-level logs from the current inspection snapshot. Entries may include later steps or
                   retries beyond the selected span.
-                </p>
+                </Caption>
                 {inspection?.logs.length ? (
                   inspection.logs.map((entry, index) => (
-                    <article className="inspection-log" key={String(entry.id ?? index)}>
-                      <time>{String(entry.timestamp ?? '')}</time>
-                      <strong>{String(entry.kind ?? 'event')}</strong>
+                    <article
+                      key={String(entry.id ?? index)}
+                      className="grid gap-1 rounded-md border border-border bg-code p-3 text-sm"
+                    >
+                      <time className="text-xs text-muted-foreground">{String(entry.timestamp ?? '')}</time>
+                      <strong className="font-medium">{String(entry.kind ?? 'event')}</strong>
                       <p>{String(entry.message ?? '')}</p>
                     </article>
                   ))
                 ) : (
-                  <p className="inspector-empty">No persisted log entries available.</p>
+                  <Empty>No persisted log entries available.</Empty>
                 )}
               </>
             )}
@@ -278,50 +335,53 @@ export default function RunInspector({
             )}
             {active === 'Trace' && (
               <>
-                <dl>
-                  <dt>Correlation ID</dt>
-                  <dd>
-                    <code>{current?.id ?? 'No invocation selected'}</code>
-                  </dd>
-                  <dt>Trace ID</dt>
-                  <dd>
-                    <code>{current?.event.trace_id ?? 'Not recorded'}</code>
-                  </dd>
-                  <dt>Span ID</dt>
-                  <dd>
-                    <code>{current?.event.span_id ?? 'Not recorded'}</code>
-                  </dd>
-                </dl>
-                <p className="inspector-caption">
+                <Facts
+                  items={[
+                    [
+                      'Correlation ID',
+                      <code className="font-mono text-xs">{current?.id ?? 'No invocation selected'}</code>,
+                    ],
+                    [
+                      'Trace ID',
+                      <code className="font-mono text-xs">{current?.event.trace_id ?? 'Not recorded'}</code>,
+                    ],
+                    [
+                      'Span ID',
+                      <code className="font-mono text-xs">{current?.event.span_id ?? 'Not recorded'}</code>,
+                    ],
+                  ]}
+                />
+                <Caption>
                   These identifiers correlate actual OpenTelemetry spans. No trace is inferred when
                   instrumentation was absent.
-                </p>
+                </Caption>
               </>
             )}
             {inspection?.checkpoint_id && (
-              <div className="inspector-caption">
-                <p>
-                  Invocation checkpoint snapshot <code>{inspection.checkpoint_id}</code>. Messages may include
-                  later steps/retries. Pages use this snapshot, not a reconstruction at selected event time.
-                </p>
-                <button
-                  className="button small"
+              <div className="grid justify-items-start gap-2 border-t border-border pt-3">
+                <Caption>
+                  Invocation checkpoint snapshot <code className="font-mono">{inspection.checkpoint_id}</code>
+                  . Messages may include later steps/retries. Pages use this snapshot, not a reconstruction at
+                  selected event time.
+                </Caption>
+                <Button
+                  size="sm"
                   type="button"
                   onClick={() => onInspect?.(inspection.role ?? undefined, inspection.agent_id ?? undefined)}
                 >
                   Refresh invocation snapshot
-                </button>
+                </Button>
               </div>
             )}
             {inspection && !inspection.current && (
-              <p className="notice warning">Historical invocation from an earlier plan revision.</p>
+              <Notice tone="warning">Historical invocation from an earlier plan revision.</Notice>
             )}
             {inspection?.has_more && (
-              <button type="button" className="button small" onClick={onMore}>
+              <Button type="button" size="sm" className="justify-self-start" onClick={onMore}>
                 Load more recorded messages
-              </button>
+              </Button>
             )}
-          </>
+          </div>
         )}
       </Tabs>
     </section>

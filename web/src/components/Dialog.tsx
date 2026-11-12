@@ -1,5 +1,12 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
-import './Dialog.css';
+import { X } from 'lucide-react';
+import Button from './Button';
+import { cn } from '../lib/utils';
+
+/** Right-aligned row of dialog buttons, for forms that place actions in the body. */
+export function DialogActions({ children, className }: { children: ReactNode; className?: string }) {
+  return <div className={cn('flex flex-wrap justify-end gap-2.5', className)}>{children}</div>;
+}
 
 export interface DialogProps {
   open: boolean;
@@ -54,7 +61,11 @@ export default function Dialog({
   return (
     <dialog
       ref={ref}
-      className={`console-dialog ${className}`}
+      className={cn(
+        'm-auto max-h-[calc(100dvh-1.25rem)] w-[min(45rem,calc(100vw-1.25rem))] overflow-auto rounded-xl border border-border bg-popover p-0 text-popover-foreground shadow-2xl sm:max-h-[calc(100dvh-3rem)] sm:w-[min(45rem,calc(100vw-2rem))]',
+        'backdrop:bg-background/75 backdrop:backdrop-blur-sm',
+        className,
+      )}
       aria-labelledby={titleId}
       aria-describedby={description ? descriptionId : undefined}
       aria-busy={busy}
@@ -103,32 +114,40 @@ export default function Dialog({
         if (event.target === event.currentTarget) requestClose();
       }}
     >
-      <div className="dialog-shell">
-        <header className="dialog-heading">
-          <div>
-            <h2 id={titleId}>{title}</h2>
-            {description && <p id={descriptionId}>{description}</p>}
+      <div className="grid">
+        <header className="flex items-start justify-between gap-4 border-b border-border p-4.5 sm:gap-6 sm:p-6">
+          <div className="grid min-w-0 gap-2">
+            <h2 id={titleId} className="text-xl font-semibold">
+              {title}
+            </h2>
+            {description && (
+              <p id={descriptionId} className="max-w-[55ch] text-sm text-muted-foreground">
+                {description}
+              </p>
+            )}
           </div>
-          <button
-            type="button"
-            className="button small"
+          <Button
+            variant="ghost"
+            size="icon"
             aria-label={`Close ${title}`}
             disabled={busy}
             onClick={requestClose}
           >
-            Close
-          </button>
+            <X aria-hidden="true" />
+          </Button>
         </header>
-        <div className="dialog-content">{children}</div>
+        <div className="min-w-0 p-4.5 sm:p-6">{children}</div>
         {discard && (
-          <div className="dialog-discard" role="alert">
-            <p>Discard your unsaved changes?</p>
-            <button type="button" className="button" disabled={busy} onClick={() => setDiscard(false)}>
+          <div
+            className="mx-4.5 mb-4.5 flex flex-wrap items-center gap-2 rounded-lg border border-warning-border bg-warning-bg p-4 text-warning sm:mx-6 sm:mb-6"
+            role="alert"
+          >
+            <p className="mr-auto">Discard your unsaved changes?</p>
+            <Button disabled={busy} onClick={() => setDiscard(false)}>
               Keep editing
-            </button>
-            <button
-              type="button"
-              className="button danger"
+            </Button>
+            <Button
+              variant="danger"
               disabled={busy}
               onClick={() => {
                 if (busy) return;
@@ -137,10 +156,14 @@ export default function Dialog({
               }}
             >
               Discard changes
-            </button>
+            </Button>
           </div>
         )}
-        {footer && <footer className="dialog-footer">{footer}</footer>}
+        {footer && (
+          <footer className="flex flex-wrap justify-end gap-2.5 border-t border-border bg-background/40 px-4.5 py-3.5 sm:px-6 sm:py-4">
+            {footer}
+          </footer>
+        )}
       </div>
     </dialog>
   );

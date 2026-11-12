@@ -1,9 +1,16 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import type { Api, DelegationCreate, DelegationGrant, IssuedDelegation, Project } from './api';
-import Dialog from './components/Dialog';
+import Button from './components/Button';
+import CheckField from './components/CheckField';
+import Dialog, { DialogActions } from './components/Dialog';
+import EmptyState from './components/EmptyState';
 import Field from './components/FormField';
-import './ConsoleSections.css';
-import './InboundAccessPanel.css';
+import Input from './components/Input';
+import LoadingState from './components/LoadingState';
+import Notice from './components/Notice';
+import { SectionHeading } from './components/PageHeader';
+import { Badge } from './components/ui/badge';
+import { Card } from './components/ui/card';
 
 const operations: { value: DelegationCreate['operations'][number]; label: string }[] = [
   { value: 'work.submit', label: 'Submit runs' },
@@ -31,12 +38,27 @@ const initial = (idempotencyKey: string = crypto.randomUUID()): DelegationCreate
   max_cost_usd: 0,
   active_seconds: 600,
 });
-const status = (grant: DelegationGrant) =>
-  grant.revoked_at
-    ? 'Revoked'
-    : Date.parse(grant.expires_at) <= Date.now()
-      ? 'Expired'
-      : 'Active until expiry';
+/** Wall clock in ten-second steps, so expiry is read during render without impure calls. */
+const clockStep = 10_000;
+const readClock = () => Math.floor(Date.now() / clockStep) * clockStep;
+const subscribeClock = (notify: () => void) => {
+  const timer = setInterval(notify, clockStep);
+  return () => clearInterval(timer);
+};
+const expired = (grant: DelegationGrant, now: number) => Date.parse(grant.expires_at) <= now;
+const status = (grant: DelegationGrant, now: number) =>
+  grant.revoked_at ? 'Revoked' : expired(grant, now) ? 'Expired' : 'Active until expiry';
+const statusTone = { Revoked: 'neutral', Expired: 'warning', 'Active until expiry': 'success' } as const;
+
+/** A bordered group of related controls with a small legend. */
+function FieldGroup({ legend, children }: { legend: string; children: ReactNode }) {
+  return (
+    <fieldset className="grid min-w-0 gap-3 rounded-lg border border-border px-4 pt-2 pb-4">
+      <legend className="px-1.5 text-xs font-medium text-muted-foreground">{legend}</legend>
+      {children}
+    </fieldset>
+  );
+}
 
 export default function InboundAccessPanel({
   api,
@@ -62,6 +84,7 @@ export default function InboundAccessPanel({
   const [copyNotice, setCopyNotice] = useState('');
   const [revoking, setRevoking] = useState<DelegationGrant | null>(null);
   const mounted = useRef(false);
+  const now = useSyncExternalStore(subscribeClock, readClock);
   useEffect(() => {
     mounted.current = true;
     api
@@ -177,89 +200,109 @@ export default function InboundAccessPanel({
     setCopyNotice('');
   };
   return (
-    <section className="operator-panel inbound-access" aria-label="Inbound delegated access">
-      <header className="operator-heading">
-        <div>
-          <h2>Inbound access</h2>
-          <p>
-            Issue a separate credential for an external agent to use this factory. Grants cover selected
-            projects and assigned runs; they never reuse your owner credential or change network exposure.
-          </p>
-        </div>
-        <div className="operator-actions">
-          <button
-            className="button small"
-            disabled={busy || loading || !connected}
-            onClick={() => void refresh()}
-          >
-            Refresh access
-          </button>
-          <button
-            className="button small"
-            disabled={busy || !loaded || !connected || !projects.length}
-            onClick={() => {
-              if (!uncertain) {
-                setDraft(initial());
-                setApproved(false);
-                setError('');
-              }
-              setEditing(true);
-            }}
-          >
-            {uncertain ? 'Resolve pending issuance' : 'Issue access'}
-          </button>
-        </div>
-      </header>
-      {!connected && (
-        <p role="status">
-          Disconnected. Saved metadata remains available; issuing and revoking access are disabled.
-        </p>
-      )}
-      {loading && <p role="status">Loading access metadata…</p>}
-      {notice && <p role="status">{notice}</p>}
-      {error && !editing && !revoking && <p role="alert">{error}</p>}
-      {loaded && !grants.length && <p className="muted">No delegated access issued.</p>}
-      <div className="operator-catalog">
-        {grants.map((grant) => (
-          <article className="inbound-grant" key={grant.id}>
-            <header>
-              <strong>{grant.principal}</strong>
-              <span className="operator-tag">{status(grant)}</span>
-            </header>
-            <p>
-              Projects:{' '}
-              {grant.data.projects
-                .map((id) => projects.find((project) => project.id === id)?.name ?? id)
-                .join(', ')}
-            </p>
-            <p>
-              {grant.data.operations
-                .map((value) => operations.find((operation) => operation.value === value)?.label ?? value)
-                .join(' · ')}
-            </p>
-            <p>
-              Maximum {grant.data.max_runs} admitted runs. Each run: {grant.data.max_calls} calls ·{' '}
-              {grant.data.max_tokens.toLocaleString('en-US')} tokens · ${grant.data.max_cost_usd.toFixed(2)}{' '}
-              model API cost · {grant.data.active_seconds}s active.
-            </p>
-            <p>
-              Expires <time dateTime={grant.expires_at}>{new Date(grant.expires_at).toLocaleString()}</time>
-            </p>
-            <button
-              className="button small danger-quiet"
-              disabled={
-                !connected || busy || !!grant.revoked_at || Date.parse(grant.expires_at) <= Date.now()
-              }
+    <Card className="@container gap-5" aria-label="Inbound delegated access">
+      <SectionHeading
+        className="items-start [&>:first-child]:flex-1 [&>:first-child]:basis-72"
+        title="Inbound access"
+        description="Issue a separate credential for an external agent to use this factory. Grants cover selected projects and assigned runs; they never reuse your owner credential or change network exposure."
+        actions={
+          <>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              disabled={busy || loading || !connected}
+              onClick={() => void refresh()}
+            >
+              Refresh access
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              disabled={busy || !loaded || !connected || !projects.length}
               onClick={() => {
-                setError('');
-                setRevoking(grant);
+                if (!uncertain) {
+                  setDraft(initial());
+                  setApproved(false);
+                  setError('');
+                }
+                setEditing(true);
               }}
             >
-              Revoke {grant.principal}
-            </button>
-          </article>
-        ))}
-      </div>
+              {uncertain ? 'Resolve pending issuance' : 'Issue access'}
+            </Button>
+          </>
+        }
+      />
+      {!connected && (
+        <Notice tone="warning" role="status">
+          Disconnected. Saved metadata remains available; issuing and revoking access are disabled.
+        </Notice>
+      )}
+      {loading && <LoadingState label="Loading access metadata…" />}
+      {notice && (
+        <Notice tone="neutral" role="status">
+          {notice}
+        </Notice>
+      )}
+      {error && !editing && !revoking && (
+        <Notice tone="danger" role="alert">
+          {error}
+        </Notice>
+      )}
+      {loaded && !grants.length && <EmptyState title="No delegated access issued." />}
+      {grants.length > 0 && (
+        <div className="grid min-w-0 gap-3 @3xl:grid-cols-2">
+          {grants.map((grant) => (
+            <article
+              key={grant.id}
+              className="grid min-w-0 content-start gap-3 rounded-lg border border-border bg-secondary/40 p-4"
+            >
+              <header className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+                <strong className="text-sm font-semibold [overflow-wrap:anywhere]">{grant.principal}</strong>
+                <Badge variant={statusTone[status(grant, now)]}>{status(grant, now)}</Badge>
+              </header>
+              <div className="grid min-w-0 gap-1.5 text-sm text-muted-foreground [overflow-wrap:anywhere]">
+                <p>
+                  Projects:{' '}
+                  {grant.data.projects
+                    .map((id) => projects.find((project) => project.id === id)?.name ?? id)
+                    .join(', ')}
+                </p>
+                <p>
+                  {grant.data.operations
+                    .map((value) => operations.find((operation) => operation.value === value)?.label ?? value)
+                    .join(' · ')}
+                </p>
+                <p>
+                  Maximum {grant.data.max_runs} admitted runs. Each run: {grant.data.max_calls} calls ·{' '}
+                  {grant.data.max_tokens.toLocaleString('en-US')} tokens · $
+                  {grant.data.max_cost_usd.toFixed(2)} model API cost · {grant.data.active_seconds}s active.
+                </p>
+                <p>
+                  Expires{' '}
+                  <time dateTime={grant.expires_at}>{new Date(grant.expires_at).toLocaleString()}</time>
+                </p>
+              </div>
+              <div>
+                <Button
+                  type="button"
+                  variant="danger"
+                  size="sm"
+                  disabled={!connected || busy || !!grant.revoked_at || expired(grant, now)}
+                  onClick={() => {
+                    setError('');
+                    setRevoking(grant);
+                  }}
+                >
+                  Revoke {grant.principal}
+                </Button>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
       <Dialog
         open={editing}
         onClose={() => {
@@ -278,19 +321,28 @@ export default function InboundAccessPanel({
         }
       >
         <form
+          className="grid min-w-0 gap-4"
           onSubmit={(event) => {
             event.preventDefault();
             void issue();
           }}
         >
-          {error && <p role="alert">{error}</p>}
-          {!connected && <p role="status">Disconnected. Your draft is retained.</p>}
-          <fieldset className="mutation-fields" disabled={busy || !connected || uncertain}>
+          {error && (
+            <Notice tone="danger" role="alert">
+              {error}
+            </Notice>
+          )}
+          {!connected && (
+            <Notice tone="warning" role="status">
+              Disconnected. Your draft is retained.
+            </Notice>
+          )}
+          <fieldset className="grid min-w-0 gap-5" disabled={busy || !connected || uncertain}>
             <Field
               label="External principal"
               hint="A distinct name using letters, numbers, underscores, dots or hyphens. Owner, admin, system and supervisor are reserved."
             >
-              <input
+              <Input
                 required
                 maxLength={100}
                 pattern={'[A-Za-z0-9_.\\-]+'}
@@ -298,56 +350,50 @@ export default function InboundAccessPanel({
                 onChange={(event) => setDraft({ ...draft, principal: event.target.value })}
               />
             </Field>
-            <fieldset>
-              <legend>Allowed projects · up to 30</legend>
+            <FieldGroup legend="Allowed projects · up to 30">
               {projects.map((project) => (
-                <label className="agent-check" key={project.id}>
-                  <input
-                    type="checkbox"
-                    checked={draft.projects.includes(project.id)}
-                    onChange={(event) =>
-                      setDraft({
-                        ...draft,
-                        projects: event.target.checked
-                          ? [...draft.projects, project.id]
-                          : draft.projects.filter((id) => id !== project.id),
-                      })
-                    }
-                  />
-                  {project.name}
-                </label>
+                <CheckField
+                  key={project.id}
+                  label={project.name}
+                  checked={draft.projects.includes(project.id)}
+                  onChange={(event) =>
+                    setDraft({
+                      ...draft,
+                      projects: event.target.checked
+                        ? [...draft.projects, project.id]
+                        : draft.projects.filter((id) => id !== project.id),
+                    })
+                  }
+                />
               ))}
-            </fieldset>
-            <fieldset>
-              <legend>Allowed operations</legend>
+            </FieldGroup>
+            <FieldGroup legend="Allowed operations">
               {operations.map((operation) => (
-                <label className="agent-check" key={operation.value}>
-                  <input
-                    type="checkbox"
-                    checked={draft.operations.includes(operation.value)}
-                    onChange={(event) =>
-                      setDraft({
-                        ...draft,
-                        operations: event.target.checked
-                          ? [...draft.operations, operation.value]
-                          : draft.operations.filter((value) => value !== operation.value),
-                      })
-                    }
-                  />
-                  {operation.label}
-                </label>
+                <CheckField
+                  key={operation.value}
+                  label={operation.label}
+                  checked={draft.operations.includes(operation.value)}
+                  onChange={(event) =>
+                    setDraft({
+                      ...draft,
+                      operations: event.target.checked
+                        ? [...draft.operations, operation.value]
+                        : draft.operations.filter((value) => value !== operation.value),
+                    })
+                  }
+                />
               ))}
-              <p>
+              <p className="text-xs text-muted-foreground">
                 Inspection, answers and cancellation apply only to runs assigned to this grant. Answers can
                 clarify work; they cannot approve permissions, architecture or publication. Answers and
                 cancellation also require explicitly selecting Inspect assigned runs.
               </p>
-            </fieldset>
+            </FieldGroup>
             <Field
               label="Expires after · seconds"
               hint="60–86,400 seconds (up to 24 hours). Expiry blocks further delegated effects."
             >
-              <input
+              <Input
                 type="number"
                 required
                 min={60}
@@ -357,59 +403,53 @@ export default function InboundAccessPanel({
                 onChange={(event) => setDraft({ ...draft, expires_in: Number(event.target.value) })}
               />
             </Field>
-            <fieldset>
-              <legend>Finite admission and per-run ceilings</legend>
-              <p>
+            <FieldGroup legend="Finite admission and per-run ceilings">
+              <p className="text-xs text-muted-foreground">
                 These ceilings apply to each admitted run. Maximum admitted runs bounds the number of runs for
                 the whole grant. Zero USD permits no paid model API spend.
               </p>
-              <div className="operator-grid">
-                {ceilings.map((field) => (
-                  <Field key={field.key} label={field.label}>
-                    <input
-                      type="number"
-                      required
-                      min={field.min}
-                      max={field.max}
-                      step={'step' in field ? field.step : 1}
-                      value={draft[field.key]}
-                      onChange={(event) => setDraft({ ...draft, [field.key]: Number(event.target.value) })}
-                    />
-                  </Field>
-                ))}
+              <div className="@container">
+                <div className="grid gap-4 @md:grid-cols-2">
+                  {ceilings.map((field) => (
+                    <Field key={field.key} label={field.label}>
+                      <Input
+                        type="number"
+                        required
+                        min={field.min}
+                        max={field.max}
+                        step={'step' in field ? field.step : 1}
+                        value={draft[field.key]}
+                        onChange={(event) => setDraft({ ...draft, [field.key]: Number(event.target.value) })}
+                      />
+                    </Field>
+                  ))}
+                </div>
               </div>
-            </fieldset>
-            <label className="agent-check">
-              <input
-                type="checkbox"
-                checked={approved}
-                onChange={(event) => setApproved(event.target.checked)}
-              />
-              I authorize this principal to use only these projects, operations and finite limits.
-            </label>
-            <div className="dialog-actions">
-              <button
-                className="button primary"
-                type="submit"
-                disabled={!valid || !approved || busy || !connected}
-              >
+            </FieldGroup>
+            <CheckField
+              label="I authorize this principal to use only these projects, operations and finite limits."
+              checked={approved}
+              onChange={(event) => setApproved(event.target.checked)}
+            />
+            <DialogActions>
+              <Button variant="primary" type="submit" disabled={!valid || !approved || busy || !connected}>
                 Issue scoped credential
-              </button>
-            </div>
+              </Button>
+            </DialogActions>
           </fieldset>
           {uncertain && (
-            <div className="dialog-actions">
-              <button
+            <DialogActions>
+              <Button
                 type="button"
-                className="button"
+                variant="secondary"
                 disabled={busy || !connected}
                 onClick={() => void issue()}
               >
                 Retry same issuance request
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
-                className="button"
+                variant="secondary"
                 disabled={busy}
                 onClick={() => {
                   setEditing(false);
@@ -417,8 +457,8 @@ export default function InboundAccessPanel({
                 }}
               >
                 Inspect access list
-              </button>
-            </div>
+              </Button>
+            </DialogActions>
           )}
         </form>
       </Dialog>
@@ -429,8 +469,8 @@ export default function InboundAccessPanel({
         description="This credential is available once. Closing this dialog clears it from the panel; it cannot be retrieved from the access list."
       >
         {receipt && (
-          <>
-            <p>
+          <div className="grid min-w-0 gap-4">
+            <p className="text-sm">
               Issued to <strong>{receipt.principal}</strong>. Expires{' '}
               {new Date(receipt.expires_at).toLocaleString()}. Use only with the factory’s existing A2A
               endpoint; issuance does not expose a listener or change routing.
@@ -438,21 +478,23 @@ export default function InboundAccessPanel({
             {receipt.token ? (
               <>
                 <Field label="New delegated credential">
-                  <input
+                  <Input
                     type={revealed ? 'text' : 'password'}
+                    className="font-mono"
                     readOnly
                     autoComplete="off"
                     spellCheck={false}
                     value={receipt.token}
                   />
                 </Field>
-                <div className="operator-actions">
-                  <button type="button" className="button" onClick={() => setRevealed(!revealed)}>
+                <div className="flex flex-wrap gap-2">
+                  <Button type="button" variant="secondary" size="sm" onClick={() => setRevealed(!revealed)}>
                     {revealed ? 'Hide credential' : 'Reveal credential'}
-                  </button>
-                  <button
+                  </Button>
+                  <Button
                     type="button"
-                    className="button"
+                    variant="secondary"
+                    size="sm"
                     onClick={async () => {
                       try {
                         await navigator.clipboard.writeText(receipt.token!);
@@ -464,35 +506,41 @@ export default function InboundAccessPanel({
                     }}
                   >
                     Copy credential
-                  </button>
+                  </Button>
                 </div>
-                {copyNotice && <p role="status">{copyNotice}</p>}
+                {copyNotice && (
+                  <Notice tone="neutral" role="status">
+                    {copyNotice}
+                  </Notice>
+                )}
               </>
             ) : (
-              <p role="status">
+              <Notice tone="warning" role="status">
                 The original grant was recovered. Its credential cannot be retrieved or shown again. Inspect
                 or revoke this grant before explicitly issuing replacement access.
-              </p>
+              </Notice>
             )}
-            <p>
-              Grant ID: <code>{receipt.id}</code>
+            <p className="text-sm text-muted-foreground">
+              Grant ID: <code className="font-mono text-xs text-foreground">{receipt.id}</code>
             </p>
-            <button
-              type="button"
-              className="button danger-quiet"
-              disabled={!connected || busy || !grants.some((grant) => grant.id === receipt.id)}
-              onClick={() => {
-                const grant = grants.find((item) => item.id === receipt.id);
-                if (grant) {
-                  closeReceipt();
-                  setError('');
-                  setRevoking(grant);
-                }
-              }}
-            >
-              Revoke this access
-            </button>
-          </>
+            <DialogActions>
+              <Button
+                type="button"
+                variant="danger"
+                disabled={!connected || busy || !grants.some((grant) => grant.id === receipt.id)}
+                onClick={() => {
+                  const grant = grants.find((item) => item.id === receipt.id);
+                  if (grant) {
+                    closeReceipt();
+                    setError('');
+                    setRevoking(grant);
+                  }
+                }}
+              >
+                Revoke this access
+              </Button>
+            </DialogActions>
+          </div>
         )}
       </Dialog>
       <Dialog
@@ -506,28 +554,34 @@ export default function InboundAccessPanel({
         description="Revocation blocks future delegated authorization checks. Saved run evidence remains available."
       >
         {revoking && (
-          <>
-            <p>
+          <div className="grid min-w-0 gap-4">
+            <p className="text-sm">
               Revoke <strong>{revoking.principal}</strong> for {revoking.data.projects.length} project(s)?
               This cannot restore or reveal its credential.
             </p>
-            {error && <p role="alert">{error}</p>}
-            {!connected && (
-              <p role="status">Disconnected. Revocation is disabled until connection returns.</p>
+            {error && (
+              <Notice tone="danger" role="alert">
+                {error}
+              </Notice>
             )}
-            <div className="dialog-actions">
-              <button
+            {!connected && (
+              <Notice tone="warning" role="status">
+                Disconnected. Revocation is disabled until connection returns.
+              </Notice>
+            )}
+            <DialogActions>
+              <Button
                 type="button"
-                className="button danger"
+                variant="danger"
                 disabled={busy || !connected}
                 onClick={() => void revoke()}
               >
                 Confirm revocation
-              </button>
-            </div>
-          </>
+              </Button>
+            </DialogActions>
+          </div>
         )}
       </Dialog>
-    </section>
+    </Card>
   );
 }

@@ -7,7 +7,7 @@ from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse, RedirectResponse, Response
 from pydantic.json_schema import models_json_schema
 
 from sabre import __version__
@@ -92,6 +92,28 @@ class FactoryAPI(FastAPI):
         return schema
 
 
+_API_PREFIXES = ("/api/", "/mcp", "/internal/", "/delegated/", "/health")
+
+
+def canonical_console_url(request: Request, allowed_origins) -> str | None:
+    """Send console pages opened on localhost to 127.0.0.1.
+
+    The paired-browser cookie belongs to the exact host it was set on, and the launcher pairs
+    127.0.0.1. Without this, http://localhost:8000 shows the pairing screen to a paired browser.
+    Only page navigations move; API, MCP and health requests are answered where they arrive.
+    """
+    if request.method not in {"GET", "HEAD"} or request.url.path.startswith(_API_PREFIXES):
+        return None
+    if request.url.hostname != "localhost":
+        return None
+    port = request.url.port
+    target = f"http://127.0.0.1:{port}" if port else "http://127.0.0.1"
+    if target not in (allowed_origins or []):
+        return None
+    query = f"?{request.url.query}" if request.url.query else ""
+    return f"{target}{request.url.path}{query}"
+
+
 def create_app(service=None, config=None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(application):
@@ -156,6 +178,10 @@ def create_app(service=None, config=None) -> FastAPI:
 
     @application.middleware("http")
     async def authorize(request: Request, call_next):
+        config = application.state.config
+        canonical = canonical_console_url(request, getattr(config, "allowed_origins", None))
+        if canonical:
+            return RedirectResponse(canonical, status_code=308)
         try:
             response = await authorize_request(request, call_next)
         except DomainError as error:

@@ -63,7 +63,7 @@ class ToolCatalog:
         self.tools[definition.name] = definition
 
     async def invoke(self, name: str, arguments: dict, role: str, *, allow_external_write=False):
-        internal = {"list_files", "read_file", "read_files", "search_source", "read_file_range", "write_file", "execute", "prepare_dependencies", "resolve_dependencies", "read_context", "read_memory", "edit_source"}
+        internal = {"list_files", "read_file", "read_files", "search_source", "read_file_range", "write_file", "execute", "prepare_dependencies", "resolve_dependencies", "read_context", "read_memory", "edit_source", "record_note"}
         with span("tool.call", tool=name if name in internal else "mcp", role=role):
             async with self.observer(name) if self.observer else nullcontext() as boundary:
                 result = await guarded_call(self._invoke, self.guard, "TOOL_EXECUTION_FAILED", name, arguments, role, allow_external_write=allow_external_write)
@@ -267,6 +267,10 @@ def workspace_tools(executor, work_id: str, guard: SecretGuard | None = None,
         return {"files": results}
 
     async def write_file(path: str, content: str):
+        if content.lstrip().startswith('{"sabre_context_reference"'):
+            # Earlier write content may be shown as a reference; copying one would destroy the file.
+            raise DomainError("CONTEXT_REFERENCE_CONTENT", "This content is a historical context reference, not file content. "
+                              "Recover the original with read_context or write the intended content", 422)
         await executor.write_file(work_id, path, content)
         return {"written": True}
 

@@ -86,7 +86,7 @@ function setup(conflict = false) {
 it('shows all seven registered specialties, keyboard tabs and the developer architecture / implementation chain', async () => {
   setup();
   const user = userEvent.setup();
-  const list = await screen.findByLabelText('Local specialists');
+  const list = await screen.findByRole('complementary', { name: 'Local specialists' });
   expect(within(list).getAllByRole('button')).toHaveLength(7);
   for (const name of ['PM', 'Designer', 'Developer', 'QA', 'Supervisor', 'DevOps', 'CISO'])
     expect(within(list).getByRole('button', { name: new RegExp(name) })).toBeVisible();
@@ -115,9 +115,9 @@ it('keeps a saved draft separate from the immutable published procedure until ex
     'Synthetic published procedure for Developer.',
   );
   await user.click(screen.getByRole('tab', { name: 'Instructions & skills' }));
-  expect(within(screen.getByRole('tabpanel')).getByLabelText('Instructions')).toHaveValue(
-    'Synthetic published procedure for Developer.',
-  );
+  expect(
+    within(screen.getByRole('tabpanel', { name: 'Instructions & skills' })).getByLabelText('Instructions'),
+  ).toHaveValue('Synthetic published procedure for Developer.');
   await user.click(screen.getByRole('tab', { name: 'Versions' }));
   await user.click(screen.getByRole('button', { name: 'Validate draft' }));
   await screen.findByText('Draft validation passed.');
@@ -126,9 +126,9 @@ it('keeps a saved draft separate from the immutable published procedure until ex
   expect(screen.getByRole('button', { name: /Version 1/ })).toBeVisible();
   expect(screen.getByRole('button', { name: /Version 2/ })).toBeVisible();
   await user.click(screen.getByRole('tab', { name: 'Instructions & skills' }));
-  expect(within(screen.getByRole('tabpanel')).getByLabelText('Instructions')).toHaveValue(
-    'Synthetic changed handoff with evidence.',
-  );
+  expect(
+    within(screen.getByRole('tabpanel', { name: 'Instructions & skills' })).getByLabelText('Instructions'),
+  ).toHaveValue('Synthetic changed handoff with evidence.');
   expect(writes).toHaveLength(3);
   expect((writes[0].body as AgentDraftSave).expected_revision).toBe(0);
 });
@@ -156,7 +156,7 @@ it('disables local mutations while disconnected and mounts the external speciali
   await screen.findByRole('button', { name: 'Edit draft' });
   view.rerender(<AgentsConsole api={api} projects={[]} connected={false} />);
   expect(screen.getByRole('button', { name: 'Edit draft' })).toBeDisabled();
-  await user.click(screen.getByRole('button', { name: 'External · MCP / A2A' }));
+  await user.click(screen.getByRole('tab', { name: 'External · MCP / A2A' }));
   await waitFor(() => expect(screen.getByRole('heading', { name: 'External specialists' })).toBeVisible());
   expect(screen.getByRole('button', { name: 'Register A2A agent' })).toBeDisabled();
 });

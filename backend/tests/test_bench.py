@@ -8,7 +8,7 @@ from sabre.models import DomainError
 
 def test_suite_tasks_are_valid_and_reference_existing_fixtures():
     tasks = load_tasks(SUITE)
-    assert {task.id for task in tasks} >= {"patch-rounding", "patch-discount", "audit-pricing"}
+    assert {task.id for task in tasks} >= {"patch-rounding", "patch-discount", "patch-discount-repair", "audit-pricing"}
     for task in tasks:
         assert (SUITE / "repos" / task.repo).is_dir()
         for source in task.grader.files.values():
@@ -31,10 +31,15 @@ async def test_reference_policy_completes_every_task_through_the_real_factory_an
         assert result["calls"]["total"] >= 4 and result["tokens"]["reserved_total"] > result["tokens"]["estimated_total"] > 0
         assert result["context"]["sent_bytes_max"] > 0 and result["tools"]["output_bytes"] > 0
         assert set(result["probes"]) == {"developer_receives_task_acceptance", "developer_receives_task_scope",
-                                         "deterministic_gates_before_model_qa", "qa_receives_gate_results"}
+                                         "deterministic_gates_before_model_qa", "qa_receives_gate_results",
+                                         "repair_receives_work_notes"}
         applicable = result["mode"] != "audit"
         assert all(isinstance(value, bool) if applicable or not name.startswith("developer_") else value is None
-                   for name, value in result["probes"].items())
+                   for name, value in result["probes"].items() if name != "repair_receives_work_notes")
+        # Only the repair fixture runs a second developer attempt; elsewhere the probe is not applicable.
+        repaired = result["task"] == "patch-discount-repair"
+        assert result["probes"]["repair_receives_work_notes"] is (True if repaired else None)
+        assert result["work_notes"] == ({"scopes": 1, "notes": 1} if repaired else {"scopes": 0, "notes": 0})
         assert set(result["budget_feasibility"]) == {"reservation_at_context_limit", "budget_max_tokens", "fits"}
         # Loop-correctness properties: the planned task reaches the developer, deterministic gates
         # run before model QA and reach it, and one call at the context ceiling fits the budget.
@@ -46,6 +51,19 @@ async def test_reference_policy_completes_every_task_through_the_real_factory_an
     assert audit["grade"]["source_unchanged"] and "developer" not in audit["calls"]["by_role"]
     patch = next(result for result in report["tasks"] if result["task"] == "patch-rounding")
     assert patch["stages"][-1] == "remember" and "commit" in patch["stages"]
+    repair = next(result for result in report["tasks"] if result["task"] == "patch-discount-repair")
+    assert repair["calls"]["by_role"]["developer"] > patch["calls"]["by_role"]["developer"]
+    assert repair["tools"]["calls"]["record_note"] == 1 and repair["stages"].count("implement") == 2
+
+
+async def test_repair_attempt_without_its_note_repeats_the_dead_end(monkeypatch):
+    from sabre.work_notes import WorkNotes
+    # Without injected notes the reference policy cannot know its first approach failed.
+    monkeypatch.setattr(WorkNotes, "brief", lambda self: None)
+    report = await run_suite(SUITE, ["patch-discount-repair"])
+    result = report["tasks"][0]
+    assert result["status"] == "blocked" and result["error_code"] == "TASK_REJECTED"
+    assert result["probes"]["repair_receives_work_notes"] is False
 
 
 async def test_a_wrong_reference_fails_the_deterministic_grader(tmp_path):

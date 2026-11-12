@@ -1,12 +1,9 @@
 /*
- * Single stylesheet entry, imported first by main.tsx.
- *
- * Layer order: Tailwind's theme and Preflight (base), then the legacy screen sheets,
- * then components and utilities. Utilities always win; legacy rules still override
- * Preflight on screens that have not migrated. Each legacy sheet is wrapped in
- * @layer legacy and is deleted when its screen moves to Tailwind and shadcn.
+ * Single stylesheet entry, imported first by main.tsx: Tailwind's theme and Preflight, the
+ * SABRE tokens, a few element defaults, then components and utilities. Screens style
+ * themselves with utilities and the shared components in src/components.
  */
-@layer theme, base, legacy, components, utilities;
+@layer theme, base, components, utilities;
 
 @import 'tailwindcss';
 @import 'tw-animate-css';
@@ -44,6 +41,19 @@
   pre,
   samp {
     font-family: var(--font-mono);
+  }
+
+  /* Bare links in prose keep the link colour; styled links set their own. */
+  a:not([class]) {
+    color: var(--link);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+
+  button:not(:disabled),
+  [role='button']:not([aria-disabled='true']),
+  summary {
+    cursor: pointer;
   }
 
   /* One focus ring for every interactive element. */

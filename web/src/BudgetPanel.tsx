@@ -15,8 +15,20 @@ import Dialog from './components/Dialog';
 import Field from './components/FormField';
 import { currentBlocker, isBudgetCode, isClosed } from './runState';
 import Select from './components/Select';
-import './BudgetPanel.css';
 import BudgetBlockReason from './BudgetBlockReason';
+import CheckField from './components/CheckField';
+import Disclosure from './components/Disclosure';
+import Notice from './components/Notice';
+import { Eyebrow } from './components/PageHeader';
+import {
+  Table,
+  TableBody,
+  TableCaption,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from './components/ui/table';
 
 const labels: Record<BudgetMetric, string> = {
   tokens: 'Tokens',
@@ -25,6 +37,8 @@ const labels: Record<BudgetMetric, string> = {
   repairs: 'Repair cycles',
 };
 const metrics = Object.keys(labels) as BudgetMetric[];
+const note = 'text-xs leading-relaxed text-muted-foreground';
+const cell = 'whitespace-nowrap tabular-nums [overflow-wrap:normal]';
 type Mode = 'bounded' | 'reserve' | 'uncapped';
 type Editor = {
   type: 'amend' | 'reconcile';
@@ -92,13 +106,18 @@ export default function BudgetPanel({
       setLoading(false);
     }
   }, [api, work.id]);
-  useEffect(() => {
-    let active = true;
+  // Another run or a newer run revision discards the snapshot and any open editor before rendering.
+  const [source, setSource] = useState({ api, id: work.id, refreshKey });
+  if (source.api !== api || source.id !== work.id || source.refreshKey !== refreshKey) {
+    setSource({ api, id: work.id, refreshKey });
     setLoading(true);
     setError('');
     setBudget(null);
     setEditor(null);
     setCandidate(null);
+  }
+  useEffect(() => {
+    let active = true;
     void api
       .workBudget(work.id)
       .then((value) => {
@@ -234,53 +253,66 @@ export default function BudgetPanel({
   };
 
   return (
-    <section className="budget-panel" aria-label="Run budget limits">
-      <header className="budget-panel-heading">
-        <div>
-          <h3>Run limits</h3>
-          <p>Independent ceilings and recorded owner authorizations.</p>
+    <section className="grid min-w-0 gap-4" aria-label="Run budget limits">
+      <header className="flex min-w-0 flex-wrap items-start justify-between gap-3">
+        <div className="grid min-w-0 gap-1">
+          <h3 className="text-base font-semibold">Run limits</h3>
+          <p className={note}>Independent ceilings and recorded owner authorizations.</p>
         </div>
-        <Button type="button" className="button small" disabled={loading || busy} onClick={() => void load()}>
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          disabled={loading || busy}
+          onClick={() => void load()}
+        >
           Refresh limits
         </Button>
       </header>
       {!connected && (
-        <p className="notice warning" role="status">
+        <Notice tone="warning" role="status">
           Disconnected. Budget changes are unavailable; the displayed snapshot may be stale.
-        </p>
+        </Notice>
       )}
       {error && !editor && (
-        <p className="notice error" role="alert">
+        <Notice tone="danger" role="alert">
           {error}
-        </p>
+        </Notice>
       )}
       {notice && (
-        <p className="notice" role="status">
+        <Notice tone="neutral" role="status">
           {notice}
-        </p>
+        </Notice>
       )}
       {loading && !budget ? (
-        <p role="status">Loading recorded limits…</p>
+        <p role="status" className="text-sm text-muted-foreground">
+          Loading recorded limits…
+        </p>
       ) : !budget ? (
-        <p>No budget snapshot available.</p>
+        <p className="text-sm text-muted-foreground">No budget snapshot available.</p>
       ) : (
         <>
           {budgetBlocked && (
-            <section className="budget-decision" aria-label="Budget decision">
-              <div>
-                <span className="eyebrow">Operator decision required</span>
-                <h3>Budget authorization required — choose how to continue</h3>
-                <p>
+            <section
+              className="grid min-w-0 gap-4 rounded-lg border border-primary/50 bg-accent p-5"
+              aria-label="Budget decision"
+            >
+              <div className="grid gap-1.5">
+                <Eyebrow>Operator decision required</Eyebrow>
+                <h3 className="text-lg leading-snug font-semibold">
+                  Budget authorization required — choose how to continue
+                </h3>
+                <p className="max-w-[78ch] text-sm text-muted-foreground">
                   The next step was blocked by a budget check. Recorded usage can still be below a ceiling: a
                   model call must also fit its reservation before it starts. Review the recorded reason before
                   changing a limit. Other limits, paid API spending and factory policies still apply. Nothing
                   changes until you review and save the authorization.
                 </p>
               </div>
-              <div className="budget-panel-actions">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
                 <Button
                   type="button"
-                  className="button primary"
+                  variant="primary"
                   disabled={!canAmend || busy}
                   onClick={() => open('amend', 'bounded')}
                 >
@@ -288,90 +320,98 @@ export default function BudgetPanel({
                 </Button>
                 <Button
                   type="button"
-                  className="button"
+                  variant="secondary"
                   disabled={!canAmend || busy}
                   onClick={() => open('amend', 'uncapped')}
                 >
                   Remove a ceiling
                 </Button>
-                <span className="budget-explanation">Or leave this run blocked and decide later.</span>
+                <span className={note}>Or leave this run blocked and decide later.</span>
               </div>
             </section>
           )}
           {budget.denial && <BudgetBlockReason denial={budget.denial} closed={closed} />}
-          <div className="budget-snapshot">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-muted-foreground">
             <span>Authorization revision {budget.revision}</span>
             <span>
               {closed ? 'Last phase' : 'Pending step'}: {budget.pending_step}
             </span>
             {budget.limiting_metric && budget.limiting_metric !== 'exhausted' && (
-              <strong>
+              <strong className="font-semibold text-foreground">
                 Limiting metric: {labels[budget.limiting_metric as BudgetMetric] ?? budget.limiting_metric}
               </strong>
             )}
           </div>
-          <div className="budget-table-wrap">
-            <table>
-              <caption>Current run budget snapshot</caption>
-              <thead>
-                <tr>
-                  <th>Metric</th>
-                  <th>Used</th>
-                  <th>Reserved</th>
-                  <th>Remaining</th>
-                  <th>Primary</th>
-                  <th>Reserve</th>
-                  <th>Absolute</th>
-                </tr>
-              </thead>
-              <tbody>
-                {metrics.map((metric) => {
-                  const row = budget.metrics[metric];
-                  if (!row) return null;
-                  return (
-                    <tr key={metric}>
-                      <th scope="row">{labels[metric]}</th>
-                      <td>
-                        {row.used === null
-                          ? 'Unknown'
-                          : `${number(row.used)}${row.unknown ? ' measured · incomplete' : ''}`}
-                      </td>
-                      <td>
-                        {number(row.reserved)}
-                        {row.unknown && <small>Unsettled usage</small>}
-                      </td>
-                      <td>
-                        {row.remaining === null
-                          ? row.policy.primary === null
-                            ? 'Uncapped'
-                            : 'Unknown'
-                          : number(row.remaining)}
-                      </td>
-                      <td>{row.policy.primary === null ? 'Uncapped' : number(row.policy.primary)}</td>
-                      <td>{number(row.policy.reserve)}</td>
-                      <td>{row.policy.absolute === null ? 'Uncapped' : number(row.policy.absolute)}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-          <p className="budget-explanation">
+          <Table className="text-xs">
+            <TableCaption className="mt-0 caption-top border-b border-border px-4 py-2.5 text-left text-xs">
+              Current run budget snapshot
+            </TableCaption>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Metric</TableHead>
+                <TableHead>Used</TableHead>
+                <TableHead>Reserved</TableHead>
+                <TableHead>Remaining</TableHead>
+                <TableHead>Primary</TableHead>
+                <TableHead>Reserve</TableHead>
+                <TableHead>Absolute</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {metrics.map((metric) => {
+                const row = budget.metrics[metric];
+                if (!row) return null;
+                return (
+                  <TableRow key={metric}>
+                    <TableHead scope="row" className="py-3 align-top text-foreground">
+                      {labels[metric]}
+                    </TableHead>
+                    <TableCell className={cell}>
+                      {row.used === null
+                        ? 'Unknown'
+                        : `${number(row.used)}${row.unknown ? ' measured · incomplete' : ''}`}
+                    </TableCell>
+                    <TableCell className={cell}>
+                      {number(row.reserved)}
+                      {row.unknown && (
+                        <small className="mt-1 block text-muted-foreground">Unsettled usage</small>
+                      )}
+                    </TableCell>
+                    <TableCell className={cell}>
+                      {row.remaining === null
+                        ? row.policy.primary === null
+                          ? 'Uncapped'
+                          : 'Unknown'
+                        : number(row.remaining)}
+                    </TableCell>
+                    <TableCell className={cell}>
+                      {row.policy.primary === null ? 'Uncapped' : number(row.policy.primary)}
+                    </TableCell>
+                    <TableCell className={cell}>{number(row.policy.reserve)}</TableCell>
+                    <TableCell className={cell}>
+                      {row.policy.absolute === null ? 'Uncapped' : number(row.policy.absolute)}
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+          <p className={note}>
             {budget.token_prevention === 'cli_post_invocation'
               ? 'CLI aggregate token usage can be known only after an invocation; reservations and per-operation safeguards still apply.'
               : 'Dispatch uses bounded reservations before provider calls.'}{' '}
             Paid API spend remains separately authorized.
           </p>
           {closed ? (
-            <p className="budget-explanation">
+            <p className={note}>
               This run is {work.status === 'cancelled' ? 'cancelled' : 'completed'}. Limits and usage are a
               final record.
             </p>
           ) : (
-            <div className="budget-panel-actions">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
               <Button
                 type="button"
-                className="button"
+                variant="secondary"
                 disabled={!canAmend || busy}
                 onClick={() => open('amend')}
               >
@@ -379,36 +419,43 @@ export default function BudgetPanel({
               </Button>
               <Button
                 type="button"
-                className="button"
+                variant="secondary"
                 disabled={!canAmend || busy || !budget.unsettled_usage_ids.length}
                 onClick={() => open('reconcile')}
               >
                 Review unsettled usage{budget.unreconciled_calls ? ` (${budget.unreconciled_calls})` : ''}
               </Button>
               {connected && !canAmend && (
-                <small>Pause the run before changing authorizations or reconciling usage.</small>
+                <small className={note}>
+                  Pause the run before changing authorizations or reconciling usage.
+                </small>
               )}
             </div>
           )}
-          <details className="budget-history">
-            <summary>Authorization history ({budget.authorizations.length})</summary>
+          <Disclosure
+            variant="plain"
+            summary={`Authorization history (${budget.authorizations.length})`}
+            contentClassName="gap-0 pl-0"
+          >
             {!budget.authorizations.length ? (
-              <p>No amendments or reserve activations recorded.</p>
+              <p className="text-sm text-muted-foreground">No amendments or reserve activations recorded.</p>
             ) : (
-              budget.authorizations.map((authorization) => (
-                <article key={authorization.revision}>
-                  <strong>
-                    Revision {authorization.revision} · {labels[authorization.metric]} ·{' '}
-                    {authorization.operation.replaceAll('_', ' ')}
-                  </strong>
-                  <p>{authorization.reason}</p>
-                  <code>
-                    {JSON.stringify(authorization.before)} → {JSON.stringify(authorization.after)}
-                  </code>
-                </article>
-              ))
+              <div className="grid divide-y divide-border border-y border-border">
+                {budget.authorizations.map((authorization) => (
+                  <article key={authorization.revision} className="grid min-w-0 gap-1 py-3 text-xs">
+                    <strong className="text-sm font-semibold">
+                      Revision {authorization.revision} · {labels[authorization.metric]} ·{' '}
+                      {authorization.operation.replaceAll('_', ' ')}
+                    </strong>
+                    <p>{authorization.reason}</p>
+                    <code className="block font-mono text-muted-foreground [overflow-wrap:anywhere]">
+                      {JSON.stringify(authorization.before)} → {JSON.stringify(authorization.after)}
+                    </code>
+                  </article>
+                ))}
+              </div>
             )}
-          </details>
+          </Disclosure>
         </>
       )}
       {editor && (
@@ -421,12 +468,12 @@ export default function BudgetPanel({
           description={`Run ${work.id} · authorization revision ${editor.revision}. ${editor.resume ? 'You are authorizing a resume after these limits are saved.' : 'The run stays paused unless you explicitly request a resume.'}`}
           footer={
             <>
-              <Button type="button" className="button" disabled={busy} onClick={() => void inspect()}>
+              <Button type="button" variant="secondary" disabled={busy} onClick={() => void inspect()}>
                 Inspect current limits
               </Button>
               <Button
                 type="button"
-                className="button primary"
+                variant="primary"
                 disabled={!connected || busy || (!candidate && !valid)}
                 onClick={() => void save()}
               >
@@ -443,112 +490,116 @@ export default function BudgetPanel({
             </>
           }
         >
-          {error && (
-            <p className="notice error" role="alert">
-              {error}
-            </p>
-          )}
-          {candidate && (
-            <p className="budget-explanation">
-              The submitted candidate is locked. A retry keeps the same command receipt; inspect current
-              limits before creating another candidate.
-            </p>
-          )}
-          <fieldset disabled={!connected || busy || !!candidate} className="budget-editor-fields">
-            {editor.type === 'amend' ? (
-              <>
-                <Field label="Metric">
-                  <Select
-                    value={editor.metric}
-                    onChange={(event) => selectMetric(event.target.value as BudgetMetric)}
-                  >
-                    {metrics.map((metric) => (
-                      <option key={metric} value={metric}>
-                        {labels[metric]}
-                      </option>
-                    ))}
-                  </Select>
-                </Field>
-                <Field label="Cumulative limit policy">
-                  <Select
-                    value={editor.mode}
-                    onChange={(event) => setEditor({ ...editor, mode: event.target.value as Mode })}
-                  >
-                    <option value="bounded">Bounded</option>
-                    <option value="reserve">With finite reserve</option>
-                    <option value="uncapped">No cumulative cap</option>
-                  </Select>
-                </Field>
-                {editor.mode === 'uncapped' ? (
-                  <p className="notice warning">
-                    This removes the cumulative {labels[editor.metric].toLowerCase()} ceiling. Factory policy,
-                    provider limits and cancellation still apply.
-                  </p>
-                ) : (
-                  <>
-                    <Field label="Primary ceiling">
-                      <Input
-                        type="number"
-                        min={0}
-                        max={1000000000}
-                        step={1}
-                        value={editor.primary}
-                        onChange={(event) => setEditor({ ...editor, primary: event.target.value })}
-                      />
+          <div className="grid gap-4">
+            {error && (
+              <Notice tone="danger" role="alert">
+                {error}
+              </Notice>
+            )}
+            {candidate && (
+              <p className={note}>
+                The submitted candidate is locked. A retry keeps the same command receipt; inspect current
+                limits before creating another candidate.
+              </p>
+            )}
+            <fieldset disabled={!connected || busy || !!candidate} className="grid min-w-0 gap-4">
+              {editor.type === 'amend' ? (
+                <>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <Field label="Metric">
+                      <Select
+                        value={editor.metric}
+                        onChange={(event) => selectMetric(event.target.value as BudgetMetric)}
+                      >
+                        {metrics.map((metric) => (
+                          <option key={metric} value={metric}>
+                            {labels[metric]}
+                          </option>
+                        ))}
+                      </Select>
                     </Field>
-                    {editor.mode === 'reserve' && (
-                      <Field label="Authorized finite reserve">
-                        <Input
-                          type="number"
-                          min={0}
-                          max={1000000000}
-                          step={1}
-                          value={editor.reserve}
-                          onChange={(event) => setEditor({ ...editor, reserve: event.target.value })}
-                        />
-                      </Field>
-                    )}
-                    <p>
-                      Absolute authorized ceiling:{' '}
-                      {integer(editor.primary) && (editor.mode !== 'reserve' || integer(editor.reserve))
-                        ? number(
-                            Number(editor.primary) + (editor.mode === 'reserve' ? Number(editor.reserve) : 0),
-                          )
-                        : 'Enter valid integers'}
-                      .
-                    </p>
-                  </>
-                )}
-                <p className="budget-explanation">
-                  A reserve is granted once and never replenishes automatically. Zero repair cycles permits no
-                  repair attempts.
-                </p>
-                <label className="budget-resume-choice">
-                  <Input
-                    type="checkbox"
+                    <Field label="Cumulative limit policy">
+                      <Select
+                        value={editor.mode}
+                        onChange={(event) => setEditor({ ...editor, mode: event.target.value as Mode })}
+                      >
+                        <option value="bounded">Bounded</option>
+                        <option value="reserve">With finite reserve</option>
+                        <option value="uncapped">No cumulative cap</option>
+                      </Select>
+                    </Field>
+                  </div>
+                  {editor.mode === 'uncapped' ? (
+                    <Notice tone="warning">
+                      This removes the cumulative {labels[editor.metric].toLowerCase()} ceiling. Factory
+                      policy, provider limits and cancellation still apply.
+                    </Notice>
+                  ) : (
+                    <>
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        <Field label="Primary ceiling">
+                          <Input
+                            type="number"
+                            min={0}
+                            max={1000000000}
+                            step={1}
+                            value={editor.primary}
+                            onChange={(event) => setEditor({ ...editor, primary: event.target.value })}
+                          />
+                        </Field>
+                        {editor.mode === 'reserve' && (
+                          <Field label="Authorized finite reserve">
+                            <Input
+                              type="number"
+                              min={0}
+                              max={1000000000}
+                              step={1}
+                              value={editor.reserve}
+                              onChange={(event) => setEditor({ ...editor, reserve: event.target.value })}
+                            />
+                          </Field>
+                        )}
+                      </div>
+                      <p className="text-sm">
+                        Absolute authorized ceiling:{' '}
+                        {integer(editor.primary) && (editor.mode !== 'reserve' || integer(editor.reserve))
+                          ? number(
+                              Number(editor.primary) +
+                                (editor.mode === 'reserve' ? Number(editor.reserve) : 0),
+                            )
+                          : 'Enter valid integers'}
+                        .
+                      </p>
+                    </>
+                  )}
+                  <p className={note}>
+                    A reserve is granted once and never replenishes automatically. Zero repair cycles permits
+                    no repair attempts.
+                  </p>
+                  <CheckField
+                    className="rounded-lg border border-border bg-secondary p-3.5"
+                    label="Resume this run after saving the limits"
                     checked={editor.resume}
                     disabled={!!budget?.unreconciled_calls}
                     onChange={(event) => setEditor({ ...editor, resume: event.target.checked })}
                   />
-                  <span>Resume this run after saving the limits</span>
-                </label>
-                <p className="budget-explanation">
-                  {budget?.unreconciled_calls
-                    ? 'Review unsettled usage before requesting a resume. You can still save limits now.'
-                    : 'Resuming may invoke the configured models and consume usage. Other ceilings can block the run again.'}
-                </p>
-              </>
-            ) : (
-              <>
-                <p>
-                  Retain the full selected reservations as unknown consumption. This does not report measured
-                  usage, release tokens or resume the run.
-                </p>
-                <div className="budget-usage-list">
-                  {budget?.unsettled_usage_ids.map((id) => (
-                    <label key={id}>
-                      <Input
-                        type="checkbox"
+                  <p className={note}>
+                    {budget?.unreconciled_calls
+                      ? 'Review unsettled usage before requesting a resume. You can still save limits now.'
+                      : 'Resuming may invoke the configured models and consume usage. Other ceilings can block the run again.'}
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="text-sm">
+                    Retain the full selected reservations as unknown consumption. This does not report
+                    measured usage, release tokens or resume the run.
+                  </p>
+                  <div className="grid gap-3">
+                    {budget?.unsettled_usage_ids.map((id) => (
+                      <CheckField
+                        key={id}
+                        label={<code className="font-mono text-xs [overflow-wrap:anywhere]">{id}</code>}
                         checked={editor.usageIds.includes(id)}
                         onChange={(event) =>
                           setEditor({
@@ -559,27 +610,26 @@ export default function BudgetPanel({
                           })
                         }
                       />
-                      <code>{id}</code>
-                    </label>
-                  ))}
-                </div>
-                {budget && budget.unreconciled_calls > budget.unsettled_usage_ids.length && (
-                  <small>
-                    Showing {budget.unsettled_usage_ids.length} of {budget.unreconciled_calls} unsettled
-                    calls. Other reservations remain unresolved.
-                  </small>
-                )}
-              </>
-            )}
-            <Field label="Reason for this authorization">
-              <Textarea
-                minLength={5}
-                maxLength={2000}
-                value={editor.reason}
-                onChange={(event) => setEditor({ ...editor, reason: event.target.value })}
-              />
-            </Field>
-          </fieldset>
+                    ))}
+                  </div>
+                  {budget && budget.unreconciled_calls > budget.unsettled_usage_ids.length && (
+                    <small className={note}>
+                      Showing {budget.unsettled_usage_ids.length} of {budget.unreconciled_calls} unsettled
+                      calls. Other reservations remain unresolved.
+                    </small>
+                  )}
+                </>
+              )}
+              <Field label="Reason for this authorization">
+                <Textarea
+                  minLength={5}
+                  maxLength={2000}
+                  value={editor.reason}
+                  onChange={(event) => setEditor({ ...editor, reason: event.target.value })}
+                />
+              </Field>
+            </fieldset>
+          </div>
         </Dialog>
       )}
     </section>

@@ -1,15 +1,17 @@
 import { useState } from 'react';
+import Button from './Button';
 
 export default function JsonView({ value, label = 'JSON' }: { value: unknown; label?: string }) {
   const [notice, setNotice] = useState('');
   const text = JSON.stringify(value, null, 2);
   return (
-    <div className="json-view">
-      <div className="json-view-heading">
+    <div data-slot="json-view" className="min-w-0 overflow-hidden rounded-md border border-border bg-code">
+      <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-1.5 font-mono text-xs text-muted-foreground">
         <span>{label}</span>
-        <button
-          type="button"
-          className="text-button"
+        <Button
+          variant="link"
+          size="sm"
+          className="px-0"
           onClick={() => {
             void navigator.clipboard
               .writeText(text)
@@ -18,9 +20,13 @@ export default function JsonView({ value, label = 'JSON' }: { value: unknown; la
           }}
         >
           Copy JSON
-        </button>
+        </Button>
       </div>
-      <pre tabIndex={0} aria-label={label}>
+      <pre
+        tabIndex={0}
+        aria-label={label}
+        className="max-h-120 overflow-auto p-3 font-mono text-xs leading-relaxed"
+      >
         <code>{text}</code>
       </pre>
       <span className="sr-only" role="status">
