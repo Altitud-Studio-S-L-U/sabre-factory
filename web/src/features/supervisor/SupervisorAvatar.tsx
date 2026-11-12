@@ -1,70 +1,76 @@
+import { useId } from 'react';
 import { presenceLabels, type Presence } from './presence';
 import './SupervisorAvatar.css';
 
-/** Eye shapes per state, so the state reads without colour or motion. */
+/**
+ * Eye shapes per state, so each state reads without colour or motion: open capsules at rest,
+ * lowered when listening, scanning bars while working, a glance aside while a tool runs,
+ * wide circles when the owner is needed, smiling arcs after a reply, crosses when blocked and
+ * flat lines when offline.
+ */
 function Eyes({ presence }: { presence: Presence }) {
   switch (presence) {
     case 'offline':
       return (
-        <g className="avatar-eyes" strokeWidth="2.4" strokeLinecap="round">
-          <path d="M21 33h6M37 33h6" />
+        <g className="orb-eyes" fill="none" strokeWidth="2.6" strokeLinecap="round">
+          <path d="M22.5 33h6M35.5 33h6" />
         </g>
       );
     case 'blocked':
       return (
-        <g className="avatar-eyes" strokeWidth="2.4" strokeLinecap="round">
-          <path d="M21 30l6 6M27 30l-6 6M37 30l6 6M43 30l-6 6" />
+        <g className="orb-eyes" fill="none" strokeWidth="2.4" strokeLinecap="round">
+          <path d="M23 30l5 5M28 30l-5 5M36 30l5 5M41 30l-5 5" />
         </g>
       );
     case 'done':
       return (
-        <g className="avatar-eyes" strokeWidth="2.6" strokeLinecap="round" fill="none">
-          <path d="M20 35q4-5 8 0M36 35q4-5 8 0" />
-        </g>
-      );
-    case 'using-tool':
-      return (
-        <g className="avatar-eyes avatar-eyes-scan">
-          <rect x="22" y="30" width="7" height="5" rx="2.5" />
-          <rect x="38" y="30" width="7" height="5" rx="2.5" />
-          <path d="M47 44l4 4m0-4l-4 4" strokeWidth="1.6" strokeLinecap="round" />
+        <g className="orb-eyes" fill="none" strokeWidth="2.6" strokeLinecap="round">
+          <path d="M22.5 34q3-4 6 0M35.5 34q3-4 6 0" />
         </g>
       );
     case 'working':
     case 'queued':
       return (
-        <g className="avatar-eyes avatar-eyes-scan">
-          <rect x="19" y="31" width="10" height="4" rx="2" />
-          <rect x="35" y="31" width="10" height="4" rx="2" />
+        <g className="orb-eyes orb-eyes-scan">
+          <rect x="22" y="31" width="7" height="3.6" rx="1.8" />
+          <rect x="35" y="31" width="7" height="3.6" rx="1.8" />
+        </g>
+      );
+    case 'using-tool':
+      return (
+        <g className="orb-eyes orb-eyes-aside">
+          <rect x="25" y="29.5" width="4.4" height="6.5" rx="2.2" />
+          <rect x="38" y="29.5" width="4.4" height="6.5" rx="2.2" />
         </g>
       );
     case 'needs-you':
       return (
-        <g className="avatar-eyes">
-          <circle cx="24" cy="33" r="4" />
-          <circle cx="40" cy="33" r="4" />
+        <g className="orb-eyes">
+          <circle cx="25.5" cy="32.5" r="3.4" />
+          <circle cx="38.5" cy="32.5" r="3.4" />
         </g>
       );
     case 'listening':
       return (
-        <g className="avatar-eyes avatar-eyes-down">
-          <circle cx="25" cy="34" r="3.2" />
-          <circle cx="41" cy="34" r="3.2" />
+        <g className="orb-eyes orb-eyes-down">
+          <rect x="23" y="31.5" width="5" height="5" rx="2.5" />
+          <rect x="36" y="31.5" width="5" height="5" rx="2.5" />
         </g>
       );
     default:
       return (
-        <g className="avatar-eyes avatar-eyes-blink">
-          <circle cx="24" cy="33" r="3.2" />
-          <circle cx="40" cy="33" r="3.2" />
+        <g className="orb-eyes orb-eyes-blink">
+          <rect x="23" y="28.5" width="5" height="8" rx="2.5" />
+          <rect x="36" y="28.5" width="5" height="8" rx="2.5" />
         </g>
       );
   }
 }
 
 /**
- * The Supervisor: a robot foreman in a SABRE hard hat. Decorative by default; pass
- * `labelled` to expose the state text to assistive technology.
+ * The Supervisor: a glowing orb with a calm face, in the SABRE gold. Motion and colour follow
+ * observable state only (see presence.ts); prefers-reduced-motion keeps static poses.
+ * Decorative by default; pass `labelled` to expose the state text to assistive technology.
  */
 export default function SupervisorAvatar({
   presence,
@@ -75,6 +81,7 @@ export default function SupervisorAvatar({
   size?: number;
   labelled?: boolean;
 }) {
+  const id = useId().replace(/:/g, '');
   return (
     <span className="supervisor-avatar-root" data-presence={presence} style={{ width: size, height: size }}>
       <svg
@@ -88,20 +95,46 @@ export default function SupervisorAvatar({
         aria-hidden={labelled ? undefined : true}
         focusable="false"
       >
-        {/* Head and visor */}
-        <rect className="avatar-head" x="12" y="20" width="40" height="34" rx="10" />
-        <rect className="avatar-visor" x="16" y="26" width="32" height="15" rx="7" />
-        <Eyes presence={presence} />
-        <rect className="avatar-mouth" x="27" y="46" width="10" height="2.4" rx="1.2" />
-        {/* Hard hat with the three SABRE bars and a status lamp */}
-        <path className="avatar-hat" d="M10 24c0-11 10-18 22-18s22 7 22 18z" />
-        <rect className="avatar-brim" x="6" y="22" width="52" height="5" rx="2.5" />
-        <g className="avatar-bars">
-          <path d="M23 10h3.4l-3.4 11h-3.4z" />
-          <path d="M30.3 10h3.4l-3.4 11h-3.4z" />
-          <path d="M37.6 10h3.4l-3.4 11h-3.4z" />
+        <defs>
+          <radialGradient id={`${id}-core`} cx="38%" cy="30%" r="75%">
+            <stop offset="0%" className="orb-stop-light" />
+            <stop offset="55%" className="orb-stop-mid" />
+            <stop offset="100%" className="orb-stop-deep" />
+          </radialGradient>
+          <radialGradient id={`${id}-glow`} cx="50%" cy="50%" r="50%">
+            <stop offset="60%" className="orb-glow-inner" />
+            <stop offset="100%" className="orb-glow-outer" />
+          </radialGradient>
+          <linearGradient id={`${id}-sheen`} x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stopColor="white" stopOpacity="0.55" />
+            <stop offset="60%" stopColor="white" stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        <circle className="orb-halo" cx="32" cy="32" r="31" fill={`url(#${id}-glow)`} />
+        <g className="orb-body">
+          <circle cx="32" cy="32" r="24" fill={`url(#${id}-core)`} />
+          {/* Activity ring: still at rest, sweeping while work is observed. */}
+          <circle
+            className="orb-ring"
+            cx="32"
+            cy="32"
+            r="27.5"
+            fill="none"
+            strokeWidth="1.6"
+            strokeLinecap="round"
+          />
+          <ellipse
+            cx="26"
+            cy="20"
+            rx="11"
+            ry="6.5"
+            fill={`url(#${id}-sheen)`}
+            transform="rotate(-24 26 20)"
+          />
+          <rect className="orb-visor" x="17" y="25" width="30" height="15.5" rx="7.75" />
+          <Eyes presence={presence} />
+          <circle className="orb-satellite" cx="32" cy="4.5" r="2.6" />
         </g>
-        <circle className="avatar-lamp" cx="32" cy="5" r="3.2" />
       </svg>
     </span>
   );

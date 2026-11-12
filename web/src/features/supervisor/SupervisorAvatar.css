@@ -1,116 +1,206 @@
+/* Supervisor orb. Colours come from tokens; every animation stops under reduced motion. */
 @layer components {
   .supervisor-avatar-root {
-    display: inline-flex;
+    display: inline-grid;
     flex: none;
-    --avatar-lamp: var(--success);
-    --avatar-eye: var(--info);
+    place-items: center;
+    --orb-light: oklch(0.93 0.07 85);
+    --orb-mid: var(--primary);
+    --orb-deep: oklch(0.52 0.11 62);
+    --orb-glow: oklch(0.8 0.11 80 / 0.42);
+    --orb-ring: oklch(0.86 0.09 82);
   }
   .supervisor-avatar-root svg {
     overflow: visible;
   }
-  .supervisor-avatar-root .avatar-head {
-    fill: var(--secondary);
-    stroke: var(--input);
-    stroke-width: 1.5;
+  .orb-stop-light {
+    stop-color: var(--orb-light);
   }
-  .supervisor-avatar-root .avatar-visor {
-    fill: var(--code);
-    stroke: var(--border);
+  .orb-stop-mid {
+    stop-color: var(--orb-mid);
   }
-  .supervisor-avatar-root .avatar-eyes {
-    fill: var(--avatar-eye);
-    stroke: var(--avatar-eye);
+  .orb-stop-deep {
+    stop-color: var(--orb-deep);
   }
-  .supervisor-avatar-root .avatar-mouth {
-    fill: var(--input);
+  .orb-glow-inner {
+    stop-color: var(--orb-glow);
+    stop-opacity: 1;
   }
-  .supervisor-avatar-root .avatar-hat,
-  .supervisor-avatar-root .avatar-brim {
-    fill: var(--primary);
+  .orb-glow-outer {
+    stop-color: var(--orb-glow);
+    stop-opacity: 0;
   }
-  .supervisor-avatar-root .avatar-brim {
-    opacity: 0.85;
+  .orb-visor {
+    fill: oklch(0.2 0.02 260 / 0.88);
   }
-  .supervisor-avatar-root .avatar-bars {
-    fill: var(--primary-foreground);
-    opacity: 0.75;
+  .orb-eyes {
+    fill: var(--orb-light);
+    stroke: var(--orb-light);
   }
-  .supervisor-avatar-root .avatar-lamp {
-    fill: var(--avatar-lamp);
-    stroke: var(--background);
-    stroke-width: 1.5;
+  .orb-ring {
+    stroke: var(--orb-ring);
+    opacity: 0;
+    transform-origin: 32px 32px;
+  }
+  .orb-satellite {
+    fill: var(--orb-light);
+    opacity: 0;
+    transform-origin: 32px 32px;
+  }
+  .orb-halo {
+    opacity: 0.55;
+    transform-origin: 32px 32px;
+  }
+  .orb-body {
+    transform-origin: 32px 32px;
   }
 
-  .supervisor-avatar-root[data-presence='offline'] {
-    --avatar-lamp: var(--neutral-border);
-    --avatar-eye: var(--neutral-border);
-    filter: grayscale(1);
-    opacity: 0.75;
+  /* State palettes. */
+  [data-presence='working'],
+  [data-presence='using-tool'],
+  [data-presence='queued'] {
+    --orb-glow: oklch(0.82 0.1 230 / 0.42);
+    --orb-ring: var(--info);
   }
-  .supervisor-avatar-root[data-presence='queued'],
-  .supervisor-avatar-root[data-presence='working'],
-  .supervisor-avatar-root[data-presence='using-tool'] {
-    --avatar-lamp: var(--info);
+  [data-presence='needs-you'] {
+    --orb-glow: oklch(0.86 0.12 80 / 0.6);
+    --orb-ring: var(--warning);
   }
-  .supervisor-avatar-root[data-presence='needs-you'] {
-    --avatar-lamp: var(--warning);
-    --avatar-eye: var(--warning);
+  [data-presence='done'] {
+    --orb-glow: oklch(0.85 0.1 155 / 0.5);
+    --orb-ring: var(--success);
   }
-  .supervisor-avatar-root[data-presence='blocked'] {
-    --avatar-lamp: var(--danger);
-    --avatar-eye: var(--danger);
+  [data-presence='blocked'] {
+    --orb-light: oklch(0.92 0.05 20);
+    --orb-mid: oklch(0.66 0.15 22);
+    --orb-deep: oklch(0.42 0.12 20);
+    --orb-glow: oklch(0.7 0.15 22 / 0.45);
   }
-  .supervisor-avatar-root[data-presence='done'] {
-    --avatar-eye: var(--success);
+  [data-presence='offline'] {
+    --orb-light: oklch(0.85 0.01 260);
+    --orb-mid: oklch(0.55 0.015 260);
+    --orb-deep: oklch(0.34 0.015 260);
+    --orb-glow: transparent;
+  }
+
+  [data-presence='working'] .orb-ring,
+  [data-presence='using-tool'] .orb-ring,
+  [data-presence='queued'] .orb-ring,
+  [data-presence='needs-you'] .orb-ring,
+  [data-presence='done'] .orb-ring {
+    opacity: 0.9;
+    stroke-dasharray: 44 129;
+  }
+  [data-presence='needs-you'] .orb-ring,
+  [data-presence='done'] .orb-ring {
+    stroke-dasharray: none;
+  }
+  [data-presence='using-tool'] .orb-satellite {
+    opacity: 1;
+  }
+  [data-presence='offline'] .orb-halo {
+    opacity: 0;
   }
 
   @media (prefers-reduced-motion: no-preference) {
-    .supervisor-avatar-root[data-presence='working'] .avatar-lamp,
-    .supervisor-avatar-root[data-presence='using-tool'] .avatar-lamp {
-      animation: avatar-pulse 1.2s ease-in-out infinite;
+    .orb-body {
+      animation: orb-breathe 4.8s ease-in-out infinite;
     }
-    .supervisor-avatar-root[data-presence='queued'] .avatar-lamp {
-      animation: avatar-pulse 2.4s ease-in-out infinite;
+    .orb-halo {
+      animation: orb-halo 4.8s ease-in-out infinite;
     }
-    .supervisor-avatar-root[data-presence='working'] .avatar-eyes-scan,
-    .supervisor-avatar-root[data-presence='using-tool'] .avatar-eyes-scan {
-      animation: avatar-scan 1.6s ease-in-out infinite alternate;
+    .orb-eyes-blink {
+      transform-origin: 32px 32px;
+      animation: orb-blink 6s infinite;
     }
-    .supervisor-avatar-root[data-presence='idle'] .avatar-eyes-blink {
-      transform-origin: 32px 33px;
-      animation: avatar-blink 5s ease-in-out infinite;
+    [data-presence='working'] .orb-ring,
+    [data-presence='queued'] .orb-ring,
+    [data-presence='using-tool'] .orb-ring {
+      animation: orb-spin 1.6s linear infinite;
     }
-    .supervisor-avatar-root[data-presence='needs-you'] svg {
-      animation: avatar-bob 1.8s ease-in-out infinite;
+    [data-presence='queued'] .orb-ring {
+      animation-duration: 3.2s;
+    }
+    [data-presence='using-tool'] .orb-satellite {
+      animation: orb-spin 2.4s linear infinite;
+    }
+    .orb-eyes-scan {
+      animation: orb-scan 1.4s ease-in-out infinite alternate;
+    }
+    .orb-eyes-aside {
+      animation: orb-aside 2.4s ease-in-out infinite alternate;
+    }
+    [data-presence='needs-you'] .orb-ring {
+      animation: orb-pulse 1.6s ease-out infinite;
+    }
+    [data-presence='needs-you'] .orb-halo {
+      animation: orb-halo 1.6s ease-in-out infinite;
+    }
+    [data-presence='offline'] .orb-body,
+    [data-presence='blocked'] .orb-body {
+      animation: none;
     }
   }
 
-  @keyframes avatar-pulse {
-    50% {
-      opacity: 0.35;
-    }
-  }
-  @keyframes avatar-scan {
-    from {
-      transform: translateX(-2.5px);
-    }
-    to {
-      transform: translateX(2.5px);
-    }
-  }
-  @keyframes avatar-blink {
+  @keyframes orb-breathe {
     0%,
-    92%,
+    100% {
+      transform: scale(1);
+    }
+    50% {
+      transform: scale(1.035);
+    }
+  }
+  @keyframes orb-halo {
+    0%,
+    100% {
+      opacity: 0.4;
+      transform: scale(0.96);
+    }
+    50% {
+      opacity: 0.75;
+      transform: scale(1.04);
+    }
+  }
+  @keyframes orb-blink {
+    0%,
+    94%,
     100% {
       transform: scaleY(1);
     }
-    95% {
-      transform: scaleY(0.1);
+    97% {
+      transform: scaleY(0.12);
     }
   }
-  @keyframes avatar-bob {
-    50% {
-      transform: translateY(-2px);
+  @keyframes orb-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+  @keyframes orb-scan {
+    from {
+      transform: translateX(-2.2px);
+    }
+    to {
+      transform: translateX(2.2px);
+    }
+  }
+  @keyframes orb-aside {
+    from {
+      transform: translateX(0);
+    }
+    to {
+      transform: translateX(2.6px);
+    }
+  }
+  @keyframes orb-pulse {
+    0% {
+      opacity: 0.9;
+      transform: scale(0.94);
+    }
+    100% {
+      opacity: 0;
+      transform: scale(1.12);
     }
   }
 }
