@@ -18,9 +18,6 @@
       "mcp__sabre__sabre_supervisor_messages"
     ],
     "deny": [
-      "Bash(git push:*)",
-      "Bash(git push)",
-      "Bash(gh pr merge:*)",
       "Bash(gh release:*)",
       "Bash(gh repo edit:*)",
       "Bash(docker volume rm:*)",
