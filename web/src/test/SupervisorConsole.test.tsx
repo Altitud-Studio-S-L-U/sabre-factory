@@ -231,6 +231,79 @@ test('chat expands without losing its draft and keeps prefetched tool details fo
   expect(screen.getByRole('button', { name: 'Outside chat' }).inert).toBeFalsy();
 });
 
+test('requests and refused decisions are signalled on the launcher and decided in the panel', async () => {
+  localStorage.clear();
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => Response.json({ items: [], truncated: false })),
+  );
+  const request = {
+    version: 1 as const,
+    id: 'confirmation-1',
+    kind: 'budget.amend' as const,
+    work_id: null,
+    source: 'mcp' as const,
+    state: 'pending' as const,
+    summary: 'Change the token budget to 800,000, then resume the run',
+    request: { metric: 'tokens' },
+    request_digest: 'a'.repeat(64),
+    created_at: '2026-11-13T09:00:00Z',
+    expires_at: '2026-11-14T09:00:00Z',
+    decided_at: null,
+    error_code: null,
+    error_message: null,
+  };
+  const refused = {
+    ...request,
+    id: 'confirmation-0',
+    state: 'failed' as const,
+    summary: 'Raise the token limit from 100,000 to 800,000',
+    error_code: 'VERSIONED_BUDGET_REQUIRED',
+    error_message: 'Use a revision-checked metric amendment for this run',
+  };
+  const user = userEvent.setup();
+  const view = render(
+    <SupervisorConsole
+      api={createApi('synthetic-csrf')}
+      orders={[]}
+      selectedId={null}
+      disconnected={false}
+      confirmations={[request, refused]}
+    />,
+  );
+  const launcher = screen.getByRole('button', { name: 'Supervisor' });
+  expect(launcher).toHaveAccessibleDescription(
+    '2 items need you, including a decision that did not take effect',
+  );
+  expect(launcher).toHaveAttribute('data-attention', 'danger');
+  // The new request is announced once without moving the page; reviewing it opens the inbox.
+  await user.click(await screen.findByRole('button', { name: 'Review' }));
+  const panel = screen.getByRole('region', { name: 'Supervisor conversation' });
+  expect(panel).toContainElement(
+    screen.getByRole('region', { name: 'A request is waiting for your confirmation' }),
+  );
+  expect(screen.getByRole('button', { name: /^Confirm: Change the token budget/ })).toBeEnabled();
+  await user.click(
+    screen.getByRole('button', { name: 'Dismiss: Raise the token limit from 100,000 to 800,000' }),
+  );
+  expect(screen.queryByTestId('unresolved-confirmation')).not.toBeInTheDocument();
+  expect(launcher).toHaveAccessibleDescription('1 item needs you');
+  expect(launcher).toHaveAttribute('data-attention', 'warning');
+  // After a reload the dismissed refusal stays dismissed and the request is not announced again.
+  view.unmount();
+  render(
+    <SupervisorConsole
+      api={createApi('synthetic-csrf')}
+      orders={[]}
+      selectedId={null}
+      disconnected={false}
+      confirmations={[request, refused]}
+    />,
+  );
+  expect(screen.getByRole('button', { name: 'Supervisor' })).toHaveAccessibleDescription('1 item needs you');
+  expect(screen.queryByTestId('attention-toast')).not.toBeInTheDocument();
+});
+
 test('attention inbox retains per-run drafts and excludes answered or superseded questions', async () => {
   vi.stubGlobal(
     'fetch',

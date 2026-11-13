@@ -1,10 +1,12 @@
 import { useId, useState } from 'react';
-import { Link } from 'react-router';
 import type { Api, OwnerConfirmation, WorkOrder } from '../../api';
 import Button from '../../components/Button';
 import DescriptionList, { type Description } from '../../components/DescriptionList';
 import Disclosure from '../../components/Disclosure';
 import Notice, { type NoticeTone } from '../../components/Notice';
+import RoutedLink from '../../components/RoutedLink';
+import { cn } from '../../lib/utils';
+import { unresolved } from '../attention/attention';
 import { runPath } from '../runs/RunsTable';
 import { message } from '../runs/shared';
 
@@ -58,9 +60,12 @@ function outcome(result: OwnerConfirmation): { tone: NoticeTone; text: string } 
   };
 }
 
+const noneDismissed: ReadonlySet<string> = new Set();
+
 /**
  * Requests an MCP client filed for the owner. They change nothing until confirmed here, and
- * only this console can decide them; the server applies each one at most once.
+ * only this console can decide them; the server applies each one at most once. A decision
+ * that did not take effect stays listed until the owner dismisses it.
  */
 export default function PendingConfirmations({
   api,
@@ -68,18 +73,27 @@ export default function PendingConfirmations({
   orders,
   connected,
   onChanged,
+  dismissed = noneDismissed,
+  onDismiss,
+  className,
 }: {
   api: Pick<Api, 'confirmRequest' | 'rejectRequest'>;
   items: OwnerConfirmation[];
-  orders: WorkOrder[];
+  orders: Pick<WorkOrder, 'id' | 'objective'>[];
   connected: boolean;
   onChanged: () => unknown;
+  /** Failed decisions the owner has already dismissed in this browser. */
+  dismissed?: ReadonlySet<string>;
+  onDismiss?: (id: string) => void;
+  className?: string;
 }) {
   const heading = useId();
   const [busy, setBusy] = useState<string | null>(null);
-  const [result, setResult] = useState<{ tone: NoticeTone; text: string } | null>(null);
+  const [result, setResult] = useState<{ id?: string; tone: NoticeTone; text: string } | null>(null);
   const pending = items.filter((item) => item.state === 'pending');
-  if (!pending.length && !result) return null;
+  // The decision just taken is reported by the notice below; the rest are earlier ones still unacknowledged.
+  const earlier = unresolved(items, dismissed).filter((item) => item.id !== result?.id);
+  if (!pending.length && !result && !earlier.length) return null;
 
   const decide = async (item: OwnerConfirmation, action: 'confirm' | 'reject') => {
     setBusy(item.id);
@@ -89,7 +103,7 @@ export default function PendingConfirmations({
         action === 'confirm'
           ? await api.confirmRequest(item.id, item.request_digest)
           : await api.rejectRequest(item.id, item.request_digest);
-      setResult(outcome(decided));
+      setResult({ id: decided.id, ...outcome(decided) });
     } catch (error) {
       setResult({ tone: 'danger', text: message(error) });
     } finally {
@@ -99,7 +113,11 @@ export default function PendingConfirmations({
   };
 
   return (
-    <section aria-labelledby={heading} className="mb-5 grid gap-3">
+    <section
+      aria-labelledby={pending.length ? heading : undefined}
+      aria-label={pending.length ? undefined : 'Decisions that did not take effect'}
+      className={cn('grid gap-3', className)}
+    >
       {pending.length > 0 && (
         <div className="overflow-hidden rounded-xl border border-warning-border bg-card">
           <header className="border-b border-warning-border bg-warning-bg px-4 py-3">
@@ -129,12 +147,12 @@ export default function PendingConfirmations({
                         {item.work_id && (
                           <>
                             {' · '}
-                            <Link
+                            <RoutedLink
                               className="text-foreground underline underline-offset-2"
                               to={runPath(item.work_id)}
                             >
                               {order?.objective ?? `Run ${item.work_id.slice(0, 8)}`}
-                            </Link>
+                            </RoutedLink>
                           </>
                         )}{' '}
                         · asked {clock(item.created_at)} · expires {clock(item.expires_at)}
@@ -177,7 +195,16 @@ export default function PendingConfirmations({
           tone={result.tone}
           role={result.tone === 'danger' || result.tone === 'warning' ? 'alert' : 'status'}
           actions={
-            <Button type="button" variant="ghost" size="sm" onClick={() => setResult(null)}>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                if (result.id && (result.tone === 'danger' || result.tone === 'warning'))
+                  onDismiss?.(result.id);
+                setResult(null);
+              }}
+            >
               Dismiss
             </Button>
           }
@@ -185,6 +212,30 @@ export default function PendingConfirmations({
           <p>{result.text}</p>
         </Notice>
       )}
+      {earlier.map((item) => {
+        const report = outcome(item);
+        return (
+          <Notice
+            key={item.id}
+            tone={report.tone}
+            data-testid="unresolved-confirmation"
+            actions={
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                aria-label={`Dismiss: ${item.summary}`}
+                onClick={() => onDismiss?.(item.id)}
+              >
+                Dismiss
+              </Button>
+            }
+          >
+            <p>{report.text}</p>
+            <p className="text-muted-foreground">Decided {clock(item.decided_at ?? item.created_at)}</p>
+          </Notice>
+        );
+      })}
     </section>
   );
 }

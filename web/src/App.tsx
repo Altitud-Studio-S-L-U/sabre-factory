@@ -45,7 +45,6 @@ import CreateRunWizard from './features/runs/CreateRunWizard';
 import ProjectsView from './features/projects/ProjectsView';
 import SecurityView from './features/security/SecurityView';
 import WorkAreaNav from './features/runs/WorkAreaNav';
-import PendingConfirmations from './features/confirmations/PendingConfirmations';
 import { ErrorNotice, message, statusLabels, usesOnlyCliModels } from './features/runs/shared';
 
 // Sections load on first visit; Runs stays in the main bundle.
@@ -434,15 +433,6 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
               <p>{error} Visible data may be outdated.</p>
             </Notice>
           )}
-          {!loading && (
-            <PendingConfirmations
-              api={api}
-              items={confirmations}
-              orders={orders}
-              connected={!error}
-              onChanged={reload}
-            />
-          )}
           {loading ? (
             viewSkeleton
           ) : !updated ? (
@@ -590,6 +580,9 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
         selectedId={selectedId}
         disconnected={Boolean(error)}
         headerSlot={headerActions}
+        confirmations={confirmations}
+        ready={!loading}
+        onChanged={reload}
       />
     </>
   );

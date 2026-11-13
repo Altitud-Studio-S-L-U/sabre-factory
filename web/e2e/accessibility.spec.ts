@@ -172,6 +172,9 @@ const states: { name: string; open: (page: Page) => Promise<void> }[] = [
         }),
       );
       await page.goto('/runs');
+      // The toast that announces the request, then the inbox where it is decided.
+      await expect(page.getByTestId('attention-toast')).toBeVisible();
+      await page.getByRole('button', { name: 'Review' }).click();
       await page.getByText('Exact request').click();
       await expect(page.getByText('250,000', { exact: true })).toBeVisible();
     },

@@ -27,7 +27,9 @@ function request(changes: Partial<OwnerConfirmation> = {}): OwnerConfirmation {
   };
 }
 
-test('a request filed over MCP waits on every section until the owner decides it', async ({ page }) => {
+test('a request filed over MCP is signalled on every section and decided in the Supervisor inbox', async ({
+  page,
+}) => {
   const order = { ...syntheticRun(), status: 'blocked', error_code: 'BUDGET_EXHAUSTED' };
   let items = [
     request(),
@@ -60,12 +62,22 @@ test('a request filed over MCP waits on every section until the owner decides it
   });
 
   await page.goto('/memory');
+  const launcher = page.getByRole('button', { name: 'Supervisor', exact: true });
+  // Announced without moving the page: a toast, and the launcher says how much is waiting.
+  await expect(page.getByTestId('attention-toast')).toHaveCount(2);
+  await expect(launcher).toHaveAccessibleDescription('3 items need you');
+  await expect(page.getByTestId('pending-confirmation')).toHaveCount(0);
   const waiting = page.getByRole('region', { name: '2 requests are waiting for your confirmation' });
+  await page.getByRole('button', { name: 'Review' }).first().click();
   await expect(waiting).toBeVisible();
   await expect(waiting.getByTestId('pending-confirmation')).toHaveCount(2);
   expect(decisions).toEqual([]);
 
+  // A reload on another section: still signalled, not announced a second time.
   await page.goto('/runs');
+  await expect(launcher).toHaveAccessibleDescription('3 items need you');
+  await expect(page.getByTestId('attention-toast')).toHaveCount(0);
+  await launcher.click();
   const budget = waiting.getByTestId('pending-confirmation').filter({ hasText: 'Raise the token limit' });
   await expect(budget.getByRole('link', { name: 'Correct the synthetic example' })).toHaveAttribute(
     'href',
