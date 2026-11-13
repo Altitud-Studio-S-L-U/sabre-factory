@@ -200,13 +200,44 @@ def fingerprint(scanner: str, rule: str, path: str = "", location: str = "") -> 
     return hashlib.sha256(json.dumps([scanner, rule, path, location]).encode()).hexdigest()
 
 
-def scanner_error(scanner: str) -> SecurityFinding:
+class ScannerIncomplete(ValueError):
+    """A scanner ran but reported that it did not analyse everything. Carries where, never what."""
+
+    def __init__(self, errors: object):
+        super().__init__("The scanner report is incomplete")
+        rows = [row for row in errors if isinstance(row, dict)] if isinstance(errors, list) else []
+        self.count = max(1, len(rows))
+        self.path: str | None = None
+        self.line: int | None = None
+        for row in rows:
+            path = plain_path(str(row.get("path") or ""))
+            if path == "a path with unusual characters":
+                continue
+            # Semgrep names the first unparsed span either in the error type or in its spans.
+            kind = row.get("type")
+            spans = kind[1] if isinstance(kind, list) and len(kind) > 1 and isinstance(kind[1], list) else row.get("spans")
+            first = spans[0] if isinstance(spans, list) and spans and isinstance(spans[0], dict) else {}
+            self.path, self.line = path, _line((first.get("start") or {}).get("line") if isinstance(first.get("start"), dict) else None)
+            break
+
+
+def scanner_error(scanner: str, incomplete: ScannerIncomplete | None = None) -> SecurityFinding:
+    """A required scanner did not finish its job. The identity and the category never depend on the reason."""
+    remediation = None
+    if incomplete is not None:
+        where = f", the first at {incomplete.path}{f' line {incomplete.line}' if incomplete.line else ''}" if incomplete.path else ""
+        places = "1 place" if incomplete.count == 1 else f"{incomplete.count} places"
+        remediation = (f"{scanner} ran but could not analyse {places}{where}. The scan stays incomplete until that code "
+                       "can be parsed by the scanner or the scanner is updated.")
     return SecurityFinding(
         fingerprint=fingerprint(scanner, "scanner_error"),
         scanner=scanner,
         category="scanner_error",
         severity="high",
         title=f"Could not complete the required check: {scanner}",
+        path=incomplete.path if incomplete else None,
+        line=incomplete.line if incomplete else None,
+        remediation=remediation,
     )
 
 
@@ -276,8 +307,11 @@ def parse_findings(scanner: str, payload: Any) -> list[SecurityFinding]:
                     remediation=str(row.get("Resolution") or f"Correct the configuration according to rule {rule} and repeat the scan."),
                 ))
     elif scanner == "semgrep":
-        if not isinstance(payload, dict) or "results" not in payload or payload.get("errors"):
+        if not isinstance(payload, dict) or "results" not in payload:
             raise ValueError("Semgrep report is incomplete")
+        if payload.get("errors"):
+            # Still a failed scan: what changes is that the refusal can say where.
+            raise ScannerIncomplete(payload["errors"])
         for row in payload["results"]:
             rule, path = str(row["check_id"]), str(row["path"])
             extra = row.get("extra", {})

@@ -725,8 +725,10 @@ class Factory:
         baseline = json.loads(self.artifacts.get(state["baseline_source_index"]))
         if current["digest"] != baseline["snapshot_digest"]:
             raise DomainError("AUDIT_SOURCE_CHANGED", "Audit must not modify project files", 409)
-        if any(f.category == "scanner_error" for f in work.findings):
-            raise DomainError("AUDIT_INCOMPLETE", "A required scanner failed; the audit is incomplete", 409)
+        failed_scanners = [f for f in work.findings if f.category == "scanner_error"]
+        if failed_scanners:
+            reasons = " ".join(f.remediation or f"{f.title}." for f in failed_scanners[:3])
+            raise DomainError("AUDIT_INCOMPLETE", f"A required scanner failed; the audit is incomplete. {reasons}", 409)
         failed = sum(bool(gate["exit_code"]) for gate in state["gates"])
         work.status = Status.COMPLETED
         work.summary = f"Audit complete: {failed} failed checks, {len(work.findings)} security findings. No repository changes published."

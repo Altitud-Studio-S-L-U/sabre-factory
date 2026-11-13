@@ -32,7 +32,7 @@ from sabre.browser_contracts import BrowserJob
 from sabre.browser_qa import BrowserRunner
 from sabre.models import Contract, DomainError, Project, SecurityFinding
 from sabre.private_credentials import fetch_credentials
-from sabre.security import SecretGuard, finding_locations, parse_findings, scanner_error
+from sabre.security import ScannerIncomplete, SecretGuard, finding_locations, parse_findings, scanner_error
 from sabre.settings import load_bootstrap, reject_secret_environment
 
 CONTAINER_TEMP = "/tmp"  # noqa: S108 - private bounded tmpfs inside each disposable container
@@ -782,6 +782,8 @@ class DockerBroker:
                 try:
                     result = await self._scanner(work_id, scanner)
                     findings.extend(parse_findings(scanner, result))
+                except ScannerIncomplete as incomplete:
+                    findings.append(scanner_error(scanner, incomplete))
                 except (DomainError, ValueError, docker.errors.DockerException):
                     findings.append(scanner_error(scanner))
             final = await self._helper(work_id, "snapshot")
