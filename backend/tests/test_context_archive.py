@@ -9,8 +9,8 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, Tool
 from langchain_core.outputs import ChatGeneration, ChatResult
 from langgraph.checkpoint.memory import InMemorySaver
 
-from sabre.agent_context import ContextPolicy, memory_references, project_tool_context
-from sabre.agents import AgentTeam, GuardedCalls
+from sabre.agent_context import ContextPolicy, memory_references, project_tool_context, read_only_turns
+from sabre.agents import CONTEXT_PRESSURE_NOTICE, AgentTeam, GuardedCalls
 from sabre.artifacts import ArtifactStore
 from sabre.context_archive import ContextArchive
 from sabre.models import AgentResult, DomainError
@@ -440,6 +440,116 @@ async def test_an_agent_that_keeps_restoring_history_is_not_stopped_by_its_own_r
     complete = [m.tool_call_id for m in sent.messages if isinstance(m, ToolMessage) and "recovered line" in m.content]
     assert complete == ["page-10", "page-11"]
     assert len(repository.reservations) == 1
+
+
+def turn(index, name="read_file", args=None, content=None, status="success", calls=1):
+    """One model turn with its replies."""
+    identifiers = [f"{name}-{index}-{position}" for position in range(calls)]
+    return [AIMessage(id=f"ai-{index}", content=f"Step {index}", tool_calls=[
+                {"id": identifier, "name": name, "args": args or {"path": f"src/module_{index}.py"}} for identifier in identifiers]),
+            *[ToolMessage(id=f"reply-{identifier}", tool_call_id=identifier, status=status, content=content or f"line of module {index}\n" * 12)
+              for identifier in identifiers]]
+
+
+def long_history(turns=120):
+    """A long conversation of small reads, with the turns that must never leave spread through it."""
+    messages = [HumanMessage(content="Owner: preserve tests and approvals")]
+    for index in range(turns):
+        if index == 10:
+            messages += turn(index, "write_file", {"path": "src/fix.py", "content": "value = 1\n"}, "Wrote src/fix.py")
+        elif index == 20:
+            messages += turn(index, "execute", {"argv": ["pytest", "-q"]}, json.dumps({"exit_code": 1, "output": "1 failed"}))
+        elif index == 30:
+            messages += turn(index, "record_note", {"text": "The rule engine validates inputs in engine.py"}, "Note recorded")
+        elif index == 40:
+            messages += turn(index, content="SOURCE_NOT_FOUND", status="error")
+        else:
+            messages += turn(index, calls=2 if index % 7 == 0 else 1)
+    return messages
+
+
+def test_only_turns_that_purely_read_and_succeeded_can_leave_the_view():
+    messages = long_history(50)
+    kept = {"ai-10", "ai-20", "ai-30", "ai-40"}
+    turns = read_only_turns(messages, len(messages))
+    assert len(turns) == 46 and not kept & {messages[start].id for start, _end in turns}
+    for start, end in turns:
+        assert isinstance(messages[start], AIMessage) and all(isinstance(m, ToolMessage) for m in messages[start + 1:end])
+    # Turns inside the protected window, an unanswered call and a reused call id are never candidates.
+    assert len(read_only_turns(messages, len(messages) - 2)) == 45
+    unanswered = [*messages, AIMessage(id="ai-open", content="", tool_calls=[{"id": "open", "name": "read_file", "args": {}}])]
+    assert len(read_only_turns(unanswered, len(unanswered))) == 46
+    # Neither the turn whose call id was used again nor the one that reused it.
+    reused = [*messages, *turn(3)]
+    assert len(read_only_turns(reused, len(reused))) == 45
+
+
+def test_the_oldest_read_only_turns_leave_last_and_effects_errors_and_notes_never_do():
+    messages = long_history()
+    original = [m.model_dump(mode="json") for m in messages]
+    policy = ContextPolicy(archive_unique=True, keep_model_turns=2)
+    without = project_tool_context(messages, policy, archive_recent=True)
+    assert len(without.messages) == len(messages), "replacing content never removes a message"
+    projection = project_tool_context(messages, policy, archive_recent=True, drop_turn_bytes=20000)
+    assert without.sent_bytes - projection.sent_bytes >= 20000
+    sent = {m.id for m in projection.messages}
+    assert {"ai-10", "ai-20", "ai-30", "ai-40", "reply-write_file-10-0", "reply-execute-20-0", "reply-record_note-30-0",
+            "reply-read_file-40-0"} <= sent
+    assert projection.messages[0] is messages[0] and projection.messages[-4:] == messages[-4:]
+    # The oldest turn stays and says how many left; the ones after it are gone, oldest first.
+    marker = json.loads(projection.messages[2].content)
+    assert projection.messages[1].id == "ai-0" and marker["turns_omitted"] >= 20 and marker["tool_calls_omitted"] >= marker["turns_omitted"]
+    assert "ai-1" not in sent and "ai-119" in sent
+    recent = next(index for index, m in enumerate(messages) if m.id == "ai-118")
+    candidates = [messages[start].id for start, _end in read_only_turns(messages, recent)]
+    gone = [m.id for m in messages if isinstance(m, AIMessage) and m.id not in sent]
+    assert gone == candidates[1:1 + len(gone)]
+    # Every reply still has its call and every call its replies.
+    calls = [call["id"] for m in projection.messages if isinstance(m, AIMessage) for call in m.tool_calls]
+    assert calls == [m.tool_call_id for m in projection.messages if isinstance(m, ToolMessage)]
+    assert len({ref.tool_call_id for ref in projection.references}) == len(projection.references) == projection.omitted_results
+    assert {ref.reason for ref in projection.references} >= {"old_turn"}
+    assert [m.model_dump(mode="json") for m in messages] == original
+
+
+async def test_a_long_conversation_is_not_stopped_by_the_residue_of_its_own_calls(tmp_path):
+    work, _, config = setup()
+    config.context_input_max_bytes = 40000
+    config.context_archive_enabled, config.context_dedup_enabled, config.context_dedup_keep_model_turns = True, True, 2
+    messages = long_history()
+    guard, repository, handler = SecretGuard(), Repository(), AsyncMock(return_value=SimpleNamespace(result=[]))
+    store = ArtifactStore(tmp_path, guard)
+    system = SystemMessage(content="Current platform instructions")
+    request = ModelRequest(model=ScriptedModel(), messages=messages, system_message=system)
+    middleware = GuardedCalls(repository, config, work, guard, artifacts=store, context_archive=ContextArchive(store, guard))
+    # Archiving every result is not enough here: what remains of each call already exceeds the limit.
+    everything = project_tool_context(messages, ContextPolicy(archive_unique=True, keep_model_turns=2), archive_recent=True,
+                                      shed_page_bytes=10**9)
+    assert everything.sent_bytes > config.context_input_max_bytes
+    await middleware.awrap_model_call(request, handler)
+    sent = handler.await_args.args[0]
+    assert len(sent.messages) < len(messages) and sent.messages[0] is messages[0] and sent.messages[-1] is messages[-1]
+    assert {"ai-10", "ai-20", "ai-30", "ai-40"} <= {m.id for m in sent.messages}
+    # The agent is told that it is running out of room, while it still has room to conclude.
+    assert sent.system_message.content.startswith(system.content)
+    assert sent.system_message.content.endswith(CONTEXT_PRESSURE_NOTICE.format(percent=98).split("%", 1)[1])
+    assert len(repository.reservations) == 1
+
+
+@pytest.mark.parametrize("share,told", [(0.5, False), (0.9, True)])
+async def test_the_agent_is_told_when_its_conversation_is_close_to_its_input_limit(share, told):
+    work, _, config = setup()
+    config.context_input_max_bytes = 20000
+    system = SystemMessage(content="Current platform instructions")
+    request = ModelRequest(model=ScriptedModel(), messages=[HumanMessage(content="x" * int(20000 * share))], system_message=system)
+    repository, handler = Repository(), AsyncMock(return_value=SimpleNamespace(result=[]))
+    await GuardedCalls(repository, config, work, SecretGuard()).awrap_model_call(request, handler)
+    sent = handler.await_args.args[0]
+    if told:
+        assert sent.system_message.content.startswith(system.content) and "Do not start new exploration" in sent.system_message.content
+        assert "% of its input limit" in sent.system_message.content and sent.messages == request.messages
+    else:
+        assert sent.system_message == system
 
 
 def test_reused_tool_id_cannot_hide_old_memory_from_validation():

@@ -42,7 +42,7 @@ def test_reference_contract_rejects_actions_arguments_and_unbounded_lists():
             checked_receipt(modified)
     # Command output and write content are archived too; references stay content-free.
     for change in ({"tool": "execute", "reason": "old_output"}, {"tool": "write_file", "reason": "old_argument"},
-                   {"tool": "read_context", "reason": "old_page"}):
+                   {"tool": "read_context", "reason": "old_page"}, {"tool": "search_source", "reason": "old_turn"}):
         modified = deepcopy(original)
         modified["references"][0].update(change)
         assert checked_receipt(modified).references[0].tool == change["tool"]

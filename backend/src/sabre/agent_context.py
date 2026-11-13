@@ -265,8 +265,75 @@ def archive_pages(result: ContextProjection, messages: list[AnyMessage], protect
             shed_bytes -= saved
 
 
+def read_only_turns(messages: list[AnyMessage], before: int) -> list[tuple[int, int]]:
+    """Model turns that only read: every call is a read or a recovery, and each has exactly one successful reply.
+
+    A turn that wrote, ran a command, recorded a note, read memory or met an error is never one of these.
+    """
+    _calls, ambiguous = unambiguous_calls(messages)
+    turns, index = [], 0
+    while index < before:
+        message = messages[index]
+        if not isinstance(message, AIMessage) or not message.tool_calls:
+            index += 1
+            continue
+        end = index + 1
+        while end < len(messages) and isinstance(messages[end], ToolMessage):
+            end += 1
+        replies = [reply for reply in messages[index + 1:end] if isinstance(reply, ToolMessage)]
+        wanted = [identifier for call in message.tool_calls if isinstance(identifier := call.get("id"), str)]
+        if (end <= before and len(wanted) == len(message.tool_calls)
+                and all(call.get("name") in READ_TOOLS | RECOVERY_TOOLS for call in message.tool_calls)
+                and all(CALL_ID.fullmatch(identifier) and identifier not in ambiguous for identifier in wanted)
+                and sorted(reply.tool_call_id for reply in replies) == sorted(wanted)
+                and all(reply.status == "success" and isinstance(reply.content, str) for reply in replies)):
+            turns.append((index, end))
+        index = end
+    return turns
+
+
+def drop_old_turns(result: ContextProjection, messages: list[AnyMessage], before: int, drop_bytes: int) -> None:
+    """Take the oldest read-only turns out of the view until drop_bytes are saved.
+
+    Every call leaves a residue in the request (its arguments and a reference), so a long
+    conversation reaches its input limit with nothing left to archive. Reads can be made
+    again, so those turns may leave; the first one stays and says how many left.
+    """
+    turns = read_only_turns(messages, before)
+    if len(turns) < 2 or drop_bytes <= 0:
+        return
+    (first, _end), dropped, saved = turns[0], [], 0
+    for start, end in turns[1:]:
+        if saved >= drop_bytes:
+            break
+        dropped.append((start, end))
+        # Measured as the request is: compact separators, so the saving is never overstated.
+        saved += sum(len(json.dumps(result.messages[index].model_dump(mode="json"), ensure_ascii=False, separators=(",", ":")).encode()) + 1
+                     for index in range(start, end))
+    replies = [index for start, end in dropped for index in range(start + 1, end)]
+    carrier = first + 1
+    marker = json.dumps({"sabre_context_reference": 2, "historical": True, "content_omitted": True,
+        "turns_omitted": len(dropped), "tool_calls_omitted": len(replies),
+        "note": "Earlier read-only turns left this view so the request fits its input limit. "
+                "Rely on your notes; read a current file again only when one specific fact is missing."}, separators=(",", ":"))
+    result.messages[carrier] = messages[carrier].model_copy(update={"content": marker}, deep=True)
+    referenced = {reference.tool_call_id for reference in result.references}
+    names = {call.get("id"): call.get("name") for turn in messages if isinstance(turn, AIMessage) for call in turn.tool_calls}
+    for index in [carrier, *replies]:
+        message = messages[index]
+        # read_only_turns only returns turns whose replies are successful text results.
+        if not isinstance(message, ToolMessage) or not isinstance(message.content, str) or message.tool_call_id in referenced:
+            continue
+        raw = message.content.encode()
+        result.omitted_results += 1
+        result.references.append(ContextReference(tool_call_id=message.tool_call_id, tool=names[message.tool_call_id],
+            response_digest=hashlib.sha256(raw).hexdigest(), original_bytes=len(raw), reason="old_turn"))
+    gone = {index for start, end in dropped for index in range(start, end)}
+    result.messages = [message for index, message in enumerate(result.messages) if index not in gone]
+
+
 def project_tool_context(messages: list[AnyMessage], policy: ContextPolicy, *, archive_recent: bool = False,
-                         shed_page_bytes: int = 0) -> ContextProjection:
+                         shed_page_bytes: int = 0, drop_turn_bytes: int = 0) -> ContextProjection:
     """Plan a model-only view without performing I/O or changing message objects.
 
     Legacy dedup retains a complete later copy. The recoverable archive mode can
@@ -277,8 +344,10 @@ def project_tool_context(messages: list[AnyMessage], policy: ContextPolicy, *, a
     archive_recent is a last resort for a measured over-limit request, with the
     same recovery requirements. Instructions and effects remain. Recovery pages
     older than the protected turns collapse to their coordinates, so restoring
-    history cannot grow the request without bound; shed_page_bytes is the final
-    resort for a request that is over its limit with nothing else left to archive.
+    history cannot grow the request without bound; shed_page_bytes drops the
+    oldest pages still held when the request is over its limit. drop_turn_bytes
+    is the last resort: the oldest read-only turns leave the view, which is the
+    only step that removes messages instead of replacing their content.
     """
     size = serialized_size(messages)
     result = ContextProjection(list(messages), size, size)
@@ -333,5 +402,7 @@ def project_tool_context(messages: list[AnyMessage], policy: ContextPolicy, *, a
     if policy.archive_unique:
         archive_arguments(result, messages, protected_start, minimum)
         archive_pages(result, messages, recent_start, min(policy.min_result_bytes, policy.archive_min_bytes), shed_page_bytes)
+        if drop_turn_bytes > 0:
+            drop_old_turns(result, messages, recent_start, drop_turn_bytes)
     result.sent_bytes = serialized_size(result.messages)
     return result
