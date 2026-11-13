@@ -8,7 +8,7 @@ import httpx
 import pytest
 from mcp import Client
 
-from sabre.budget_contracts import BudgetAmendment, BudgetReconciliation, MetricBudget
+from sabre.budget_contracts import BudgetAmendment, BudgetReconciliation, MetricBudget, legacy_policy
 from sabre.mcp_server import build_mcp
 from sabre.models import (
     Answer,
@@ -228,6 +228,19 @@ async def test_refused_operation_is_recorded_and_unknown_outcome_is_never_retrie
     with pytest.raises(DomainError) as error:
         await manager.confirm(uncertain.id, decision(uncertain))
     assert error.value.code == "CONFIRMATION_CLOSED"
+
+
+@pytest.mark.parametrize("kind", ["budget.tokens", "budget.calls", "budget.cli_progress"])
+async def test_a_flat_limit_request_for_a_run_with_a_budget_policy_is_refused_when_filed(kind):
+    service, work, store, applied, events = fixture()
+    work.effective_budget_policy = legacy_policy(work.budget, 2)
+    manager = service.owner_confirmations()
+    with pytest.raises(DomainError) as error:
+        await manager.request(kind, work.id, OPERATIONS[kind][1])
+    assert error.value.code == "VERSIONED_BUDGET_REQUIRED" and "sabre_amend_budget" in error.value.message
+    assert store.rows == {} and events == [] and applied == [], "nothing is left for the owner to confirm"
+    amended = await manager.request("budget.amend", work.id, OPERATIONS["budget.amend"][1])
+    assert amended.state == "pending"
 
 
 async def test_request_refuses_finished_work_secrets_mismatched_input_and_a_full_queue():

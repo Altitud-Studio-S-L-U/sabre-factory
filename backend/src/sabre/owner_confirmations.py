@@ -51,6 +51,9 @@ CREATE INDEX owner_confirmations_recent ON owner_confirmations(created_at DESC);
 # Requests that are not about one run (creating a repository) carry no work order.
 OWNER_CONFIRMATION_SUBJECTS = "ALTER TABLE owner_confirmations ALTER COLUMN work_id DROP NOT NULL;"
 
+# These edit the flat limits of a run launched without a budget policy. A run with a policy takes "budget.amend".
+FLAT_LIMIT_KINDS = frozenset({"budget.tokens", "budget.calls", "budget.cli_progress"})
+
 PENDING_HOURS = 24
 PENDING_LIMIT = 20
 RECENT_DECIDED = 20
@@ -227,6 +230,9 @@ class OwnerConfirmations:
             work = await self.service.repository.work(work_id)
             if work.status in {Status.COMPLETED, Status.CANCELLED}:
                 raise DomainError("WORK_TERMINAL", "The work order has already finished")
+            if kind in FLAT_LIMIT_KINDS and work.effective_budget_policy is not None:
+                # Known now and permanent: the owner is never asked to confirm a request that can only fail.
+                raise DomainError("VERSIONED_BUDGET_REQUIRED", "This run has a budget policy; ask for the change with sabre_amend_budget", 409)
         summary = summary or operation.summary(request)
         row, created = await self.store.add(kind, work_id, source, data, digest({"kind": kind, "work_id": work_id, "request": data}), summary)
         if created and work is not None:
