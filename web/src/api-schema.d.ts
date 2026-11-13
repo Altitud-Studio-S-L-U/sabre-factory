@@ -1505,6 +1505,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/confirmations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Confirmations */
+        get: operations["confirmations_api_v1_confirmations_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/confirmations/{confirmation_id}/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Confirm */
+        post: operations["confirm_api_v1_confirmations__confirmation_id__confirm_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/confirmations/{confirmation_id}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reject */
+        post: operations["reject_api_v1_confirmations__confirmation_id__reject_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/work/{work_id}/inspection": {
         parameters: {
             query?: never;
@@ -2837,6 +2888,19 @@ export interface components {
             readiness: components["schemas"]["ReadinessItem"][];
             /** Yaml */
             yaml: string;
+        };
+        /**
+         * ConfirmationDecision
+         * @description The owner decides exactly the request the console displayed.
+         */
+        ConfirmationDecision: {
+            /**
+             * Version
+             * @constant
+             */
+            version: 1;
+            /** Request Digest */
+            request_digest: string;
         };
         /** ContextConfiguration */
         ContextConfiguration: {
@@ -4539,6 +4603,71 @@ export interface components {
              * @description Normalized terms only in the overlapping memory
              */
             only_other: string[];
+        };
+        /** OwnerConfirmation */
+        OwnerConfirmation: {
+            /**
+             * Version
+             * @default 1
+             * @constant
+             */
+            version: 1;
+            /** Id */
+            id: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "budget.tokens" | "budget.calls" | "budget.cli_progress" | "budget.amend" | "budget.reconcile" | "security.exception" | "question.answer" | "repository.decide" | "repository.launch";
+            /** Work Id */
+            work_id: string | null;
+            /**
+             * Source
+             * @constant
+             */
+            source: "mcp";
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "pending" | "applying" | "applied" | "rejected" | "failed" | "expired";
+            /** Summary */
+            summary: string;
+            /** Request */
+            request: {
+                [key: string]: unknown;
+            };
+            /** Request Digest */
+            request_digest: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /** Decided At */
+            decided_at: string | null;
+            /** Error Code */
+            error_code: string | null;
+            /** Error Message */
+            error_message: string | null;
+        };
+        /** OwnerConfirmationPage */
+        OwnerConfirmationPage: {
+            /**
+             * Version
+             * @default 1
+             * @constant
+             */
+            version: 1;
+            /** Pending */
+            pending: number;
+            /** Items */
+            items: components["schemas"]["OwnerConfirmation"][];
         };
         /** PackageVersion */
         PackageVersion: {
@@ -8975,6 +9104,96 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ConfigurationHistory"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    confirmations_api_v1_confirmations_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OwnerConfirmationPage"];
+                };
+            };
+        };
+    };
+    confirm_api_v1_confirmations__confirmation_id__confirm_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                confirmation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConfirmationDecision"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OwnerConfirmation"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reject_api_v1_confirmations__confirmation_id__reject_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                confirmation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConfirmationDecision"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OwnerConfirmation"];
                 };
             };
             /** @description Validation Error */

@@ -79,7 +79,8 @@
   --foreground: oklch(0.204 0.011 260.7);
   --card: oklch(1 0 0);
   --popover: oklch(1 0 0);
-  --primary: oklch(0.598 0.115 74.3);
+  /* Dark enough for 4.5:1 as button fill under light text and as text on white, grey and its own tints. */
+  --primary: oklch(0.5 0.115 74.3);
   --primary-foreground: oklch(0.99 0.005 80);
   --secondary: oklch(0.954 0.005 258.3);
   --muted-bg: oklch(0.954 0.005 258.3);
@@ -88,7 +89,7 @@
   --destructive: oklch(0.52 0.17 20);
   --border: oklch(0.893 0.011 261.8);
   --input: oklch(0.8 0.015 260);
-  --ring: oklch(0.598 0.115 74.3);
+  --ring: oklch(0.5 0.115 74.3);
   --code: oklch(0.96 0.004 260);
   --hover: oklch(0.93 0.006 260);
   --link: oklch(0.48 0.13 262);
@@ -188,4 +189,18 @@
   --text-2xl--line-height: 1.875rem;
   --text-3xl: 1.875rem;
   --text-3xl--line-height: 2.25rem;
+}
+
+/* Loading: a soft highlight that sweeps across skeleton shapes. */
+@theme {
+  --animate-shimmer: shimmer 1.8s ease-in-out infinite;
+
+  @keyframes shimmer {
+    from {
+      transform: translateX(-100%);
+    }
+    to {
+      transform: translateX(100%);
+    }
+  }
 }

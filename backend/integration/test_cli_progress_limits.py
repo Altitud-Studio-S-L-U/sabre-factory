@@ -15,6 +15,7 @@ from sabre.artifacts import ArtifactStore
 from sabre.mcp_server import build_mcp
 from sabre.model_configuration import ModelConfigurationService
 from sabre.models import Budget, CliProgressLimitsChange, DomainError, Status, TokenBudgetIncrease
+from sabre.owner_confirmations import ConfirmationDecision
 from sabre.security import SecretGuard
 from sabre.service import FactoryService
 from sabre.settings import RoleModelSettings, Settings
@@ -130,8 +131,14 @@ async def test_mcp_uses_same_owner_policy_and_non_cli_reservations_fail_before_i
     assert error.value.code == "STALE_BUDGET"
     async with Client(build_mcp(lambda: service)) as client:
         result = await client.call_tool("sabre_use_cli_progress_limits", {"work_id": work.id, "change": change_for(work).model_dump(mode="json")})
-        assert not result.is_error and result.structured_content["budget"]["max_calls"] is None
+        assert not result.is_error and result.structured_content["state"] == "pending"
+    # Over MCP the change is only filed; the owner's confirmation applies the same policy.
+    assert (await repo.work(work.id)).budget == work.budget
+    filed = result.structured_content
+    confirmed = await service.owner_confirmations().confirm(filed["id"], ConfirmationDecision(version=1, request_digest=filed["request_digest"]))
+    assert confirmed.state == "applied"
     current = await repo.work(work.id)
+    assert current.budget.max_calls is None
     for context, usd in [(None, 0), (receipt(work.id, project.id), 0),
             (receipt(work.id, project.id, model_provider="openai"), 0),
             (receipt(work.id, project.id, model_provider="local"), 0),

@@ -2,6 +2,8 @@ import Button from './components/Button';
 import Textarea from './components/Textarea';
 import MessageContent from './components/MessageContent';
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
+import { useMediaQuery, WIDE_SCREEN } from './lib/useMediaQuery';
 import { Link, useInRouterContext } from 'react-router';
 import { ArrowUp, ArrowUpRight, LoaderCircle, Wrench, X } from 'lucide-react';
 import SupervisorAvatar from './features/supervisor/SupervisorAvatar';
@@ -321,12 +323,17 @@ export default function SupervisorConsole({
   orders,
   selectedId,
   disconnected,
+  headerSlot = null,
 }: {
   api: Api;
   orders: Pick<WorkOrder, 'id' | 'objective' | 'questions' | 'plan_revision' | 'status' | 'error_code'>[];
   selectedId: string | null;
   disconnected: boolean;
+  /** Header element for the launcher on wide screens, so it never floats over content. */
+  headerSlot?: HTMLElement | null;
 }) {
+  const wide = useMediaQuery(WIDE_SCREEN);
+  const inHeader = wide && headerSlot !== null;
   const [open, setOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [scope, setScope] = useState('');
@@ -516,38 +523,43 @@ export default function SupervisorConsole({
     }
   }
   const docked = open && !expanded;
+  const launcherButton = (
+    <Button
+      type="button"
+      ref={launcher}
+      variant="secondary"
+      className={cn(
+        inHeader
+          ? 'h-9 gap-2 rounded-full border-primary/50 bg-accent pr-3.5 pl-1 text-sm aria-expanded:border-primary'
+          : 'fixed right-4 bottom-[calc(4.25rem+env(safe-area-inset-bottom))] z-40 h-12 gap-2.5 rounded-full border-primary/60 bg-accent pr-4 pl-2 shadow-xl lg:right-6 lg:bottom-6',
+        docked && !inHeader && 'lg:hidden',
+      )}
+      aria-expanded={open}
+      aria-controls="supervisor-conversation"
+      onClick={() => {
+        if (!open && !scopeChosen.current) {
+          setScope(selectedId ?? '');
+          scopeChosen.current = true;
+        }
+        setOpen(!open);
+        setExpanded(false);
+      }}
+    >
+      <SupervisorAvatar presence={presence} size={inHeader ? 28 : 32} />
+      Supervisor
+      {attention.length > 0 && (
+        <span
+          className="min-w-5 rounded-full bg-primary px-1.5 text-center text-xs leading-5 font-semibold text-primary-foreground"
+          aria-hidden="true"
+        >
+          {attention.length}
+        </span>
+      )}
+    </Button>
+  );
   return (
     <>
-      <Button
-        type="button"
-        ref={launcher}
-        variant="secondary"
-        className={cn(
-          'fixed right-4 bottom-[calc(4.25rem+env(safe-area-inset-bottom))] z-40 h-12 gap-2.5 rounded-full border-primary/60 bg-accent pr-4 pl-2 shadow-xl lg:right-6 lg:bottom-6',
-          docked && 'lg:hidden',
-        )}
-        aria-expanded={open}
-        aria-controls="supervisor-conversation"
-        onClick={() => {
-          if (!open && !scopeChosen.current) {
-            setScope(selectedId ?? '');
-            scopeChosen.current = true;
-          }
-          setOpen(!open);
-          setExpanded(false);
-        }}
-      >
-        <SupervisorAvatar presence={presence} size={32} />
-        Supervisor
-        {attention.length > 0 && (
-          <span
-            className="min-w-5 rounded-full bg-primary px-1.5 text-center text-xs leading-5 font-semibold text-primary-foreground"
-            aria-hidden="true"
-          >
-            {attention.length}
-          </span>
-        )}
-      </Button>
+      {inHeader && headerSlot ? createPortal(launcherButton, headerSlot) : launcherButton}
       {open && (
         <section
           ref={drawer}

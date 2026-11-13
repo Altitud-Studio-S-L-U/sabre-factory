@@ -111,6 +111,7 @@ export async function mockFactoryApi(page: Page) {
     }
     if (path.endsWith('/configuration')) json = factoryConfiguration();
     if (path.endsWith('/releases')) json = { version: 1, items: [], truncated: false };
+    if (path.endsWith('/confirmations')) json = { version: 1, pending: 0, items: [] };
     if (path.endsWith('/a2a-tasks')) json = [];
     if (path.endsWith('/agents/activity'))
       json = {
@@ -126,6 +127,7 @@ export async function mockFactoryApi(page: Page) {
       json = { focus: null, depth: 2, nodes: [], edges: [], truncated: false };
     if (path.endsWith('/memory/review')) json = { commit: null, pending: [], stale: [], truncated: false };
     if (path.endsWith('/memory/recalls')) json = { items: [], next_cursor: null };
+    if (path.endsWith('/memory/items')) json = { commit: null, items: [], next_cursor: null };
     if (path.endsWith('/execution-events')) json = { items: [], next_cursor: 0, has_more: false };
     if (path.endsWith('/usage')) json = runUsageSnapshot(path.split('/').at(-2)!);
     if (path.endsWith('/agents')) json = path.includes('/a2a/') ? [] : agentCatalog();

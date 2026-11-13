@@ -29,6 +29,7 @@ from sabre.models import (
     WorkOrder,
     new_id,
 )
+from sabre.owner_confirmations import ConfirmationDecision
 from sabre.repository import Repository, digest
 from sabre.security import SecretGuard
 from sabre.service import FactoryService
@@ -240,12 +241,24 @@ async def test_budget_control_requires_owner_and_cas_preserves_usage_and_other_l
     assert (await repo.usage(work.id))["tokens"] == 900 and await repo.pending_scope(work.id) is None
     async with Client(build_mcp(lambda: service)) as client:
         tool = f"sabre_increase_{limit[:-1]}_budget"
-        receipt = await client.call_tool(tool, {"work_id": work.id, "change": body | {f"expected_{field}": new, field: later}})
-        assert not receipt.is_error
-        assert receipt.structured_content["budget"][field] == later
-        assert receipt.structured_content["tokens_used"] == 900
+        filed = await client.call_tool(tool, {"work_id": work.id, "change": body | {f"expected_{field}": new, field: later}})
+        assert not filed.is_error and filed.structured_content["state"] == "pending"
         replay = await client.call_tool(tool, {"work_id": work.id, "change": body})
-        assert replay.is_error
+        assert not replay.is_error and replay.structured_content["state"] == "pending"
+    # An MCP request alone changes nothing; the owner's confirmation applies it with the same checks.
+    assert getattr((await repo.work(work.id)).budget, field) == new
+    confirmations = service.owner_confirmations()
+
+    def decision(item):
+        return ConfirmationDecision(version=1, request_digest=item["request_digest"])
+
+    confirmed = await confirmations.confirm(filed.structured_content["id"], decision(filed.structured_content))
+    assert confirmed.state == "applied"
+    persisted = await repo.work(work.id)
+    assert getattr(persisted.budget, field) == later and (await repo.usage(work.id))["tokens"] == 900
+    stale = await confirmations.confirm(replay.structured_content["id"], decision(replay.structured_content))
+    assert stale.state == "failed" and stale.error_code
+    assert getattr((await repo.work(work.id)).budget, field) == later
     events = [event for event in await repo.events(work.id) if event["kind"] == "budget_increased"]
     assert len(events) == 2 and f"{old} → {new}" in events[0]["message"] and f"{new} → {later}" in events[1]["message"]
 

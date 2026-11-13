@@ -71,10 +71,8 @@ function barTone(span: ObservedSpan) {
 
 function Readout({ label, value, note }: { label: string; value: ReactNode; note?: ReactNode }) {
   return (
-    <div className="grid min-w-36 content-start px-3.5 py-1.5">
-      <span className="truncate text-xs text-muted-foreground" title={label}>
-        {label}
-      </span>
+    <div className="grid min-w-0 flex-1 basis-44 content-start bg-card px-3.5 py-1.5">
+      <span className="text-xs text-muted-foreground">{label}</span>
       <strong className="truncate text-sm leading-6 font-semibold tabular-nums capitalize">{value}</strong>
       {note && (
         <small
@@ -473,7 +471,7 @@ export default function RunProcessConsole({
         )}
         <div
           aria-label="Recorded run state"
-          className="grid auto-cols-fr grid-flow-col divide-x divide-border overflow-x-auto rounded-xl border border-border bg-card"
+          className="flex flex-wrap gap-px overflow-hidden rounded-xl border border-border bg-border"
         >
           <Readout label="Current phase" value={order.phase.replaceAll('_', ' ')} />
           <Readout
@@ -736,6 +734,8 @@ export default function RunProcessConsole({
                     Phase / specialist
                   </div>
                   <div className="relative h-8">
+                    {/* Ticks are at least a fifth of the track apart; from 0.88 on, the last label
+                        is drawn to the left of its line so it never runs past the track. */}
                     {axis.ticks(zoom).map((tick, index, all) => (
                       <span
                         key={tick.ms}
@@ -743,7 +743,7 @@ export default function RunProcessConsole({
                           'absolute top-0 flex h-full items-center border-l border-border/70 pl-1 font-mono text-xs whitespace-nowrap text-muted-foreground',
                           index === all.length - 1 &&
                             index > 0 &&
-                            tick.fraction > 0.94 &&
+                            tick.fraction > 0.88 &&
                             '-translate-x-full border-r border-l-0 pr-1 pl-0',
                         )}
                         style={{ left: `${tick.fraction * 100}%` }}

@@ -333,6 +333,10 @@ class FactoryService:
             raise DomainError("REPOSITORY_QUEUE_UNAVAILABLE", "Repository creation is unavailable", 503)
         return value
 
+    def owner_confirmations(self):
+        from sabre.owner_confirmations import OwnerConfirmations
+        return OwnerConfirmations(self)
+
     def project_tools(self):
         value = getattr(self.queue, "project_tools", None)
         if value is None:

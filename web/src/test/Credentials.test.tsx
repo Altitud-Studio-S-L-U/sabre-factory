@@ -7,7 +7,7 @@ import { createApi, type SecretMetadata, type SecretTarget } from '../api';
 const privateValue = 'synthetic-private-value-that-must-not-render';
 const defaultTarget = {
   id: 'model.openai.default',
-  label: 'Model por defecto · OpenAI',
+  label: 'Default model · OpenAI',
 } satisfies SecretTarget;
 const updatedAt = '2026-11-05T11:00:00Z';
 let metadata: SecretMetadata[];
@@ -59,9 +59,9 @@ beforeEach(() => {
   targets = [defaultTarget];
 });
 
-describe('Credenciales del control', () => {
-  it('acota los destinos a la integración y vacía el editor al cambiarla', async () => {
-    const github = { id: 'github.read', label: 'GitHub · lectura' };
+describe('Control credentials', () => {
+  it('limits the destinations to the integration and clears the editor when it changes', async () => {
+    const github = { id: 'github.read', label: 'GitHub · read' };
     targets = [defaultTarget, github];
     mockVault();
     const api = createApi('synthetic-session-csrf');
@@ -79,7 +79,7 @@ describe('Credenciales del control', () => {
     expect(screen.queryByRole('option', { name: github.label })).not.toBeInTheDocument();
   });
 
-  it('guarda solo el valor nuevo con version de creación y nunca lo conserva en pantalla ni storage', async () => {
+  it('saves only the new value with the creation version and never keeps it on screen or in storage', async () => {
     const { writes } = mockVault();
     const { user, onChanged } = await open();
     expect(screen.getByText('No saved credentials yet.')).toBeVisible();
@@ -95,13 +95,13 @@ describe('Credenciales del control', () => {
     ]);
     expect(document.body).not.toHaveTextContent(privateValue);
     expect(screen.queryByLabelText('New credential value')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Mostrar|Revelar/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Show|Reveal/ })).not.toBeInTheDocument();
     expect(localStorage.length).toBe(0);
     expect(sessionStorage.length).toBe(0);
     expect(onChanged).toHaveBeenCalledTimes(1);
   });
 
-  it('sustituye la version seleccionada y vacía el campo antes de recibir la respuesta', async () => {
+  it('replaces the selected version and clears the field before the response arrives', async () => {
     metadata = [{ id: defaultTarget.id, version: 3, configured: true, updated_at: updatedAt }];
     let release: (response: Response) => void = () => undefined;
     const pendingPost = new Promise<Response>((resolve) => {
@@ -109,7 +109,7 @@ describe('Credenciales del control', () => {
     });
     const { writes } = mockVault({ pendingPost });
     const { user } = await open();
-    await user.click(screen.getByRole('button', { name: 'Replace Model por defecto · OpenAI' }));
+    await user.click(screen.getByRole('button', { name: 'Replace Default model · OpenAI' }));
     const input = screen.getByLabelText('New credential value');
     await user.type(input, privateValue);
     await user.click(screen.getByRole('button', { name: 'Replace encrypted value' }));
@@ -123,11 +123,11 @@ describe('Credenciales del control', () => {
     expect(document.body).not.toHaveTextContent(privateValue);
   });
 
-  it('rechaza una version obsoleta y exige una nueva acción sin reintentar ni recuperar la clave', async () => {
+  it('rejects a stale version and requires a new action without retrying or restoring the key', async () => {
     metadata = [{ id: defaultTarget.id, version: 3, configured: true, updated_at: updatedAt }];
     const { writes } = mockVault();
     const { user } = await open();
-    await user.click(screen.getByRole('button', { name: 'Replace Model por defecto · OpenAI' }));
+    await user.click(screen.getByRole('button', { name: 'Replace Default model · OpenAI' }));
     await user.type(screen.getByLabelText('New credential value'), privateValue);
     metadata = [{ ...metadata[0], version: 4 }];
     await user.click(screen.getByRole('button', { name: 'Replace encrypted value' }));
@@ -136,13 +136,13 @@ describe('Credenciales del control', () => {
     expect(writes[0].body.expected_version).toBe(3);
     expect(document.body).not.toHaveTextContent(privateValue);
     expect(screen.queryByLabelText('New credential value')).not.toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Replace Model por defecto · OpenAI' }));
+    await user.click(screen.getByRole('button', { name: 'Replace Default model · OpenAI' }));
     expect(screen.getByLabelText('New credential value')).toHaveValue('');
     expect(screen.getByRole('heading', { name: 'Replace version 4' })).toBeVisible();
   });
 
   it.each(['http', 'network'] as const)(
-    'no refleja cuerpos ni errores privados y limpia el valor tras fallo %s',
+    'does not echo private bodies or errors and clears the value after a %s failure',
     async (failure) => {
       mockVault({ failure });
       const { user } = await open();
@@ -157,11 +157,11 @@ describe('Credenciales del control', () => {
     },
   );
 
-  it('confirma la desactivación de una version exacta y aclara que no revoca en el proveedor', async () => {
+  it('confirms deactivating an exact version and states that it is not revoked at the provider', async () => {
     metadata = [{ id: defaultTarget.id, version: 7, configured: true, updated_at: updatedAt }];
     const { writes } = mockVault();
     const { user } = await open();
-    await user.click(screen.getByRole('button', { name: 'Disable Model por defecto · OpenAI' }));
+    await user.click(screen.getByRole('button', { name: 'Disable Default model · OpenAI' }));
     expect(writes).toHaveLength(0);
     expect(
       screen.getByText(
@@ -176,7 +176,7 @@ describe('Credenciales del control', () => {
     expect(screen.getByRole('status')).toHaveTextContent('It has not been revoked at the provider');
   });
 
-  it('usa los destinos y hashes publicados por backend sin heredar una credencial de otro destino', async () => {
+  it('uses the destinations and hashes published by the backend without inheriting a credential from another destination', async () => {
     metadata = [{ id: defaultTarget.id, version: 1, configured: true, updated_at: updatedAt }];
     const target = { id: 'mcp.repository.0123456789abcdef.token', label: 'MCP · repository' };
     targets = [target];
@@ -196,7 +196,7 @@ describe('Credenciales del control', () => {
     });
   });
 
-  it('muestra errores de carga sin inventar un almacén vacío o permitir escrituras', async () => {
+  it('shows load errors without inventing an empty store or allowing writes', async () => {
     mockVault({ failure: 'load' });
     await open();
     expect(screen.getByRole('alert')).toBeVisible();
@@ -206,7 +206,7 @@ describe('Credenciales del control', () => {
   });
 
   it.each(['save', 'deactivate'] as const)(
-    'conserva la confirmación de %s aunque falle el refresco del estado general',
+    'keeps the %s confirmation even when refreshing the overall status fails',
     async (operation) => {
       metadata = [{ id: defaultTarget.id, version: 3, configured: true, updated_at: updatedAt }];
       const { writes } = mockVault();
@@ -215,12 +215,12 @@ describe('Credenciales del control', () => {
       });
       const { user } = await open(changed);
       if (operation === 'save') {
-        await user.click(screen.getByRole('button', { name: 'Replace Model por defecto · OpenAI' }));
+        await user.click(screen.getByRole('button', { name: 'Replace Default model · OpenAI' }));
         await user.type(screen.getByLabelText('New credential value'), privateValue);
         await user.click(screen.getByRole('button', { name: 'Replace encrypted value' }));
         expect(await screen.findByText(/Credential saved for/)).toBeVisible();
       } else {
-        await user.click(screen.getByRole('button', { name: 'Disable Model por defecto · OpenAI' }));
+        await user.click(screen.getByRole('button', { name: 'Disable Default model · OpenAI' }));
         await user.click(screen.getByRole('button', { name: 'Confirm deactivation' }));
         expect(await screen.findByText(/Credential disabled in SABRE/)).toBeVisible();
       }

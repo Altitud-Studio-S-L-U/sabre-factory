@@ -19,7 +19,7 @@ const publicConfig = Object.fromEntries(readFileSync(resolve(root, '.env'), 'utf
   .filter((line) => line && !line.startsWith('#')).map((line) => [line.slice(0, line.indexOf('=')), line.slice(line.indexOf('=') + 1)]));
 const usesCodex = publicConfig.SABRE_MODEL_PROVIDER === 'codex_cli'
   || Object.values(privateJson(publicConfig.SABRE_ROLE_MODELS || '{}')).some((role) => role.model_provider === 'codex_cli');
-const names = ['api', 'worker', 'control', 'executor', 'postgres', 'dependencies-proxy', 'security-proxy']
+const names = ['api', 'worker', 'control', 'executor', 'docker-proxy', 'postgres', 'dependencies-proxy', 'security-proxy']
   .map((service) => `sabre-factory-${service}-1`);
 const configured = (await docker(['ps', '-a', '--filter', 'label=com.docker.compose.project=sabre-factory', '--format', '{{.Names}}'])).toString().trim().split('\n');
 if (configured.includes('sabre-factory-jaeger-1')) names.push('sabre-factory-jaeger-1');
@@ -31,15 +31,43 @@ const rows = JSON.parse((await docker(['inspect', ...names])).toString());
 for (const row of rows) {
   if (row.Config.Labels?.['com.docker.compose.project'] !== 'sabre-factory' || !row.State.Running) throw new Error('A required SABRE service is absent or stopped');
   if (row.Config.Env.some((line) => rawSecretNames.has(line.split('=')[0].toUpperCase()))) throw new Error('A raw credential variable remains in a service configuration');
-  if (['/sabre-factory-api-1', '/sabre-factory-worker-1', '/sabre-factory-control-1', '/sabre-factory-executor-1'].includes(row.Name)) await verifyImage(row, 'sabre-factory-api:local');
+  if (['/sabre-factory-api-1', '/sabre-factory-worker-1', '/sabre-factory-control-1', '/sabre-factory-executor-1', '/sabre-factory-docker-proxy-1'].includes(row.Name)) await verifyImage(row, 'sabre-factory-api:local');
+}
+// The daemon socket is root on the host: only the policy proxy holds it, and the proxy has no network.
+const socketHolders = rows.filter((row) => row.Mounts.some((mount) => mount.Destination === '/var/run/docker.sock')).map((row) => row.Name);
+const dockerProxy = rows.find((row) => row.Name === '/sabre-factory-docker-proxy-1');
+if (socketHolders.join() !== '/sabre-factory-docker-proxy-1' || dockerProxy.HostConfig.NetworkMode !== 'none'
+    || !dockerProxy.HostConfig.ReadonlyRootfs || dockerProxy.HostConfig.Privileged || !dockerProxy.HostConfig.CapDrop?.includes('ALL')
+    || Object.keys(dockerProxy.HostConfig.PortBindings || {}).length) {
+  throw new Error('Only the isolated Docker proxy may hold the daemon socket');
+}
+const proxyProbe = String.raw`
+import json, os, docker
+client = docker.from_env()
+def refused(call):
+ try: call()
+ except docker.errors.APIError as error: return error.status_code == 403
+ return False
+print(json.dumps({'socket': os.path.exists('/var/run/docker.sock'), 'ping': client.ping(),
+ 'api': refused(lambda: client.containers.get('sabre-factory-api-1')),
+ 'exec': refused(lambda: client.api.exec_create('sabre-factory-api-1', ['true'])),
+ 'list': refused(lambda: client.containers.list(all=True)),
+ 'secrets': refused(lambda: client.volumes.get('sabre-factory-control-bootstrap')),
+ 'info': refused(client.info)}))
+`;
+const proxied = JSON.parse((await docker(['exec', 'sabre-factory-executor-1', 'python', '-I', '-c', proxyProbe])).toString());
+if (proxied.socket || !proxied.ping || !proxied.api || !proxied.exec || !proxied.list || !proxied.secrets || !proxied.info) {
+  throw new Error('The executor reaches Docker outside the proxy policy');
 }
 for (const line of readFileSync(resolve(root, '.env'), 'utf8').split(/\r?\n/)) {
   if (rawSecretNames.has(line.split('=')[0])) throw new Error('A raw credential field remains in local public configuration');
 }
 const sum = createHash('sha256');
 const source = resolve(root, 'backend/src/sabre');
-for (const name of readdirSync(source, { recursive: true }).filter((name) => name.endsWith('.py')).sort()) {
-  sum.update(name.replaceAll('\\', '/') + '\0'); sum.update(readFileSync(resolve(source, name)));
+// Python sources and the skill files they load, in one order on every platform.
+for (const name of readdirSync(source, { recursive: true }).map((name) => name.replaceAll('\\', '/'))
+  .filter((name) => name.endsWith('.py') || name.endsWith('.md')).sort()) {
+  sum.update(name + '\0'); sum.update(readFileSync(resolve(source, name)));
 }
 const hostDigest = sum.digest('hex');
 const canary = 'synthetic-access-log-canary-20261105';
@@ -89,8 +117,8 @@ async def main():
    if getattr(result,'is_error',False) or getattr(result,'isError',False): raise RuntimeError('MCP read check failed')
  digest=hashlib.sha256()
  base=pathlib.Path('/app/src/sabre')
- for path in sorted(base.rglob('*.py')):
-  digest.update(path.relative_to(base).as_posix().encode()+b'\0'); digest.update(path.read_bytes())
+ for name in sorted(path.relative_to(base).as_posix() for path in base.rglob('*') if path.suffix in {'.py','.md'}):
+  digest.update(name.encode()+b'\0'); digest.update((base/name).read_bytes())
  print(json.dumps({'api_health':200,'authenticated_status':200,'unauthorized_status':401,'mcp_tools':len(tools.tools),'specialists':len(agents['agents']),'console_bundle_verified':True,'console_sections':len(sections),'console_build':build,'source_digest':digest.hexdigest()}))
 try: asyncio.run(main())
 except Exception as error: print(json.dumps({'check_error':type(error).__name__}))

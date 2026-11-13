@@ -421,6 +421,54 @@ async def test_failed_gates_repair_at_most_twice_then_block(build_factory):
     assert publisher.calls == []
 
 
+async def test_delivery_after_a_repair_proposes_a_pending_repair_lesson(build_factory):
+    factory, repo, team, executor, _, publisher = build_factory(failures=1)
+    proposals = []
+
+    async def record(item, **kwargs):
+        proposals.append((item, kwargs["proposed_by"]))
+        return item
+
+    factory.memory.propose = record
+    result = await factory.drive(repo.current.id)
+    assert result.status == Status.COMPLETED and publisher.calls == ["commit", "publish"]
+    (fact, fact_by), (lesson, lesson_by) = proposals
+    assert fact.kind == "fact" and fact_by.role is None
+    assert lesson.kind == "lesson" and lesson.scope == "project" and lesson.citations == []
+    assert lesson.source_commit == result.evidence.commit and lesson.source_work_id == result.id
+    assert lesson.evidence_digest == result.evidence.snapshot_digest
+    assert lesson_by.channel == "factory" and lesson_by.role == "repair" and lesson_by.work_id == result.id
+    assert "after 1 repair cycle;" in lesson.content
+    assert "- Cycle 1: failed `python -m unittest`." in lesson.content
+    assert '"Resultado de developer"' in lesson.content
+
+
+async def test_delivery_without_repairs_proposes_only_the_delivery_fact(build_factory):
+    factory, repo, *_ = build_factory()
+    proposals = []
+
+    async def record(item, **kwargs):
+        proposals.append(item)
+        return item
+
+    factory.memory.propose = record
+    assert (await factory.drive(repo.current.id)).status == Status.COMPLETED
+    assert [item.kind for item in proposals] == ["fact"]
+
+
+async def test_a_blocked_lesson_never_holds_up_consolidation(build_factory):
+    factory, repo, _, executor, *_ = build_factory(failures=1)
+
+    async def refuse_lessons(item, **kwargs):
+        if item.kind == "lesson":
+            raise DomainError("SECRET_DETECTED", "Content containing a possible credential was blocked", 422)
+        return item
+
+    factory.memory.propose = refuse_lessons
+    assert (await factory.drive(repo.current.id)).status == Status.COMPLETED
+    assert not executor.prepared
+
+
 async def test_scanner_failure_blocks_without_model_repair(build_factory):
     finding = SecurityFinding(fingerprint="error", scanner="trivy", category="scanner_error", severity="high", title="No disponible")
     factory, repo, team, _, _, publisher = build_factory(findings=[finding])

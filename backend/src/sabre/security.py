@@ -183,6 +183,19 @@ def scanner_error(scanner: str) -> SecurityFinding:
     )
 
 
+def finding_locations(findings: list[SecurityFinding], limit: int = 5) -> str:
+    """Where findings are: path, line and rule, never content. Paths and rules come from the scanned repository
+    and the rule set, so anything outside a plain path or identifier is described instead of repeated."""
+    places = []
+    for finding in findings[:limit]:
+        path = (finding.path or "").removeprefix("/workspace/")
+        place = path if re.fullmatch(r"[A-Za-z0-9._@+-][A-Za-z0-9._@+/-]{0,159}", path) else "a path with unusual characters"
+        rule = finding.reference if finding.reference and re.fullmatch(r"[A-Za-z0-9._-]{1,80}", finding.reference) else "unnamed rule"
+        places.append(f"{place}{f' line {finding.line}' if finding.line else ''} ({rule})")
+    more = len(findings) - len(places)
+    return "; ".join(places) + (f"; and {more} more" if more > 0 else "")
+
+
 def parse_findings(scanner: str, payload: Any) -> list[SecurityFinding]:
     """Parse only scanner report fields, never raw secrets or process output."""
     findings: list[SecurityFinding] = []
@@ -194,7 +207,7 @@ def parse_findings(scanner: str, payload: Any) -> list[SecurityFinding]:
             findings.append(SecurityFinding(
                 fingerprint=fingerprint(scanner, rule, path, str(row.get("StartLine", ""))),
                 scanner=scanner, category="secret", severity="critical",
-                title="Posible secreto detectado", path=path, reference=rule,
+                title="Possible secret detected", path=path, reference=rule,
                 line=_line(row.get("StartLine")),
                 remediation="Revoke or rotate the detected credential, remove it from code and check history before resubmitting the project.",
             ))
@@ -207,13 +220,13 @@ def parse_findings(scanner: str, payload: Any) -> list[SecurityFinding]:
                 rule = str(row["VulnerabilityID"])
                 severity = _severity(str(row.get("Severity", "UNKNOWN")))
                 fixed = str(row.get("FixedVersion") or "")
-                remediation = (f"Actualizar {row.get('PkgName', 'the dependency')} to a patched version ({fixed}); verify compatibility and run the tests again."
+                remediation = (f"Update {row.get('PkgName', 'the dependency')} to a patched version ({fixed}); verify compatibility and run the tests again."
                                if fixed else f"Investigate the applicability of {rule}; the advisory does not identify a patched version. Propose mitigation and repeat the scan.")
                 findings.append(SecurityFinding(
                     fingerprint=fingerprint(scanner, rule, path, json.dumps([row.get("PkgName", ""), row.get("InstalledVersion", ""), severity])),
                     scanner=scanner, category="vulnerability",
                     severity=severity,
-                    title=f"{rule}: {row.get('PkgName', 'dependencia')}", path=path, reference=rule,
+                    title=f"{rule}: {row.get('PkgName', 'dependency')}", path=path, reference=rule,
                     remediation=remediation,
                 ))
             for row in result.get("Misconfigurations", []) or []:
@@ -239,7 +252,7 @@ def parse_findings(scanner: str, payload: Any) -> list[SecurityFinding]:
                 scanner=scanner, category="code", severity=severity,
                 title=rule, path=path, reference=rule,
                 line=_line(row.get("start", {}).get("line")),
-                remediation=f"Review rule {rule} en {path}, remove the unsafe construction and verify a regression test.",
+                remediation=f"Review rule {rule} in {path}, remove the unsafe construction and verify a regression test.",
             ))
     else:
         raise ValueError("Unknown scanner")

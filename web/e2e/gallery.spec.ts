@@ -12,6 +12,8 @@ import { configurationHistory, runtimeSettings } from '../src/test/runtimeFixtur
 // Visual evidence for design work: SABRE_GALLERY=<label> pnpm test:browser gallery
 // writes one full-page capture per section and viewport to work/gallery/<label>/.
 const label = process.env.SABRE_GALLERY;
+// SABRE_GALLERY_THEME=light captures the light theme (the console stores it per browser).
+const theme = process.env.SABRE_GALLERY_THEME;
 
 const sections = [
   { name: 'runs', path: '/runs', ready: 'Runs' },
@@ -19,18 +21,22 @@ const sections = [
   { name: 'agents', path: '/agents', ready: 'Agents' },
   { name: 'tools', path: '/tools', ready: 'Tools' },
   { name: 'memory', path: '/memory', ready: 'Memory' },
+  { name: 'memory-records', path: '/memory', ready: 'Memory', tab: 'Records' },
   { name: 'memory-review', path: '/memory', ready: 'Memory', tab: 'Review queue' },
   { name: 'memory-recalls', path: '/memory', ready: 'Memory', tab: 'Recall log' },
   { name: 'config', path: '/config', ready: 'Config' },
   { name: 'config-access', path: '/config?section=access', ready: 'Paired browsers' },
   { name: 'config-environment', path: '/config?section=environment', ready: 'Set by the environment' },
   { name: 'config-history', path: '/config?section=history', ready: 'Revision history' },
+  { name: 'projects', path: '/projects', ready: 'Example project' },
+  { name: 'security', path: '/security', ready: 'Independent review' },
 ];
 
 test.describe('gallery', () => {
   test.skip(!label, 'Set SABRE_GALLERY=<label> to capture the gallery');
 
   test.beforeEach(async ({ page }) => {
+    if (theme) await page.addInitScript((value) => localStorage.setItem('sabre.theme', value), theme);
     await mockFactoryApi(page);
     const order = { ...syntheticRun(), status: 'waiting_input', phase: 'review' };
     await page.route('**/api/v1/work', (route) =>
@@ -106,6 +112,53 @@ test.describe('gallery', () => {
     await page.route('**/api/v1/projects/*/memory/recalls*', (route) =>
       route.fulfill({ json: memoryRecalls() }),
     );
+    await page.route('**/api/v1/projects/*/memory/items*', (route) =>
+      route.fulfill({
+        json: {
+          commit: '5be10d7'.padEnd(40, '0'),
+          next_cursor: 'synthetic-next',
+          items: [
+            memoryItem(),
+            memoryItem({
+              id: 'l90',
+              kind: 'lesson',
+              state: 'pending',
+              active: false,
+              approved_at: null,
+              content:
+                'Repair lesson: Apply the loyalty discount before tax\nVerification passed after 1 repair cycle; delivered at commit a41c9e200000.\n- Cycle 1: failed `pytest -q tests/pricing`.',
+              proposed_by: { channel: 'factory', role: 'repair', work_id: 'synthetic-run' },
+              recall_count: 0,
+              last_recalled_at: null,
+              citations: [],
+            }),
+            memoryItem({
+              id: 'p41',
+              content: 'Discount rounds half up',
+              state: 'active',
+              validity: {
+                commit: '5be10d7'.padEnd(40, '0'),
+                state: 'stale',
+                reason: 'citations_changed',
+                changed_paths: [{ path: 'src/pricing/discount.py', change: 'changed' }],
+                checked_at: '2026-11-12T09:00:00Z',
+              },
+              recall_count: 3,
+            }),
+            memoryItem({
+              id: 'o12',
+              kind: 'lesson',
+              content: 'Run the pricing suite with the seeded fixtures only',
+              state: 'invalidated',
+              active: false,
+              invalidated_at: '2026-11-11T09:00:00Z',
+              recall_count: 2,
+              scope: 'commit',
+            }),
+          ],
+        },
+      }),
+    );
     await page.route('**/api/v1/memory/m27', (route) => route.fulfill({ json: memoryDetail() }));
     await page.route('**/api/v1/memory?*', (route) =>
       route.fulfill({
@@ -150,6 +203,8 @@ test.describe('gallery', () => {
         await page.getByRole('tab', { name: section.tab, exact: true }).click();
       if (section.name === 'memory')
         await page.getByRole('button', { name: "Memory: Discount uses banker's rounding" }).click();
+      if (section.name === 'memory-records')
+        await page.getByRole('button', { name: 'Inspect memory m27' }).click();
       await page.waitForLoadState('networkidle');
       await page.mouse.move(0, 0);
       await page.screenshot({
@@ -173,4 +228,37 @@ test.describe('gallery', () => {
     });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   });
+});
+
+// Loading states: hold the named requests open so each screen's skeleton can be reviewed.
+const loadingStates = [
+  { name: 'loading-runs', path: '/runs', hold: ['**/api/v1/work'] },
+  {
+    name: 'loading-run-detail',
+    path: '/runs/synthetic-run',
+    hold: ['**/api/v1/work', '**/api/v1/work/synthetic-run'],
+  },
+  { name: 'loading-agents', path: '/agents', hold: ['**/api/v1/flows/*/topology', '**/api/v1/agents'] },
+  { name: 'loading-memory', path: '/memory', hold: ['**/api/v1/projects/*/knowledge'] },
+  { name: 'loading-config', path: '/config', hold: ['**/api/v1/configuration'] },
+];
+
+test.describe('gallery · loading', () => {
+  test.skip(!label, 'Set SABRE_GALLERY=<label> to capture the gallery');
+
+  for (const state of loadingStates) {
+    test(state.name, async ({ page }) => {
+      await mockFactoryApi(page);
+      for (const pattern of state.hold) await page.route(pattern, () => new Promise<void>(() => undefined));
+      await page.goto(state.path);
+      await expect(page.locator('[data-skeleton]').first()).toBeVisible();
+      await page.mouse.move(0, 0);
+      await page.screenshot({
+        path: `../work/gallery/${label}/${state.name}-${test.info().project.name}.png`,
+        fullPage: true,
+        scale: 'css',
+        animations: 'disabled',
+      });
+    });
+  }
 });

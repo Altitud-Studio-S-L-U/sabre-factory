@@ -1,5 +1,5 @@
 import Button from './components/Button';
-import LoadingState from './components/LoadingState';
+import { SkeletonCard, SkeletonList, SkeletonStatus } from './components/Skeletons';
 import Input from './components/Input';
 import Textarea from './components/Textarea';
 import { useEffect, useState, type ReactNode } from 'react';
@@ -243,7 +243,13 @@ export default function AgentsConsole({
             )}
             {!connected && <Notice tone="warning">Disconnected snapshot. Agent changes are disabled.</Notice>}
             {loading ? (
-              <LoadingState label="Loading published specialists…" />
+              <SkeletonStatus
+                label="Loading published specialists…"
+                className="gap-4 @3xl:grid-cols-[17rem_minmax(0,1fr)]"
+              >
+                <SkeletonList rows={7} />
+                <SkeletonCard rows={5} />
+              </SkeletonStatus>
             ) : !agent || !definition ? (
               <EmptyState title="The agent catalog is unavailable. Refresh after checking the factory connection." />
             ) : (

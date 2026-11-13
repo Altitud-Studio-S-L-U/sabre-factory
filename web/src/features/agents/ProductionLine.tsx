@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { Link } from 'react-router';
 import { Cog, GitBranch, ListChecks, Repeat, UserRound } from 'lucide-react';
 import type { Api, ProcessTopology, WorkOrder } from '../../api';
 import DescriptionList from '../../components/DescriptionList';
-import LoadingState from '../../components/LoadingState';
+import { ProductionLineSkeleton } from '../../components/Skeletons';
 import Notice from '../../components/Notice';
 import SegmentedControl from '../../components/SegmentedControl';
 import { isClosed } from '../../runState';
@@ -97,6 +97,35 @@ export default function ProductionLine({ api, orders }: { api: Api; orders: Work
     stations.find((station) => live.has(station.id)) ??
     stations.find((station) => station.id === 'implement') ??
     stations[0];
+  // Thirteen or more stations rarely fit in one row: the line scrolls sideways, edge fades show
+  // where it continues, and the focused station is kept in view.
+  const scroller = useRef<HTMLDivElement>(null);
+  const [edges, setEdges] = useState({ start: false, end: false });
+  const measure = useCallback(() => {
+    const element = scroller.current;
+    if (!element) return;
+    const start = element.scrollLeft > 4;
+    const end = element.scrollLeft + element.clientWidth < element.scrollWidth - 4;
+    setEdges((prior) => (prior.start === start && prior.end === end ? prior : { start, end }));
+  }, []);
+  useEffect(() => {
+    const element = scroller.current;
+    if (!element) return;
+    measure();
+    if (typeof ResizeObserver !== 'function') return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [measure, stations.length]);
+  const focusId = focus?.id;
+  useEffect(() => {
+    const element = scroller.current;
+    const target = focusId ? element?.querySelector<HTMLElement>(`[data-station="${focusId}"]`) : null;
+    if (!element || !target || typeof element.scrollTo !== 'function') return;
+    const left = target.offsetLeft - element.offsetLeft;
+    if (left < element.scrollLeft || left + target.offsetWidth > element.scrollLeft + element.clientWidth)
+      element.scrollTo({ left: Math.max(0, left - element.clientWidth / 2 + target.offsetWidth / 2) });
+  }, [focusId, stations.length]);
   const grid = {
     gridTemplateColumns: `repeat(${Math.max(stations.length, 1)}, minmax(5.75rem, 1fr))`,
   } as CSSProperties;
@@ -129,7 +158,7 @@ export default function ProductionLine({ api, orders }: { api: Api; orders: Work
           <p>{current.error}</p>
         </Notice>
       )}
-      {!current && <LoadingState label="Loading the production line…" />}
+      {!current && <ProductionLineSkeleton />}
       {current?.topology && !stations.length && (
         <Notice tone="neutral" title="This server does not describe stations yet.">
           <p>Update SABRE to see the production line. Runs and their timelines are unaffected.</p>
@@ -138,123 +167,145 @@ export default function ProductionLine({ api, orders }: { api: Api; orders: Work
 
       {stations.length > 0 && (
         <div className="grid min-w-0 items-start gap-4">
-          <div className="min-w-0 overflow-x-auto rounded-xl border border-border bg-card p-3 pb-2">
-            <div className="grid min-w-max gap-x-2.5 gap-y-1.5" style={grid}>
-              {stageSpans(stations).map((span) => (
+          <div className="relative min-w-0 overflow-hidden rounded-xl border border-border bg-card">
+            <div
+              aria-hidden="true"
+              className={cn(
+                'pointer-events-none absolute inset-y-0 left-0 z-10 w-10 bg-linear-to-r from-card to-transparent transition-opacity',
+                edges.start ? 'opacity-100' : 'opacity-0',
+              )}
+            />
+            <div
+              aria-hidden="true"
+              className={cn(
+                'pointer-events-none absolute inset-y-0 right-0 z-10 w-10 bg-linear-to-l from-card to-transparent transition-opacity',
+                edges.end ? 'opacity-100' : 'opacity-0',
+              )}
+            />
+            <div
+              ref={scroller}
+              onScroll={measure}
+              data-testid="production-line-scroller"
+              className="min-w-0 overflow-x-auto p-3 pb-2 [scrollbar-width:thin]"
+            >
+              <div className="grid min-w-max gap-x-2.5 gap-y-1.5" style={grid}>
+                {stageSpans(stations).map((span) => (
+                  <div
+                    key={`${span.stage}-${span.start}`}
+                    className={cn(
+                      'row-start-1 rounded-t-lg border-x border-t px-2.5 pt-1.5 pb-1 text-[0.6875rem] font-semibold tracking-wider uppercase',
+                      span.stage === focus?.stage
+                        ? 'border-primary/40 bg-primary/10 text-primary'
+                        : 'border-border bg-secondary/40 text-muted-foreground',
+                    )}
+                    style={{ gridColumn: `${span.start + 1} / ${span.end + 1}` }}
+                  >
+                    {STAGES.find((stage) => stage.id === span.stage)?.label}
+                  </div>
+                ))}
+                {repair && repairFrom >= 0 && repairTo > repairFrom && (
+                  <div
+                    className="relative row-start-2 mx-10 mt-1 h-6 rounded-t-xl border-x-2 border-t-2 border-dashed border-primary/70"
+                    style={{ gridColumn: `${repairFrom + 1} / ${repairTo + 2}` }}
+                    title={`${repair.condition}. ${repair.limit}.`}
+                  >
+                    <span className="absolute -top-3 left-1/2 inline-flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-primary/40 bg-card px-2.5 py-0.5 text-[0.6875rem] whitespace-nowrap text-primary">
+                      <Repeat aria-hidden="true" className="size-3" />
+                      Repair loop · back to {stations[repairFrom].label}
+                    </span>
+                  </div>
+                )}
+                <ol aria-label={`${modeLabels[mode]} stations`} className="contents">
+                  {stations.map((station, index) => {
+                    const here = live.get(station.id) ?? [];
+                    const waiting = here.some(
+                      (order) => order.status !== 'running' && order.status !== 'queued',
+                    );
+                    const active = focus?.id === station.id;
+                    return (
+                      <li
+                        key={station.id}
+                        className="row-start-3 grid min-w-0"
+                        data-station={station.id}
+                        style={{ gridColumn: index + 1 }}
+                      >
+                        <button
+                          type="button"
+                          aria-pressed={active}
+                          aria-label={`${station.label}: ${station.agent ?? kindLabels[station.kind]}${here.length ? `, ${here.length} run${here.length === 1 ? '' : 's'} here` : ''}`}
+                          onClick={() => setSelected(station.id)}
+                          data-kind={station.kind}
+                          className={cn(
+                            'relative grid h-full min-h-28 cursor-pointer content-start justify-items-start gap-1.5 rounded-lg border bg-background/40 p-2.5 text-left transition-colors hover:bg-hover/50',
+                            station.condition ? 'border-dashed border-input' : 'border-border',
+                            active &&
+                              'border-solid border-primary bg-accent/15 shadow-[0_0_0_1px_var(--primary)]',
+                          )}
+                        >
+                          <StationMark station={station} />
+                          <strong className="text-[0.8125rem] leading-tight font-semibold">
+                            {station.label}
+                          </strong>
+                          <span className="text-xs leading-tight text-muted-foreground">
+                            {station.agent ?? (station.kind === 'gates' ? 'Checks' : 'Rules')}
+                          </span>
+                          <span className="font-mono text-[0.6875rem] text-muted-foreground">
+                            {kindShort[station.kind]}
+                          </span>
+                          {here.length > 0 && (
+                            <span
+                              className={cn(
+                                'inline-flex items-center gap-1 font-mono text-[0.6875rem]',
+                                waiting ? 'text-warning' : 'text-primary',
+                              )}
+                            >
+                              <span
+                                aria-hidden="true"
+                                className={cn(
+                                  'size-1.5 rounded-full',
+                                  waiting ? 'bg-warning' : 'bg-primary motion-safe:animate-pulse',
+                                )}
+                              />
+                              {here.length} run{here.length === 1 ? '' : 's'}
+                            </span>
+                          )}
+                        </button>
+                        {station.helpers.map((helper) => (
+                          <span
+                            key={helper.role}
+                            title={helper.condition}
+                            className="mt-1 truncate rounded-full border border-dashed border-border px-2 py-0.5 text-center text-[0.6875rem] text-muted-foreground"
+                          >
+                            + {helper.agent}
+                          </span>
+                        ))}
+                      </li>
+                    );
+                  })}
+                </ol>
+                {stations.map((station, index) => (
+                  <div
+                    key={`owner-${station.id}`}
+                    aria-hidden="true"
+                    className="row-start-4 flex justify-center"
+                    style={{ gridColumn: index + 1 }}
+                  >
+                    {station.asks_owner && (
+                      <span className="h-3 border-l-2 border-dashed border-warning-border" />
+                    )}
+                  </div>
+                ))}
                 <div
-                  key={`${span.stage}-${span.start}`}
-                  className={cn(
-                    'row-start-1 rounded-t-lg border-x border-t px-2.5 pt-1.5 pb-1 text-[0.6875rem] font-semibold tracking-wider uppercase',
-                    span.stage === focus?.stage
-                      ? 'border-primary/40 bg-primary/10 text-primary'
-                      : 'border-border bg-secondary/40 text-muted-foreground',
-                  )}
-                  style={{ gridColumn: `${span.start + 1} / ${span.end + 1}` }}
+                  className="row-start-5 flex items-center gap-2 rounded-lg border border-warning-border/70 bg-warning-bg/40 px-3 py-2 text-xs"
+                  style={{ gridColumn: `1 / ${stations.length + 1}` }}
                 >
-                  {STAGES.find((stage) => stage.id === span.stage)?.label}
-                </div>
-              ))}
-              {repair && repairFrom >= 0 && repairTo > repairFrom && (
-                <div
-                  className="relative row-start-2 mx-10 mt-1 h-6 rounded-t-xl border-x-2 border-t-2 border-dashed border-primary/70"
-                  style={{ gridColumn: `${repairFrom + 1} / ${repairTo + 2}` }}
-                  title={`${repair.condition}. ${repair.limit}.`}
-                >
-                  <span className="absolute -top-3 left-1/2 inline-flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-primary/40 bg-card px-2.5 py-0.5 text-[0.6875rem] whitespace-nowrap text-primary">
-                    <Repeat aria-hidden="true" className="size-3" />
-                    Repair loop · back to {stations[repairFrom].label}
+                  <UserRound aria-hidden="true" className="size-3.5 text-warning" />
+                  <strong className="font-semibold text-warning">You</strong>
+                  <span className="text-muted-foreground">
+                    {stations.filter((station) => station.asks_owner).length} stations can pause the line for
+                    your answer. Pause and cancel are checked before every station and every model call.
                   </span>
                 </div>
-              )}
-              <ol aria-label={`${modeLabels[mode]} stations`} className="contents">
-                {stations.map((station, index) => {
-                  const here = live.get(station.id) ?? [];
-                  const waiting = here.some(
-                    (order) => order.status !== 'running' && order.status !== 'queued',
-                  );
-                  const active = focus?.id === station.id;
-                  return (
-                    <li
-                      key={station.id}
-                      className="row-start-3 grid min-w-0"
-                      style={{ gridColumn: index + 1 }}
-                    >
-                      <button
-                        type="button"
-                        aria-pressed={active}
-                        aria-label={`${station.label}: ${station.agent ?? kindLabels[station.kind]}${here.length ? `, ${here.length} run${here.length === 1 ? '' : 's'} here` : ''}`}
-                        onClick={() => setSelected(station.id)}
-                        data-kind={station.kind}
-                        className={cn(
-                          'relative grid h-full min-h-28 cursor-pointer content-start justify-items-start gap-1.5 rounded-lg border bg-background/40 p-2.5 text-left transition-colors hover:bg-hover/50',
-                          station.condition ? 'border-dashed border-input' : 'border-border',
-                          active &&
-                            'border-solid border-primary bg-accent/15 shadow-[0_0_0_1px_var(--primary)]',
-                        )}
-                      >
-                        <StationMark station={station} />
-                        <strong className="text-[0.8125rem] leading-tight font-semibold">
-                          {station.label}
-                        </strong>
-                        <span className="text-xs leading-tight text-muted-foreground">
-                          {station.agent ?? (station.kind === 'gates' ? 'Checks' : 'Rules')}
-                        </span>
-                        <span className="font-mono text-[0.6875rem] text-muted-foreground/80">
-                          {kindShort[station.kind]}
-                        </span>
-                        {here.length > 0 && (
-                          <span
-                            className={cn(
-                              'inline-flex items-center gap-1 font-mono text-[0.6875rem]',
-                              waiting ? 'text-warning' : 'text-primary',
-                            )}
-                          >
-                            <span
-                              aria-hidden="true"
-                              className={cn(
-                                'size-1.5 rounded-full',
-                                waiting ? 'bg-warning' : 'bg-primary motion-safe:animate-pulse',
-                              )}
-                            />
-                            {here.length} run{here.length === 1 ? '' : 's'}
-                          </span>
-                        )}
-                      </button>
-                      {station.helpers.map((helper) => (
-                        <span
-                          key={helper.role}
-                          title={helper.condition}
-                          className="mt-1 truncate rounded-full border border-dashed border-border px-2 py-0.5 text-center text-[0.6875rem] text-muted-foreground"
-                        >
-                          + {helper.agent}
-                        </span>
-                      ))}
-                    </li>
-                  );
-                })}
-              </ol>
-              {stations.map((station, index) => (
-                <div
-                  key={`owner-${station.id}`}
-                  aria-hidden="true"
-                  className="row-start-4 flex justify-center"
-                  style={{ gridColumn: index + 1 }}
-                >
-                  {station.asks_owner && (
-                    <span className="h-3 border-l-2 border-dashed border-warning-border" />
-                  )}
-                </div>
-              ))}
-              <div
-                className="row-start-5 flex items-center gap-2 rounded-lg border border-warning-border/70 bg-warning-bg/40 px-3 py-2 text-xs"
-                style={{ gridColumn: `1 / ${stations.length + 1}` }}
-              >
-                <UserRound aria-hidden="true" className="size-3.5 text-warning" />
-                <strong className="font-semibold text-warning">You</strong>
-                <span className="text-muted-foreground">
-                  {stations.filter((station) => station.asks_owner).length} stations can pause the line for
-                  your answer. Pause and cancel are checked before every station and every model call.
-                </span>
               </div>
             </div>
           </div>

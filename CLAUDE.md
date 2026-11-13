@@ -25,7 +25,7 @@ node infra/dev.mjs types
 node --test infra/*.test.mjs
 node bin/sabre.mjs bench                    # harness bench, reference policy, no provider
 cd web && pnpm typecheck && pnpm lint && pnpm format:check && pnpm test && pnpm build
-cd web && pnpm test:browser                 # Playwright, desktop and mobile
+cd web && pnpm test:browser                 # Playwright, desktop and mobile, with axe WCAG A/AA checks
 ```
 
 `pnpm` comes from Corepack (`corepack pnpm ...`). Two Playwright suites must not share a port or a results
@@ -48,3 +48,6 @@ captures every section under `work/gallery/<label>/`.
 `.mcp.json` registers the local stdio bridge (`node bin/sabre.mjs mcp-stdio`), which runs inside the API
 container with the owner's authority. Use it only from a trusted local session. Remote agents use a
 delegated MCP credential instead (see `docs/operations.md#mcp-access`).
+
+Budget changes, security exceptions, answers to owner decisions (architecture, permission, scope, exception)
+and repository creation requested over MCP are only filed: the owner confirms them in the console. Read the outcome with `sabre_confirmation` and never assume approval.

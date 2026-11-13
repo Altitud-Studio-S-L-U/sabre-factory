@@ -26,7 +26,12 @@ export default function MemoryLayers({ layers }: { layers: Layer[] }) {
           Five layers, from a single model call to the whole project
         </span>
       </div>
-      <ol className="-mx-1 grid snap-x auto-cols-[minmax(14rem,78%)] grid-flow-col gap-2 overflow-x-auto px-1 pb-1 @3xl/layers:mx-0 @3xl/layers:auto-cols-auto @3xl/layers:grid-flow-row @3xl/layers:grid-cols-5 @3xl/layers:gap-0 @3xl/layers:overflow-visible @3xl/layers:px-0 @3xl/layers:pb-0">
+      {/* Focusable, so the narrow layout's horizontal scroll works from the keyboard. */}
+      <ol
+        tabIndex={0}
+        aria-labelledby="memory-layers-title"
+        className="-mx-1 grid snap-x auto-cols-[minmax(14rem,78%)] grid-flow-col gap-2 overflow-x-auto rounded-md px-1 pb-1 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring @3xl/layers:mx-0 @3xl/layers:auto-cols-auto @3xl/layers:grid-flow-row @3xl/layers:grid-cols-5 @3xl/layers:gap-0 @3xl/layers:overflow-visible @3xl/layers:px-0 @3xl/layers:pb-0"
+      >
         {layers.map((layer, index) => (
           <li
             key={layer.id}

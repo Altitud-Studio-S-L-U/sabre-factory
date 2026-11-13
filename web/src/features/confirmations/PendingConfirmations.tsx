@@ -1,0 +1,190 @@
+import { useId, useState } from 'react';
+import { Link } from 'react-router';
+import type { Api, OwnerConfirmation, WorkOrder } from '../../api';
+import Button from '../../components/Button';
+import DescriptionList, { type Description } from '../../components/DescriptionList';
+import Disclosure from '../../components/Disclosure';
+import Notice, { type NoticeTone } from '../../components/Notice';
+import { runPath } from '../runs/RunsTable';
+import { message } from '../runs/shared';
+
+const kinds: Record<OwnerConfirmation['kind'], string> = {
+  'budget.tokens': 'Budget',
+  'budget.calls': 'Budget',
+  'budget.cli_progress': 'Budget',
+  'budget.amend': 'Budget',
+  'budget.reconcile': 'Budget',
+  'security.exception': 'Security exception',
+  'question.answer': 'Owner decision',
+  'repository.decide': 'Repository',
+  'repository.launch': 'Repository',
+};
+
+const clock = (value: string) =>
+  new Date(value).toLocaleString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+
+function field(key: string) {
+  const text = key.replaceAll('_', ' ');
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+function value(entry: unknown): string {
+  if (typeof entry === 'number') return entry.toLocaleString('en-US');
+  if (typeof entry === 'boolean') return entry ? 'Yes' : 'No';
+  if (typeof entry === 'string') return entry;
+  return entry == null ? '—' : JSON.stringify(entry);
+}
+
+/** What the decision did, in the owner's terms. A failed or unknown outcome never reads as success. */
+function outcome(result: OwnerConfirmation): { tone: NoticeTone; text: string } {
+  if (result.state === 'applied') return { tone: 'success', text: `Applied: ${result.summary}.` };
+  if (result.state === 'rejected')
+    return { tone: 'neutral', text: `Rejected: ${result.summary}. Nothing changed.` };
+  if (result.state === 'failed')
+    return {
+      tone: 'danger',
+      text: `Not applied: ${result.summary}. ${result.error_message ?? 'The operation was refused.'}${
+        result.error_code ? ` (${result.error_code})` : ''
+      } Check the run before asking again.`,
+    };
+  return {
+    tone: 'warning',
+    text: `The outcome of "${result.summary}" is unknown. Inspect the run before asking again.`,
+  };
+}
+
+/**
+ * Requests an MCP client filed for the owner. They change nothing until confirmed here, and
+ * only this console can decide them; the server applies each one at most once.
+ */
+export default function PendingConfirmations({
+  api,
+  items,
+  orders,
+  connected,
+  onChanged,
+}: {
+  api: Pick<Api, 'confirmRequest' | 'rejectRequest'>;
+  items: OwnerConfirmation[];
+  orders: WorkOrder[];
+  connected: boolean;
+  onChanged: () => unknown;
+}) {
+  const heading = useId();
+  const [busy, setBusy] = useState<string | null>(null);
+  const [result, setResult] = useState<{ tone: NoticeTone; text: string } | null>(null);
+  const pending = items.filter((item) => item.state === 'pending');
+  if (!pending.length && !result) return null;
+
+  const decide = async (item: OwnerConfirmation, action: 'confirm' | 'reject') => {
+    setBusy(item.id);
+    setResult(null);
+    try {
+      const decided =
+        action === 'confirm'
+          ? await api.confirmRequest(item.id, item.request_digest)
+          : await api.rejectRequest(item.id, item.request_digest);
+      setResult(outcome(decided));
+    } catch (error) {
+      setResult({ tone: 'danger', text: message(error) });
+    } finally {
+      setBusy(null);
+      await onChanged();
+    }
+  };
+
+  return (
+    <section aria-labelledby={heading} className="mb-5 grid gap-3">
+      {pending.length > 0 && (
+        <div className="overflow-hidden rounded-xl border border-warning-border bg-card">
+          <header className="border-b border-warning-border bg-warning-bg px-4 py-3">
+            <h2 id={heading} className="text-sm font-semibold text-warning">
+              {pending.length === 1
+                ? 'A request is waiting for your confirmation'
+                : `${pending.length} requests are waiting for your confirmation`}
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              Filed over MCP by an agent acting for you. Nothing changes until you confirm it here.
+            </p>
+          </header>
+          <ul className="divide-y divide-border">
+            {pending.map((item) => {
+              const order = orders.find((candidate) => candidate.id === item.work_id);
+              const details: Description[] = Object.entries(item.request).map(([key, entry]) => [
+                field(key),
+                value(entry),
+              ]);
+              return (
+                <li key={item.id} className="grid gap-3 px-4 py-3" data-testid="pending-confirmation">
+                  <div className="flex flex-wrap items-start gap-x-4 gap-y-3">
+                    <div className="grid min-w-0 flex-1 basis-72 gap-1">
+                      <p className="font-medium [overflow-wrap:anywhere]">{item.summary}</p>
+                      <p className="text-sm text-muted-foreground [overflow-wrap:anywhere]">
+                        {kinds[item.kind]}
+                        {item.work_id && (
+                          <>
+                            {' · '}
+                            <Link
+                              className="text-foreground underline underline-offset-2"
+                              to={runPath(item.work_id)}
+                            >
+                              {order?.objective ?? `Run ${item.work_id.slice(0, 8)}`}
+                            </Link>
+                          </>
+                        )}{' '}
+                        · asked {clock(item.created_at)} · expires {clock(item.expires_at)}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={!connected || busy !== null}
+                        aria-label={`Reject: ${item.summary}`}
+                        onClick={() => void decide(item, 'reject')}
+                      >
+                        Reject
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="primary"
+                        size="sm"
+                        disabled={!connected || busy !== null}
+                        aria-label={`Confirm: ${item.summary}`}
+                        onClick={() => void decide(item, 'confirm')}
+                      >
+                        {busy === item.id ? 'Working…' : 'Confirm'}
+                      </Button>
+                    </div>
+                  </div>
+                  <Disclosure variant="plain" summary="Exact request">
+                    <DescriptionList items={details} termWidth="11rem" label={`Request: ${item.summary}`} />
+                  </Disclosure>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
+      {result && (
+        <Notice
+          tone={result.tone}
+          role={result.tone === 'danger' || result.tone === 'warning' ? 'alert' : 'status'}
+          actions={
+            <Button type="button" variant="ghost" size="sm" onClick={() => setResult(null)}>
+              Dismiss
+            </Button>
+          }
+        >
+          <p>{result.text}</p>
+        </Notice>
+      )}
+    </section>
+  );
+}

@@ -32,7 +32,7 @@ from sabre.browser_contracts import BrowserJob
 from sabre.browser_qa import BrowserRunner
 from sabre.models import Contract, DomainError, Project, SecurityFinding
 from sabre.private_credentials import fetch_credentials
-from sabre.security import SecretGuard, parse_findings, scanner_error
+from sabre.security import SecretGuard, finding_locations, parse_findings, scanner_error
 from sabre.settings import load_bootstrap, reject_secret_environment
 
 CONTAINER_TEMP = "/tmp"  # noqa: S108 - private bounded tmpfs inside each disposable container
@@ -584,7 +584,9 @@ class DockerBroker:
             try:
                 admission = parse_findings("gitleaks", await self._scanner(work_id, "gitleaks"))
                 if admission:
-                    raise DomainError("SECRET_DETECTED", "Admission detected potential secrets in the repository; content will not be sent to agents", 422)
+                    raise DomainError("SECRET_DETECTED", "Admission detected potential secrets in the repository; content will not be sent to agents. "
+                                      f"Found at: {finding_locations(admission)}. Rotate any real credential, change test data shaped like a "
+                                      "credential, and submit the work again.", 422)
                 data = {"project": project.model_dump(mode="json"), "base_commit": commit}
                 await self._persist_workspace(work_id)
                 await asyncio.to_thread(self._atomic_json, path, data)

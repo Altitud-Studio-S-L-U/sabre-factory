@@ -35,6 +35,21 @@ x-app-environment: &app-environment
   SABRE_CLAUDE_CLI_URL: http://claude-runner:8092
   SABRE_CLAUDE_CLI_TOKEN_FILE: /run/secrets/claude-bridge/token
 
+# What the executor may ask Docker for. The executor builds its containers from these
+# values and the Docker proxy admits nothing else, so both read the same block.
+x-executor-docker: &executor-docker
+  SABRE_PYTHON_IMAGE: ${SABRE_PYTHON_IMAGE:-}
+  SABRE_NODE_IMAGE: ${SABRE_NODE_IMAGE:-}
+  SABRE_BROWSER_IMAGE: ${SABRE_BROWSER_IMAGE:-}
+  SABRE_HELPER_IMAGE: ${SABRE_HELPER_IMAGE:-}
+  SABRE_GITLEAKS_IMAGE: zricethezav/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
+  SABRE_TRIVY_IMAGE: aquasec/trivy:0.76.1@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c
+  SABRE_SEMGREP_IMAGE: semgrep/semgrep:1.182.1@sha256:451b3d875c00dac7ed5db5293e584a07de11449a409c10b3c2d2652f429630b6
+  SABRE_TRIVY_DB_VOLUME: sabre-factory-trivy-cache
+  SABRE_SEMGREP_RULES_VOLUME: ${SABRE_RULES_VOLUME:-sabre-factory-semgrep-rules}
+  SABRE_DEPENDENCY_NETWORK: sabre-factory_dependencies
+  SABRE_SECURITY_UPDATE_NETWORK: sabre-factory_security_updates
+
 services:
   postgres:
     image: sabre-factory-postgres:local
@@ -122,24 +137,18 @@ services:
     user: "0:0"
     command: [uvicorn, sabre.executor:app, --host, 0.0.0.0, --port, "8090", --no-access-log]
     environment:
+      <<: *executor-docker
       SABRE_BOOTSTRAP_FILE: /run/secrets/sabre/broker.json
       SABRE_API_URL: http://api:8000
       SABRE_EXECUTOR_STATE: /workspaces
-      SABRE_PYTHON_IMAGE: ${SABRE_PYTHON_IMAGE:-}
-      SABRE_NODE_IMAGE: ${SABRE_NODE_IMAGE:-}
-      SABRE_BROWSER_IMAGE: ${SABRE_BROWSER_IMAGE:-}
-      SABRE_HELPER_IMAGE: ${SABRE_HELPER_IMAGE:-}
-      SABRE_GITLEAKS_IMAGE: zricethezav/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
-      SABRE_TRIVY_IMAGE: aquasec/trivy:0.76.1@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c
-      SABRE_SEMGREP_IMAGE: semgrep/semgrep:1.182.1@sha256:451b3d875c00dac7ed5db5293e584a07de11449a409c10b3c2d2652f429630b6
-      SABRE_TRIVY_DB_VOLUME: sabre-factory-trivy-cache
-      SABRE_SEMGREP_RULES_VOLUME: ${SABRE_RULES_VOLUME:-sabre-factory-semgrep-rules}
-      SABRE_DEPENDENCY_NETWORK: sabre-factory_dependencies
       SABRE_DEPENDENCY_PROXY: http://dependencies-proxy:3128
-      SABRE_SECURITY_UPDATE_NETWORK: sabre-factory_security_updates
       SABRE_SECURITY_UPDATE_PROXY: http://security-proxy:3128
+      # The daemon socket stays with docker-proxy; the executor reaches Docker through its policy.
+      DOCKER_HOST: unix:///run/docker-proxy/docker.sock
+    depends_on:
+      docker-proxy: {condition: service_healthy}
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
+      - docker-proxy:/run/docker-proxy:ro
       - executor-state:/workspaces
       - semgrep-rules:/rules:ro
       - broker-bootstrap:/run/secrets/sabre:ro
@@ -155,6 +164,32 @@ services:
       retries: 20
     mem_limit: 384m
     cpus: 1
+    restart: unless-stopped
+
+  # The only holder of the Docker daemon socket. It has no network: it listens on a Unix
+  # socket shared with the executor and forwards only requests inside the sandbox profile.
+  docker-proxy:
+    image: sabre-factory-api:local
+    user: "0:0"
+    command: [python, -m, sabre.docker_proxy]
+    environment:
+      <<: *executor-docker
+      SABRE_DOCKER_UPSTREAM: /var/run/docker.sock
+      SABRE_DOCKER_PROXY_SOCKET: /run/docker-proxy/docker.sock
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - docker-proxy:/run/docker-proxy
+    network_mode: none
+    read_only: true
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    healthcheck:
+      test: [CMD, python, -c, "import socket; s=socket.socket(socket.AF_UNIX); s.settimeout(2); s.connect('/run/docker-proxy/docker.sock'); s.sendall(b'GET /_ping HTTP/1.1\\r\\nHost: docker\\r\\n\\r\\n'); assert s.recv(12).startswith(b'HTTP/1.1 200')"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    mem_limit: 128m
+    cpus: 0.5
     restart: unless-stopped
 
   codex-runner:
@@ -326,5 +361,6 @@ volumes:
   postgres-data: {}
   sabre-data: {}
   executor-state: {}
+  docker-proxy: {}
   trivy-cache: {name: sabre-factory-trivy-cache}
   semgrep-rules: {name: "${SABRE_RULES_VOLUME:-sabre-factory-semgrep-rules}"}

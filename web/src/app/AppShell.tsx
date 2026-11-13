@@ -2,6 +2,7 @@ import { useCallback, useState, type ReactNode, type RefObject } from 'react';
 import { Link } from 'react-router';
 import Icon from '../Icon';
 import { cn } from '../lib/utils';
+import { useTheme } from '../lib/theme';
 import type { NavigationItem, View } from '../navigation';
 import CommandPalette, { usePaletteShortcut, type PaletteCommand } from './CommandPalette';
 import { Logo } from './Logo';
@@ -46,6 +47,7 @@ export default function AppShell({
   onNavigate,
   commands,
   mainRef,
+  actionSlot,
   children,
 }: {
   items: NavigationItem[];
@@ -61,12 +63,16 @@ export default function AppShell({
   onNavigate: () => void;
   commands: PaletteCommand[];
   mainRef: RefObject<HTMLElement | null>;
+  /** Receives the header element where wide screens place the Supervisor launcher. */
+  actionSlot?: (element: HTMLElement | null) => void;
   children: ReactNode;
 }) {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const openPalette = useCallback(() => setPaletteOpen(true), []);
   usePaletteShortcut(openPalette);
   const build = shortBuild();
+  const { resolved, setPreference } = useTheme();
+  const nextTheme = resolved === 'light' ? 'dark' : 'light';
   return (
     // The sidebar column keeps its surface below the sticky aside on long pages.
     <div className="min-h-dvh bg-background text-foreground lg:grid lg:grid-cols-[15rem_minmax(0,1fr)] lg:bg-[linear-gradient(to_right,var(--sidebar)_15rem,var(--background)_15rem)]">
@@ -140,6 +146,7 @@ export default function AppShell({
                 ? `Updated ${updated.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`
                 : 'Synchronizing'}
             </span>
+            {actionSlot && <div ref={actionSlot} className="contents" />}
             <button
               type="button"
               className="hidden min-h-9 cursor-pointer items-center gap-2 rounded-md border border-border px-3 text-sm text-muted-foreground transition-colors hover:bg-hover hover:text-foreground sm:inline-flex"
@@ -157,6 +164,15 @@ export default function AppShell({
               onClick={openPalette}
             >
               <Icon name="search" size={17} />
+            </button>
+            <button
+              type="button"
+              className={iconButton}
+              aria-label={`Use ${nextTheme} theme`}
+              title={`Use ${nextTheme} theme`}
+              onClick={() => setPreference(nextTheme)}
+            >
+              <Icon name={resolved === 'light' ? 'moon' : 'sun'} size={16} />
             </button>
             <button
               type="button"

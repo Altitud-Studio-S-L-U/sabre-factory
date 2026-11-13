@@ -248,7 +248,7 @@ class MemoryStore:
         candidates = await (await conn.execute("""SELECT id,data->>'content' AS content,
                 CASE WHEN %(vector)s::text IS NOT NULL AND embedding IS NOT NULL THEN 1-(embedding <=> %(vector)s::vector) END AS cosine
             FROM memories WHERE project_id=%(project)s AND id<>%(id)s AND data->>'invalidated_at' IS NULL
-                AND coalesce(data->'proposed_by'->>'channel','')<>'factory'
+                AND NOT (coalesce(data->'proposed_by'->>'channel','')='factory' AND data->>'kind'='fact')
             ORDER BY (data->>'created_at')::timestamptz DESC,id DESC LIMIT %(limit)s""",
             {"vector": str(embedding) if embedding else None, "project": item.project_id, "id": item.id, "limit": OVERLAP_CANDIDATES})).fetchall()
         found = [(row["id"], result) for row in candidates

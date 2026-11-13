@@ -2,10 +2,11 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain.agents.middleware.types import ModelRequest
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
 from sabre.models import DomainError
-from sabre.supervisor import ChatGuard
+from sabre.supervisor import ChatGuard, conversation_window
 from tests.test_slack import service
 
 
@@ -45,3 +46,66 @@ async def test_cli_conversation_keeps_zero_api_spend_without_paid_pricing(provid
     assert len(owner.repository.reservations) == 1
     assert owner.repository.reservations[0][2] == 0
     assert owner.repository.settled[0][2] == 0
+
+
+def turn(number, size=400):
+    """One complete owner turn: question, a tool call with its result, and the reply."""
+    return [HumanMessage(content=f"Question {number}: " + "q" * size, id=f"human-{number}"),
+            AIMessage(content="", tool_calls=[{"name": "get_work", "args": {"work_id": "run"}, "id": f"call-{number}"}]),
+            ToolMessage(content="s" * size, tool_call_id=f"call-{number}"),
+            AIMessage(content=f"Reply {number}")]
+
+
+def long_conversation(turns, limit):
+    owner = service()
+    owner.config.model_provider = "codex_cli"
+    owner.config.model_input_usd_per_million = owner.config.model_output_usd_per_million = 0
+    sent = []
+
+    async def provider_call(request):
+        sent.append(request)
+        return SimpleNamespace(result=[AIMessage(content="Observed status")])
+
+    messages = [item for number in range(1, turns + 1) for item in turn(number)][:-1]
+    request = ModelRequest(model=SimpleNamespace(), messages=messages, system_message=SystemMessage(content="Supervisor instructions."), tools=[])
+    return owner, ChatGuard(owner.repository, owner.config, owner.guard, "message", input_limit=limit), request, provider_call, sent
+
+
+async def test_a_long_conversation_sends_its_most_recent_complete_turns_and_says_what_was_left_out():
+    owner, guard, request, provider_call, sent = long_conversation(turns=8, limit=6000)
+    await guard.awrap_model_call(request, provider_call)
+    kept = sent[0].messages
+    assert len(request.messages) == 31 and 0 < len(kept) < 31
+    assert kept[0].type == "human" and kept[-1] is request.messages[-1]
+    assert kept == request.messages[-len(kept):]
+    answered = {item.tool_call_id for item in kept if item.type == "tool"}
+    assert {call["id"] for item in kept if item.type == "ai" for call in item.tool_calls} == answered
+    omitted = len(request.messages) - len(kept)
+    assert sent[0].system_message.content.startswith("Supervisor instructions.")
+    assert f"left out of this request to fit its context: {omitted} messages" in sent[0].system_message.content
+    assert request.system_message.content == "Supervisor instructions."
+    reserved = owner.repository.reservations[0][1]
+    assert reserved <= 6000 + 2048 + owner.config.model_max_output_tokens
+
+
+async def test_a_conversation_inside_its_limit_is_sent_whole_and_unchanged():
+    _owner, guard, request, provider_call, sent = long_conversation(turns=3, limit=60000)
+    await guard.awrap_model_call(request, provider_call)
+    assert sent[0] is request
+
+
+async def test_a_current_turn_that_does_not_fit_is_refused_without_calling_the_model():
+    owner, guard, request, provider_call, sent = long_conversation(turns=4, limit=700)
+    with pytest.raises(DomainError) as error:
+        await guard.awrap_model_call(request, provider_call)
+    assert error.value.code == "CONTEXT_BUDGET_EXHAUSTED"
+    assert sent == [] and owner.repository.reservations == []
+
+
+def test_the_window_cuts_only_before_an_owner_message():
+    messages = [item for number in (1, 2, 3) for item in turn(number, 10)]
+    assert conversation_window(messages, lambda recent: True) == 0
+    assert conversation_window(messages, lambda recent: len(recent) <= 8) == 4
+    assert conversation_window(messages, lambda recent: len(recent) <= 5) == 8
+    assert conversation_window(messages, lambda recent: False) == 8
+    assert conversation_window([AIMessage(content="No owner message")], lambda recent: False) == 0

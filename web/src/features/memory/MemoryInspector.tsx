@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
+import { X } from 'lucide-react';
 import type { Api, MemoryDetail } from '../../api';
 import Button from '../../components/Button';
 import DescriptionList from '../../components/DescriptionList';
-import LoadingState from '../../components/LoadingState';
+import { InspectorSkeleton } from '../../components/Skeletons';
 import Notice from '../../components/Notice';
+import ReplaceMemoryDialog from './ReplaceMemoryDialog';
 import { message } from '../runs/shared';
 import { runPath } from '../runs/RunsTable';
 import { KindBadge, StateBadge, proposer, relative, short, validityReasons } from './shared';
@@ -26,6 +28,7 @@ export default function MemoryInspector({
   refreshKey,
   onChanged,
   onFocus,
+  onClose,
 }: {
   api: Api;
   memoryId: string;
@@ -33,9 +36,11 @@ export default function MemoryInspector({
   refreshKey: number;
   onChanged: (notice: string) => void;
   onFocus: (memoryId: string) => void;
+  onClose?: () => void;
 }) {
   const [state, setState] = useState<{ key: string; detail?: MemoryDetail; error?: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [replacing, setReplacing] = useState(false);
   const [actionError, setActionError] = useState('');
   const key = `${memoryId}|${refreshKey}`;
   useEffect(() => {
@@ -69,6 +74,7 @@ export default function MemoryInspector({
     }
   };
 
+  if (!current) return <InspectorSkeleton />;
   return (
     <aside
       aria-label="Memory inspector"
@@ -79,7 +85,6 @@ export default function MemoryInspector({
           {current.error}
         </Notice>
       )}
-      {!current && <LoadingState label="Loading memory…" />}
       {detail && (
         <>
           <div className="grid gap-2">
@@ -88,7 +93,20 @@ export default function MemoryInspector({
                 <KindBadge kind={detail.item.kind} />
                 <StateBadge state={detail.item.state} />
               </span>
-              <code className="font-mono text-xs text-muted-foreground">{short(detail.item.id)}</code>
+              <span className="flex items-center gap-1">
+                <code className="font-mono text-xs text-muted-foreground">{short(detail.item.id)}</code>
+                {onClose && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-7 [&_svg]:size-4"
+                    aria-label="Close inspector"
+                    onClick={onClose}
+                  >
+                    <X />
+                  </Button>
+                )}
+              </span>
             </div>
             <p className="rounded-lg border border-border bg-code p-3 text-sm leading-relaxed whitespace-pre-wrap">
               {detail.item.content}
@@ -235,6 +253,11 @@ export default function MemoryInspector({
               </Button>
             )}
             {detail.item.state !== 'invalidated' && (
+              <Button size="sm" disabled={busy || !connected} onClick={() => setReplacing(true)}>
+                Propose replacement
+              </Button>
+            )}
+            {detail.item.state !== 'invalidated' && (
               <Button
                 variant="danger"
                 size="sm"
@@ -250,6 +273,20 @@ export default function MemoryInspector({
               </Button>
             )}
           </div>
+          <ReplaceMemoryDialog
+            api={api}
+            item={detail.item}
+            open={replacing}
+            connected={connected}
+            onClose={() => setReplacing(false)}
+            onProposed={(id) => {
+              setReplacing(false);
+              onChanged(
+                'Replacement proposed. Approving it in the review queue invalidates the original; until then the original stays as it is.',
+              );
+              onFocus(id);
+            }}
+          />
         </>
       )}
     </aside>

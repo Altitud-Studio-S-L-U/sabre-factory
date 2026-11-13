@@ -7,6 +7,7 @@ import KnowledgeMap from '../features/memory/KnowledgeMap';
 import MemoryInspector from '../features/memory/MemoryInspector';
 import ReviewQueue from '../features/memory/ReviewQueue';
 import RecallLog from '../features/memory/RecallLog';
+import MemoryRecords from '../features/memory/MemoryRecords';
 import { memoryDetail, memoryGraph, memoryItem, memoryRecalls, memoryReview } from './memoryFixture';
 
 function stub(routes: Record<string, unknown>) {
@@ -167,4 +168,129 @@ it('lists what each station recalled with its ranks and marks refused calls', as
   expect(within(table).getByText('Recalled · 3 candidates')).toBeVisible();
   await user.click(within(table).getByRole('button', { name: 'm09' }));
   expect(onInspect).toHaveBeenCalledWith('m09');
+});
+
+it('lists every memory with search, kind and state filters, a cursor and the inspector beside it', async () => {
+  const user = userEvent.setup();
+  const lesson = memoryItem({
+    id: 'l90',
+    kind: 'lesson',
+    state: 'pending',
+    active: false,
+    approved_at: null,
+    content: 'Repair lesson: rounding\n- Cycle 1: failed `pytest -q`.',
+    proposed_by: { channel: 'factory', role: 'repair', work_id: 'synthetic-run' },
+    recall_count: 0,
+    last_recalled_at: null,
+  });
+  const paths: string[] = [];
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: string) => {
+      const path = input.replace('/api/v1', '');
+      paths.push(path);
+      if (path.startsWith('/memory/l90')) return Response.json(memoryDetail(lesson));
+      if (path.includes('cursor=next-1'))
+        return Response.json({
+          commit: 'f'.repeat(40),
+          items: [memoryItem({ id: 'm03', content: 'Older fact' })],
+          next_cursor: null,
+        });
+      return Response.json({ commit: 'f'.repeat(40), items: [memoryItem(), lesson], next_cursor: 'next-1' });
+    }),
+  );
+  render(
+    <MemoryRouter>
+      <MemoryRecords
+        api={api()}
+        projectId="synthetic-project"
+        connected
+        refreshKey={0}
+        onChanged={vi.fn()}
+        fallback={<p>Classic listing</p>}
+      />
+    </MemoryRouter>,
+  );
+  const table = await screen.findByRole('table', { name: 'Memories' });
+  expect(within(table).getByText(/banker's rounding/)).toBeVisible();
+  expect(within(table).getByText('Factory · repair · ', { exact: false })).toBeVisible();
+  expect(paths[0]).toBe('/projects/synthetic-project/memory/items?limit=50');
+  await user.click(screen.getByRole('button', { name: 'Load more' }));
+  expect(await within(table).findByText('Older fact')).toBeVisible();
+  expect(paths.at(-1)).toBe('/projects/synthetic-project/memory/items?limit=50&cursor=next-1');
+  expect(screen.queryByRole('button', { name: 'Load more' })).not.toBeInTheDocument();
+  await user.click(screen.getByRole('button', { name: 'Lessons' }));
+  await user.click(screen.getByRole('button', { name: 'Needs review' }));
+  await user.type(screen.getByRole('searchbox', { name: 'Search memories' }), 'rounding');
+  await vi.waitFor(() =>
+    expect(paths.at(-1)).toBe(
+      '/projects/synthetic-project/memory/items?state=pending&kind=lesson&q=rounding&limit=50',
+    ),
+  );
+  await user.click(await screen.findByRole('button', { name: 'Inspect memory l90' }));
+  const inspector = await screen.findByRole('complementary', { name: 'Memory inspector' });
+  expect(await within(inspector).findByText('Proposed by Factory · repair')).toBeVisible();
+  await user.click(within(inspector).getByRole('button', { name: 'Close inspector' }));
+  expect(screen.queryByRole('complementary', { name: 'Memory inspector' })).not.toBeInTheDocument();
+});
+
+it('falls back to the classic listing when the server has no paged memory listing', async () => {
+  stub({});
+  render(
+    <MemoryRecords
+      api={api()}
+      projectId="synthetic-project"
+      connected
+      refreshKey={0}
+      onChanged={vi.fn()}
+      fallback={<p>Classic listing</p>}
+    />,
+  );
+  expect(await screen.findByText('Classic listing')).toBeVisible();
+});
+
+it('edits a memory by proposing a replacement that keeps its provenance and supersedes it', async () => {
+  const user = userEvent.setup();
+  const calls = stub({
+    '/memory/m27': memoryDetail(),
+    '/memory': memoryItem({ id: 'm28', state: 'pending' }),
+  });
+  const onChanged = vi.fn();
+  const onFocus = vi.fn();
+  render(
+    <MemoryRouter>
+      <MemoryInspector
+        api={api()}
+        memoryId="m27"
+        connected
+        refreshKey={0}
+        onChanged={onChanged}
+        onFocus={onFocus}
+      />
+    </MemoryRouter>,
+  );
+  const inspector = await screen.findByRole('complementary', { name: 'Memory inspector' });
+  await user.click(await within(inspector).findByRole('button', { name: 'Propose replacement' }));
+  const dialog = screen.getByRole('dialog', { name: 'Propose a replacement' });
+  const submit = within(dialog).getByRole('button', { name: 'Propose replacement' });
+  expect(submit).toBeDisabled();
+  const content = within(dialog).getByLabelText('Content');
+  await user.clear(content);
+  await user.type(content, 'Discount uses ROUND_HALF_EVEN in apply_discount().');
+  await user.click(submit);
+  await vi.waitFor(() => expect(onFocus).toHaveBeenCalledWith('m28'));
+  const post = calls.find((call) => call.method === 'POST')!;
+  expect(post.path).toBe('/memory');
+  expect(post.body).toEqual({
+    project_id: 'synthetic-project',
+    kind: 'fact',
+    content: 'Discount uses ROUND_HALF_EVEN in apply_discount().',
+    source_commit: memoryItem().source_commit,
+    source_work_id: 'synthetic-run',
+    evidence_digest: 'e'.repeat(64),
+    scope: 'project',
+    citations: ['src/pricing/discount.py'],
+    supersedes: 'm27',
+  });
+  expect(onChanged).toHaveBeenCalledWith(expect.stringContaining('Replacement proposed'));
 });

@@ -18,6 +18,7 @@ import {
 import { providers, SelectionFields } from './ModelConfiguration';
 import Credentials from './Credentials';
 import PairedBrowsers from './PairedBrowsers';
+import About from './About';
 import { ConfigurationHistoryPanel, RuntimeSettingsPanel } from './features/config/RuntimeSettingsPanel';
 import Dialog, { DialogActions } from './components/Dialog';
 import Field from './components/FormField';
@@ -29,7 +30,7 @@ import Disclosure from './components/Disclosure';
 import DescriptionList from './components/DescriptionList';
 import CheckField from './components/CheckField';
 import CodeBlock from './components/CodeBlock';
-import LoadingState from './components/LoadingState';
+import { ConfigSkeleton } from './components/Skeletons';
 import { Badge } from './components/ui/badge';
 import { Card, CardDescription, CardHeader, CardTitle } from './components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './components/ui/table';
@@ -64,7 +65,7 @@ const modeGroups = [
     label: 'Factory · versioned',
     modes: ['Guided setup', 'Policies & limits', 'Context & storage', 'YAML / JSON', 'History'],
   },
-  { label: 'Runtime', modes: ['Environment', 'Access'] },
+  { label: 'Runtime', modes: ['Environment', 'Access', 'About'] },
 ];
 const budgetModes = ['patch', 'maintain', 'create', 'audit'] as const;
 const compactNumber = new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 });
@@ -111,9 +112,12 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
   const [document, setDocument] = useState('');
   const [mode, setMode] = useState(
     () =>
-      (({ access: 'Access', environment: 'Environment', history: 'History' }) as Record<string, string>)[
-        new URLSearchParams(window.location.search).get('section') ?? ''
-      ] ?? 'Guided setup',
+      (
+        ({ access: 'Access', environment: 'Environment', history: 'History', about: 'About' }) as Record<
+          string,
+          string
+        >
+      )[new URLSearchParams(window.location.search).get('section') ?? ''] ?? 'Guided setup',
   );
   const [step, setStep] = useState(() =>
     new URLSearchParams(window.location.search).get('section') === 'models' ? 1 : 0,
@@ -338,7 +342,7 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
           {notice}
         </Notice>
       )}
-      {loading && !draft && <LoadingState label="Loading the effective configuration…" />}
+      {loading && !draft && <ConfigSkeleton header={false} />}
       {draft && saved && selection && (
         <>
           <div className="grid min-w-0 items-start gap-6 @5xl:grid-cols-[12.5rem_minmax(0,1fr)]">
@@ -1117,6 +1121,7 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
                 </>
               )}
               {mode === 'Access' && <PairedBrowsers api={api} />}
+              {mode === 'About' && <About api={api} />}
               {mode === 'Environment' && <RuntimeSettingsPanel api={api} />}
               {mode === 'History' && <ConfigurationHistoryPanel api={api} revision={saved.revision} />}
               {mode === 'Context & storage' && (
@@ -1184,7 +1189,7 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
                   </Card>
                 </div>
               )}
-              {!['Access', 'Environment', 'History'].includes(mode) && (
+              {!['Access', 'Environment', 'History', 'About'].includes(mode) && (
                 <Card aria-labelledby="config-validate-title">
                   <CardHeader>
                     <PanelHeading

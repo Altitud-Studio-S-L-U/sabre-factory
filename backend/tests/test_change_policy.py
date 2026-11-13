@@ -24,8 +24,8 @@ def test_major_range_or_prerelease_dependency_changes_are_material(after):
 
 def test_dependency_addition_and_removal_are_material():
     changes = material_changes({"package.json": npm({"old-lib": "1.2.3"})}, {"package.json": npm({"new-lib": "1.2.3"})})
-    assert any("add" in item and "new-lib" in item for item in changes)
-    assert any("retira" in item and "old-lib" in item for item in changes)
+    assert any("was added to" in item and "new-lib" in item for item in changes)
+    assert any("was removed from" in item and "old-lib" in item for item in changes)
 
 
 @pytest.mark.parametrize("key,value", [("packageManager", "pnpm@11.19.0"), ("engines", {"node": ">=24"}), ("type", "module"), ("scripts", {"test": "echo passed"}), ("workspaces", ["packages/*"])])

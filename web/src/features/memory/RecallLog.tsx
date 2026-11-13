@@ -3,7 +3,7 @@ import { Link } from 'react-router';
 import type { Api, MemoryRecall } from '../../api';
 import Button from '../../components/Button';
 import EmptyState from '../../components/EmptyState';
-import LoadingState from '../../components/LoadingState';
+import { SkeletonStatus, SkeletonTable } from '../../components/Skeletons';
 import Notice from '../../components/Notice';
 import { message } from '../runs/shared';
 import { runPath } from '../runs/RunsTable';
@@ -65,7 +65,15 @@ export default function RecallLog({
     }
   };
 
-  if (!current) return <LoadingState label="Loading the recall log…" />;
+  if (!current)
+    return (
+      <SkeletonStatus label="Loading the recall log…">
+        <SkeletonTable
+          rows={5}
+          columns={['mono', 'text', 'text', 'title', 'badge', 'mono', 'mono', 'text']}
+        />
+      </SkeletonStatus>
+    );
   return (
     <div className="grid min-w-0 gap-3">
       <p className="text-xs text-muted-foreground">

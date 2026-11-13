@@ -88,7 +88,23 @@ async def test_native_mcp_rejects_stale_question_before_asking_owner():
     async with Client(build_mcp(lambda: service), elicitation_callback=unexpected) as client:
         response = await client.call_tool("sabre_resolve_question_native", {"work_id": work.id, "question_id": question.id, "plan_revision": 2})
         assert response.is_error
+        assert response.content[0].text == "QUESTION_CLOSED: The question is no longer pending in this revision"
     assert calls == []
+
+
+async def test_mcp_reports_a_domain_refusal_with_its_code_and_keeps_a_crash_opaque():
+    async def refused(work_id):
+        raise DomainError("WORK_NOT_FOUND", "Work order not found", 404)
+
+    async def crashed():
+        raise RuntimeError("postgresql://owner:synthetic-password@db/sabre is unreachable")
+
+    service = SimpleNamespace(repository=SimpleNamespace(work=refused, works=crashed))
+    async with Client(build_mcp(lambda: service)) as client:
+        refusal = await client.call_tool("sabre_get_work", {"work_id": "missing"})
+        assert refusal.is_error and refusal.content[0].text == "WORK_NOT_FOUND: Work order not found"
+        crash = await client.call_tool("sabre_list_work", {})
+        assert crash.is_error and crash.content[0].text == "Error executing tool sabre_list_work"
 
 
 async def test_native_mcp_rejects_question_from_older_plan_even_when_work_revision_matches():

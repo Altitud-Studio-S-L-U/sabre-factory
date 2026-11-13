@@ -97,17 +97,15 @@ export function option(args, name) {
   return value;
 }
 
-const call = (tool, args = {}) => invokeMcp(Buffer.from(JSON.stringify({ tool, arguments: args })));
+const invoke = (tool, args = {}) => invokeMcp(Buffer.from(JSON.stringify({ tool, arguments: args })));
 const pause = (ms) => new Promise((done) => setTimeout(done, ms));
+// Question kinds only the owner may answer; over MCP they are filed and confirmed in the console.
+const ownerDecisions = new Set(['permission', 'architecture', 'scope', 'exception']);
 
-async function runId(value) {
-  const runs = await call('sabre_list_work');
-  return resolveId(runs.result.map((run) => run.id), value);
-}
-
-export async function main(argv, { write = (text) => process.stdout.write(`${text}\n`) } = {}) {
+export async function main(argv, { write = (text) => process.stdout.write(`${text}\n`), call = invoke } = {}) {
   const [command, ...rest] = argv;
   const args = [...rest];
+  const runId = async (value) => resolveId((await call('sabre_list_work')).result.map((run) => run.id), value);
   if (args.includes('help') || args.includes('--help')) {
     write(usage);
     return 0;
@@ -165,10 +163,13 @@ export async function main(argv, { write = (text) => process.stdout.write(`${tex
       const run = await call('sabre_get_work', { work_id: await runId(runValue) });
       const pending = pendingQuestions(run);
       const questionId = resolveId(pending.map((question) => question.id), questionValue, 'pending question');
-      const updated = await call('sabre_answer_question', {
-        work_id: run.id,
-        answer: { question_id: questionId, plan_revision: run.plan_revision, answer },
-      });
+      const request = { work_id: run.id, answer: { question_id: questionId, plan_revision: run.plan_revision, answer } };
+      if (ownerDecisions.has(pending.find((question) => question.id === questionId).kind)) {
+        const filed = await call('sabre_propose_answer', request);
+        write(`This is an owner decision. Nothing changed: confirm it in the console (request ${short(filed.id)}).`);
+        return 0;
+      }
+      const updated = await call('sabre_answer_question', request);
       write(`Answer recorded. Run ${short(updated.id)} is ${updated.status}.`);
       return 0;
     }

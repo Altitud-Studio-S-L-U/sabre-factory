@@ -54,7 +54,7 @@ function fixture(
       }
       if (path.endsWith('/decision'))
         return options.staleDecision
-          ? Response.json({ message: 'La propuesta cambió o ya fue resuelta.' }, { status: 409 })
+          ? Response.json({ message: 'The proposal changed or was already resolved.' }, { status: 409 })
           : Response.json({
               ...proposal,
               status: body?.decision === 'reject' ? 'rejected' : 'approved',
@@ -89,7 +89,7 @@ async function fillProposal(user: ReturnType<typeof userEvent.setup>) {
   await user.type(screen.getByLabelText('Description'), 'Reviewed repository');
 }
 
-it('separa propuesta local y aprobación vinculada al contenido y revision exactos', async () => {
+it('separates the local proposal from an approval bound to the exact content and revision', async () => {
   const { user, calls } = fixture();
   await fillProposal(user);
   await user.click(screen.getByRole('button', { name: 'Save proposal for review' }));
@@ -108,7 +108,7 @@ it('separa propuesta local y aprobación vinculada al contenido y revision exact
   expect(screen.queryByRole('link', { name: 'Open created repository' })).not.toBeInTheDocument();
 });
 
-it('reutiliza la clave de propuesta cuando se pierde la respuesta sin aprobar automáticamente', async () => {
+it('reuses the proposal key when the response is lost without approving automatically', async () => {
   const { user, calls } = fixture([], { lostProposalResponse: true });
   await fillProposal(user);
   await user.click(screen.getByRole('button', { name: 'Save proposal for review' }));
@@ -120,7 +120,7 @@ it('reutiliza la clave de propuesta cuando se pierde la respuesta sin aprobar au
   expect(calls.every((call) => call.path === '/repository-proposals')).toBe(true);
 });
 
-it('usa una nueva clave para otra propuesta explícita tras confirmar y rechazar la anterior', async () => {
+it('uses a new key for another explicit proposal after the previous one is confirmed and rejected', async () => {
   const { user, calls } = fixture();
   await fillProposal(user);
   await user.click(screen.getByRole('button', { name: 'Save proposal for review' }));
@@ -139,18 +139,18 @@ it('usa una nueva clave para otra propuesta explícita tras confirmar y rechazar
   expect(screen.getAllByRole('article', { name: 'Proposal fixture/example' })).toHaveLength(2);
 });
 
-it('rechaza la aprobación obsoleta y exige revisar de nuevo', async () => {
+it('rejects a stale approval and requires a new review', async () => {
   const { user, calls } = fixture([proposal], { staleDecision: true });
   const checkbox = await screen.findByRole('checkbox', { name: /I reviewed these details/ });
   await user.click(checkbox);
   await user.click(screen.getByRole('button', { name: 'Approve and create' }));
-  expect(await screen.findByRole('alert')).toHaveTextContent('La propuesta cambió');
+  expect(await screen.findByRole('alert')).toHaveTextContent('The proposal changed');
   expect(checkbox).not.toBeChecked();
   expect(screen.getByRole('button', { name: 'Approve and create' })).toBeDisabled();
   expect(calls).toHaveLength(1);
 });
 
-it('reconciliar conserva la incertidumbre y no convierte un candidato en éxito', async () => {
+it('keeps the uncertainty on reconcile and does not turn a candidate into a success', async () => {
   const { user, calls } = fixture([{ ...proposal, status: 'reconciliation_required', revision: 3 }]);
   await user.click(await screen.findByRole('button', { name: 'Verify result on GitHub' }));
   await waitFor(() => expect(screen.getByText(/Observed fixture\/example/)).toBeInTheDocument());

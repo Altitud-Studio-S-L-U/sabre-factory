@@ -193,6 +193,9 @@ it('keeps model providers out of Tools and changes only the inspected adapter re
     vi.fn(async (input: string, request: RequestInit = {}) => {
       if (input.endsWith('/state')) {
         writes.push(JSON.parse(String(request.body)));
+        // The first attempt meets a newer revision saved by another session.
+        if (writes.length === 1)
+          return Response.json({ message: 'The connection changed; refresh its state.' }, { status: 409 });
         return Response.json({ ...item, enabled: true, revision: 4 });
       }
       if (input.endsWith('/integrations'))
@@ -201,6 +204,7 @@ it('keeps model providers out of Tools and changes only the inspected adapter re
           { ...item, id: 'model.openai', kind: 'model', title: 'Model provider hidden' },
         ]);
       if (input.endsWith('/mcp-connections')) return Response.json([]);
+      if (input.endsWith('/repository-proposals')) return Response.json({ items: [], truncated: false });
       if (input.endsWith('/tools/catalog'))
         return Response.json({
           version: 1,
@@ -222,7 +226,16 @@ it('keeps model providers out of Tools and changes only the inspected adapter re
   await screen.findByRole('heading', { name: 'Synthetic GitHub read' });
   expect(screen.queryByText('Model provider hidden')).not.toBeInTheDocument();
   await user.click(screen.getByRole('button', { name: 'Enable connection' }));
-  await waitFor(() => expect(writes).toEqual([{ enabled: true, expected_revision: 3 }]));
+  expect(await screen.findByRole('alert')).toHaveTextContent('The connection changed');
+  // A refused change keeps the confirmed state: the connection still reads as disabled.
+  await user.click(screen.getByRole('button', { name: 'Enable connection' }));
+  await waitFor(() =>
+    expect(writes).toEqual([
+      { enabled: true, expected_revision: 3 },
+      { enabled: true, expected_revision: 3 },
+    ]),
+  );
+  expect(await screen.findByRole('button', { name: 'Disable connection' })).toBeEnabled();
   await user.click(screen.getByRole('button', { name: 'Built-in tools' }));
   expect(screen.getByRole('heading', { name: 'read_source' })).toBeVisible();
   view.rerender(<ToolsConsole api={createApi('synthetic-csrf')} projects={[project]} connected={false} />);
@@ -270,7 +283,7 @@ it('shows memory provenance by project and keeps proposals separate from approve
     ),
   );
   render(<MemoryConsole api={createApi('synthetic-csrf')} projects={[project]} connected={false} />);
-  await user.click(await screen.findByRole('tab', { name: 'Facts' }));
+  await user.click(await screen.findByRole('tab', { name: 'Records' }));
   expect(await screen.findByText('Synthetic reviewed lesson')).toBeVisible();
   expect(screen.queryByText('Synthetic proposal')).not.toBeInTheDocument();
   expect(screen.queryByText('Other project must not appear')).not.toBeInTheDocument();

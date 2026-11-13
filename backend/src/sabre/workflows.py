@@ -20,6 +20,7 @@ from sabre.budget_diagnostics import dispatch_denial
 from sabre.error_boundaries import guarded_call
 from sabre.events import ExecutionEvent
 from sabre.execution_observer import current_execution
+from sabre.memory_lessons import append_repair, lesson_proposer, repair_entry, repair_lesson
 from sabre.models import (
     AgentResult,
     Contract,
@@ -269,6 +270,8 @@ class FactoryState(TypedDict, total=False):
     gate_evidence: dict | None
     # Bounded agent working notes per task (or stage role), see sabre.work_notes.
     work_notes: dict | None
+    # Bounded record of each repair cycle, see sabre.memory_lessons; consolidated into a lesson on delivery.
+    repair_log: list[dict]
 
 
 def validate_plan(tasks: list[Task]):
@@ -712,7 +715,8 @@ class Factory:
         task.status = Status.QUEUED
         work.phase = "repair"
         feedback = repair_feedback(state, failures, security)
-        return await self.finish(work, feedback=feedback)
+        log = append_repair(state.get("repair_log"), repair_entry(state, failures, security, work.repair_cycles_used))
+        return await self.finish(work, feedback=feedback, repair_log=log)
 
     async def audit_report(self, state):
         work = await self.begin(state, "audit_report")
@@ -782,6 +786,15 @@ class Factory:
         await self.memory.propose(MemoryCreate(project_id=work.project_id, kind="fact", content=verified_fact(work),
             source_commit=work.evidence.commit, source_work_id=work.id, evidence_digest=work.evidence.snapshot_digest),
             proposed_by=ProposedBy(channel="factory", work_id=work.id))
+        lesson = repair_lesson(work, state.get("repair_log"))
+        if lesson is not None:
+            try:
+                await self.memory.propose(lesson, proposed_by=lesson_proposer(work))
+            except DomainError as error:
+                # Quoted model text can trip the secret guard; then no lesson is kept, and delivery is not held up.
+                # Provenance is the delivery fact's, already accepted above, so other refusals still surface.
+                if error.code != "SECRET_DETECTED":
+                    raise
         await self.executor.cleanup(work.id)
         return await self.finish(work)
 
@@ -801,7 +814,7 @@ class Factory:
                 "order": work.model_dump(mode="json"), "reset_workspace": True,
                 "feedback": "", "review": "", "review_ok": False, "gates": [], "snapshot": {},
                 "security": {}, "architecture_approved": False, "source_commit": "", "baseline_manifests": "",
-                "qa_ok": False, "qa_review": "", "analysis_handoff": None, "baseline_source_index": "", "gate_evidence": None, "work_notes": None,
+                "qa_ok": False, "qa_review": "", "analysis_handoff": None, "baseline_source_index": "", "gate_evidence": None, "work_notes": None, "repair_log": [],
             }, as_node=START)
             saved = await self.graph.aget_state(config)
         if saved.next != ("intake",) or saved.values.get("reset_workspace") is not True or saved.values.get("order", {}).get("plan_revision") != revision:

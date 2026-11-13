@@ -13,6 +13,7 @@ import {
   ApiError,
   createApi,
   openPanelSession,
+  type OwnerConfirmation,
   type PanelSession,
   type Project,
   type WorkOrder,
@@ -20,14 +21,22 @@ import {
 import Button from './components/Button';
 import Notice from './components/Notice';
 import EmptyState from './components/EmptyState';
-import LoadingState from './components/LoadingState';
+import {
+  AgentsSkeleton,
+  ConfigSkeleton,
+  MemorySkeleton,
+  RunDetailSkeleton,
+  RunsSkeleton,
+  SectionSkeleton,
+} from './components/Skeletons';
 import PageHeader from './components/PageHeader';
 import Dialog from './components/Dialog';
 import { buttonVariants } from './components/ui/button';
 import SupervisorConsole from './SupervisorConsole';
 import { pendingQuestions } from './runState';
-import { legacyNavigation, navigation, redirects, type View } from './navigation';
+import { navigation, redirects, sectionOf, workAreas, type View } from './navigation';
 import AppShell from './app/AppShell';
+import { setThemePreference } from './lib/theme';
 import type { PaletteCommand } from './app/CommandPalette';
 import Login from './app/Login';
 import RunDetail from './features/runs/RunDetail';
@@ -35,6 +44,8 @@ import RunsTable, { runPath } from './features/runs/RunsTable';
 import CreateRunWizard from './features/runs/CreateRunWizard';
 import ProjectsView from './features/projects/ProjectsView';
 import SecurityView from './features/security/SecurityView';
+import WorkAreaNav from './features/runs/WorkAreaNav';
+import PendingConfirmations from './features/confirmations/PendingConfirmations';
 import { ErrorNotice, message, statusLabels, usesOnlyCliModels } from './features/runs/shared';
 
 // Sections load on first visit; Runs stays in the main bundle.
@@ -43,8 +54,6 @@ const sections = {
   toolsConsole: () => import('./ToolsConsole'),
   memoryConsole: () => import('./MemoryConsole'),
   configConsole: () => import('./ConfigConsole'),
-  integrations: () => import('./Integrations'),
-  about: () => import('./About'),
 };
 
 /** Fetch section code once the console is idle so the first visit does not wait on the network. */
@@ -60,8 +69,6 @@ const AgentsPage = lazy(sections.agentsPage);
 const ToolsConsole = lazy(sections.toolsConsole);
 const MemoryConsole = lazy(sections.memoryConsole);
 const ConfigConsole = lazy(sections.configConsole);
-const Integrations = lazy(sections.integrations);
-const About = lazy(sections.about);
 
 export default function App() {
   const [session, setSession] = useState<PanelSession | null>(null);
@@ -144,7 +151,7 @@ export default function App() {
           <Route
             key={item.from}
             path={`${item.from}/*`}
-            element={<MovedRedirect from={item.from} to={item.to} />}
+            element={<MovedRedirect from={item.from} to={item.to} search={item.search} />}
           />
         ))}
         <Route path="*" element={<Session session={session} onLogout={disconnect} />} />
@@ -159,9 +166,14 @@ function RootRedirect() {
 }
 
 /** Keep an earlier address working: /work/abc opens /runs/abc with the same query and fragment. */
-function MovedRedirect({ from, to }: { from: string; to: string }) {
+function MovedRedirect({ from, to, search: target }: { from: string; to: string; search?: string }) {
   const { pathname, search, hash } = useLocation();
-  return <Navigate to={{ pathname: to + pathname.slice(from.length), search, hash }} replace />;
+  return (
+    <Navigate
+      to={{ pathname: to + pathname.slice(from.length), search: target ? `?${target}` : search, hash }}
+      replace
+    />
+  );
 }
 
 function Session({ session, onLogout }: { session: PanelSession; onLogout: (error?: string) => void }) {
@@ -173,7 +185,7 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
   const selectedId = workMatch?.params.workId ?? null;
   const view = workMatch
     ? 'work'
-    : [...navigation, ...legacyNavigation].find((item) => matchPath(item.path, location.pathname))?.id;
+    : [...navigation, ...workAreas].find((item) => matchPath(item.path, location.pathname))?.id;
   const routeState = location.state as { form?: 'work' | 'project'; projectId?: string } | null;
   const [formState, setFormState] = useState<{ key: string; value: 'work' | 'project' | null } | null>(null);
   const form = formState?.key === location.key ? formState.value : (routeState?.form ?? null);
@@ -183,6 +195,7 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
   const [detail, setDetail] = useState<{ id: string; order?: WorkOrder; error?: string } | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [orders, setOrders] = useState<WorkOrder[]>([]);
+  const [confirmations, setConfirmations] = useState<OwnerConfirmation[]>([]);
   const [status, setStatus] = useState<Record<string, unknown>>({});
   const cliMode = usesOnlyCliModels(status);
   const [loading, setLoading] = useState(true);
@@ -192,6 +205,7 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
   const [loggingOut, setLoggingOut] = useState(false);
   const [updated, setUpdated] = useState<Date | null>(null);
   const mainContent = useRef<HTMLElement>(null);
+  const [headerActions, setHeaderActions] = useState<HTMLElement | null>(null);
   const returnFocus = useRef<HTMLElement | null>(null);
   const previousForm = useRef({ key: location.key, form });
   const selected =
@@ -234,26 +248,29 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
   };
 
   // Reads first and sets state after the response, so the mount effect does not set state synchronously.
-  const fetchAll = useCallback(
-    () =>
-      Promise.all([api.projects(), api.work(), api.status()])
-        .then(([nextProjects, nextOrders, nextStatus]) => {
-          setProjects(nextProjects);
-          setOrders(nextOrders);
-          setStatus(nextStatus);
-          setError('');
-          setUpdated(new Date());
-        })
-        .catch((err: unknown) => {
-          if (err instanceof ApiError && err.status === 401) onLogout(err.message);
-          else setError(message(err));
-        })
-        .finally(() => {
-          setLoading(false);
-          setRefreshing(false);
-        }),
-    [api, onLogout],
-  );
+  const fetchAll = useCallback(() => {
+    // Separate from the main load: a failure here must not hide the runs, and the list is retried on the next tick.
+    void api
+      .confirmations()
+      .then((page) => setConfirmations(Array.isArray(page.items) ? page.items : []))
+      .catch(() => undefined);
+    return Promise.all([api.projects(), api.work(), api.status()])
+      .then(([nextProjects, nextOrders, nextStatus]) => {
+        setProjects(nextProjects);
+        setOrders(nextOrders);
+        setStatus(nextStatus);
+        setError('');
+        setUpdated(new Date());
+      })
+      .catch((err: unknown) => {
+        if (err instanceof ApiError && err.status === 401) onLogout(err.message);
+        else setError(message(err));
+      })
+      .finally(() => {
+        setLoading(false);
+        setRefreshing(false);
+      });
+  }, [api, onLogout]);
   const reload = useCallback(() => {
     setRefreshing(true);
     return fetchAll();
@@ -296,7 +313,7 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
   const changeView = (next: View) => {
     returnFocus.current = null;
     setForm(null);
-    void navigate([...navigation, ...legacyNavigation].find((item) => item.id === next)!.path);
+    void navigate([...navigation, ...workAreas].find((item) => item.id === next)!.path);
   };
   const openWork = (order: WorkOrder) => {
     returnFocus.current = null;
@@ -305,7 +322,7 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
   };
 
   const sectionTitle =
-    [...navigation, ...legacyNavigation].find((item) => item.id === view)?.label || 'Page not found';
+    [...navigation, ...workAreas].find((item) => item.id === view)?.label || 'Page not found';
   const paletteCommands: PaletteCommand[] = [
     ...navigation.map((item) => ({
       id: `go-${item.id}`,
@@ -336,6 +353,19 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
       icon: 'refresh' as const,
       run: () => void reload(),
     },
+    ...(
+      [
+        ['dark', 'Use dark theme', 'moon'],
+        ['light', 'Use light theme', 'sun'],
+        ['system', 'Follow the system theme', 'settings'],
+      ] as const
+    ).map(([value, label, icon]) => ({
+      id: `theme-${value}`,
+      group: 'Actions' as const,
+      label,
+      icon,
+      run: () => setThemePreference(value),
+    })),
     {
       id: 'sign-out',
       group: 'Actions' as const,
@@ -345,11 +375,29 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
     },
   ];
 
+  // While data or section code loads, show the shape of the screen that is coming.
+  const viewSkeleton =
+    view === 'work' ? (
+      selectedId ? (
+        <RunDetailSkeleton />
+      ) : (
+        <RunsSkeleton />
+      )
+    ) : view === 'agents' ? (
+      <AgentsSkeleton />
+    ) : view === 'memory' ? (
+      <MemorySkeleton />
+    ) : view === 'config' ? (
+      <ConfigSkeleton />
+    ) : (
+      <SectionSkeleton />
+    );
+
   return (
     <>
       <AppShell
         items={navigation}
-        current={view}
+        current={sectionOf(view)}
         title={sectionTitle}
         pending={pending.length}
         connection={error ? 'interrupted' : loading ? 'connecting' : 'connected'}
@@ -363,8 +411,9 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
         }}
         commands={paletteCommands}
         mainRef={mainContent}
+        actionSlot={setHeaderActions}
       >
-        <Suspense fallback={<LoadingState label="Loading section…" />}>
+        <Suspense fallback={viewSkeleton}>
           {logoutError && (
             <div className="mb-5">
               <ErrorNotice>{logoutError}</ErrorNotice>
@@ -385,8 +434,17 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
               <p>{error} Visible data may be outdated.</p>
             </Notice>
           )}
+          {!loading && (
+            <PendingConfirmations
+              api={api}
+              items={confirmations}
+              orders={orders}
+              connected={!error}
+              onChanged={reload}
+            />
+          )}
           {loading ? (
-            <LoadingState label="Connecting to the factory…" />
+            viewSkeleton
           ) : !updated ? (
             <EmptyState title="The factory could not be loaded">Check the connection and retry.</EmptyState>
           ) : (
@@ -406,14 +464,17 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
                       />
                     </section>
                   ) : (
-                    <RunsTable
-                      api={api}
-                      orders={orders}
-                      projects={projects}
-                      connected={!error}
-                      onNew={() => setForm('work')}
-                      onChanged={reload}
-                    />
+                    <>
+                      <WorkAreaNav current="work" />
+                      <RunsTable
+                        api={api}
+                        orders={orders}
+                        projects={projects}
+                        connected={!error}
+                        onNew={() => setForm('work')}
+                        onChanged={reload}
+                      />
+                    </>
                   )}
                   <Dialog
                     open={form === 'work'}
@@ -445,20 +506,14 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
                   </Dialog>
                 </>
               )}
-              {view === 'work' && selectedId && !selected && (
-                <>
-                  <div className="grid justify-items-start gap-4">
-                    <PageHeader
-                      eyebrow="Run"
-                      title={detailError ? 'Run unavailable' : 'Loading run'}
-                      description={detailError || 'Reading the saved factory state.'}
-                    />
-                    {!detailError && <LoadingState label="Loading run…" />}
-                    <Link className={buttonVariants({ variant: 'link', className: 'px-0' })} to="/runs">
-                      ← All runs
-                    </Link>
-                  </div>
-                </>
+              {view === 'work' && selectedId && !selected && !detailError && <RunDetailSkeleton />}
+              {view === 'work' && selectedId && !selected && detailError && (
+                <div className="grid justify-items-start gap-4">
+                  <PageHeader eyebrow="Run" title="Run unavailable" description={detailError} />
+                  <Link className={buttonVariants({ variant: 'link', className: 'px-0' })} to="/runs">
+                    ← All runs
+                  </Link>
+                </div>
               )}
               {!view && (
                 <>
@@ -474,6 +529,7 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
                   </div>
                 </>
               )}
+              {view === 'projects' && <WorkAreaNav current="projects" />}
               {view === 'projects' && (
                 <ProjectsView
                   api={api}
@@ -494,6 +550,7 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
                   }}
                 />
               )}
+              {view === 'security' && <WorkAreaNav current="security" />}
               {view === 'security' && <SecurityView api={api} projects={projects} orders={orders} />}
               {view === 'memory' && <MemoryConsole api={api} projects={projects} connected={!error} />}
               {view === 'agents' && (
@@ -514,43 +571,26 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
                   onRefresh={reload}
                 />
               )}
-              {(view === 'settings' || view === 'tools') && (
-                <div className="grid gap-6">
-                  {view === 'settings' && (
-                    <PageHeader
-                      eyebrow="Factory capabilities"
-                      title="Integrations"
-                      description="Connect services, inspect their tools and control when SABRE may use them."
-                    />
-                  )}
-                  {view === 'tools' ? (
-                    <ToolsConsole
-                      key={location.search}
-                      api={api}
-                      projects={projects}
-                      connected={!error}
-                      onRefresh={reload}
-                    />
-                  ) : (
-                    <Integrations api={api} onChanged={reload} />
-                  )}
-                </div>
-              )}
-              {view === 'system' && (
-                <div className="grid gap-6">
-                  <PageHeader
-                    eyebrow="Local instance"
-                    title="About SABRE"
-                    description="Observed status, installed versions and factory capacity."
-                  />
-                  <About api={api} />
-                </div>
+              {view === 'tools' && (
+                <ToolsConsole
+                  key={location.search}
+                  api={api}
+                  projects={projects}
+                  connected={!error}
+                  onRefresh={reload}
+                />
               )}
             </>
           )}
         </Suspense>
       </AppShell>
-      <SupervisorConsole api={api} orders={orders} selectedId={selectedId} disconnected={Boolean(error)} />
+      <SupervisorConsole
+        api={api}
+        orders={orders}
+        selectedId={selectedId}
+        disconnected={Boolean(error)}
+        headerSlot={headerActions}
+      />
     </>
   );
 }

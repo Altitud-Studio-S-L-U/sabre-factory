@@ -98,8 +98,8 @@ async def main():
             assert error.code == 'BROWSER_JOB_CANCELLED'
         else:
             raise AssertionError('Cancellation did not interrupt the browser job')
-        assert not broker.docker.networks.list(filters={'label': ['sabre.kind=browser-qa', f'sabre.work_id={work_id}']})
-        assert not broker.docker.containers.list(all=True, filters={'label': ['sabre.kind=browser-qa', f'sabre.work_id={work_id}']})
+        assert not broker.docker.networks.list(filters={'label': ['sabre.owner=factory', 'sabre.kind=browser-qa', f'sabre.work_id={work_id}']})
+        assert not broker.docker.containers.list(all=True, filters={'label': ['sabre.owner=factory', 'sabre.kind=browser-qa', f'sabre.work_id={work_id}']})
         print(json.dumps({'negative_overflow_route': True, 'desktop_mobile_fixed': green['passed'], 'keyboard_focus': True,
             'accessibility_evaluator': green['evaluator'], 'screenshots': len([a for a in green['artifacts'] if a['kind'] == 'screenshot']),
             'trace_quarantined': all(a['review_required'] for a in green['artifacts'] if a['kind'] == 'trace'),
