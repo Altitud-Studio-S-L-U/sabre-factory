@@ -123,7 +123,7 @@ test('five console sections keep inspection compact and modal drafts keyboard ac
   ).toBeVisible();
   await captureSource(page, 'memory');
   await navigation.getByRole('link', { name: 'Config', exact: true }).click();
-  await page.getByRole('button', { name: '02 · Choose model' }).click();
+  await page.getByRole('button', { name: 'Models', exact: true }).click();
   await page.getByLabel('Model identifier').fill('synthetic-console-model');
   await captureSource(page, 'config');
   await page.getByRole('button', { name: 'YAML / JSON' }).click();

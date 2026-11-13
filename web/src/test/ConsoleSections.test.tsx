@@ -118,7 +118,7 @@ it('validates the same configuration document and retains the model draft after 
       <ConfigConsole api={createApi('synthetic-csrf')} projects={[project]} />
     </MemoryRouter>,
   );
-  await user.click(await screen.findByRole('button', { name: '02 · Choose model' }));
+  await user.click(await screen.findByRole('button', { name: 'Models' }));
   const name = screen.getByRole('textbox', { name: 'Model identifier' });
   await user.clear(name);
   await user.type(name, 'synthetic-draft-model');

@@ -520,45 +520,40 @@ export function ConfigSkeleton({ header = true }: { header?: boolean }) {
   return (
     <SkeletonStatus label="Loading the effective configuration…">
       {header && <SkeletonPageHeader actions={2} />}
-      <div className="grid items-start gap-6 @5xl:grid-cols-[12.5rem_minmax(0,1fr)]">
-        <div className="hidden gap-2.5 @5xl:grid">
-          <Skeleton className="h-2.5 w-28" />
-          {Array.from({ length: 5 }, (_, index) => (
-            <Skeleton key={index} className={cn('h-3.5', index % 2 ? 'w-24' : 'w-32')} />
-          ))}
-          <Skeleton className="mt-3 h-2.5 w-16" />
-          {Array.from({ length: 2 }, (_, index) => (
-            <Skeleton key={`r${index}`} className="h-3.5 w-24" />
-          ))}
-        </div>
-        <div className="grid gap-5">
-          <div className="grid grid-cols-2 gap-2 @3xl:grid-cols-4">
+      <div className="grid gap-6">
+        <SkeletonTabs count={6} />
+        <div className="grid items-start gap-5 @4xl:grid-cols-[minmax(0,1.45fr)_minmax(18rem,1fr)]">
+          {/* Readiness rows: a message, its hint and a status at the end. */}
+          <div className="grid gap-4 rounded-xl border border-border bg-card p-5">
+            <Skeleton className="h-5 w-40" />
+            <SkeletonLines lines={2} />
             {Array.from({ length: 4 }, (_, index) => (
-              <Skeleton key={index} className="h-10 rounded-md" />
+              <div
+                key={index}
+                className="flex items-center justify-between gap-4 border-t border-border pt-3"
+              >
+                <div className="grid flex-1 gap-1.5">
+                  <Skeleton className={cn('h-3.5', index % 2 ? 'w-44' : 'w-56')} />
+                  <Skeleton className="h-3 w-3/4" />
+                </div>
+                <Skeleton className="h-6 w-24 rounded-full" />
+              </div>
             ))}
           </div>
-          <div className="grid items-start gap-5 @5xl:grid-cols-[minmax(0,1.45fr)_minmax(18rem,1fr)]">
-            <div className="grid gap-4 rounded-xl border border-border bg-card p-5">
-              <Skeleton className="h-3 w-20" />
-              <Skeleton className="h-5 w-48" />
-              <SkeletonLines lines={2} />
-              <div className="grid gap-1.5">
-                <Skeleton className="h-3 w-24" />
-                <Skeleton className="h-10 w-full rounded-md" />
-              </div>
-              <SkeletonLines lines={3} />
-              <Skeleton className="h-10 w-40 rounded-md" />
-            </div>
-            <div className="grid gap-3 rounded-xl border border-border bg-card p-5">
-              <Skeleton className="h-3 w-24" />
-              <Skeleton className="h-5 w-44" />
-              {Array.from({ length: 5 }, (_, index) => (
-                <div key={index} className="grid gap-1.5">
-                  <Skeleton className="h-3 w-16" />
-                  <Skeleton className="h-3.5 w-32" />
+          <div className="grid gap-4 rounded-xl border border-border bg-card p-5">
+            <Skeleton className="h-5 w-36" />
+            {Array.from({ length: 4 }, (_, index) => (
+              <div
+                key={index}
+                className="flex items-center justify-between gap-4 border-t border-border pt-3"
+              >
+                <div className="grid flex-1 gap-1.5">
+                  <Skeleton className="h-3.5 w-28" />
+                  <Skeleton className="h-3 w-40" />
                 </div>
-              ))}
-            </div>
+                <Skeleton className="h-8 w-24 rounded-md" />
+              </div>
+            ))}
           </div>
         </div>
       </div>

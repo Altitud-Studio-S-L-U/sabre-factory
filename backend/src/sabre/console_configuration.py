@@ -241,7 +241,7 @@ class ConsoleConfigurationService:
         integrations = await self.service.integrations().list()
         publisher = next((item for item in integrations if item.id == "github.publish"), None)
         readiness = [
-            ReadinessItem(id="provider", status="ready" if connected else "missing", message="Provider connected" if connected else "Provider connection required", action="Connect the selected provider in Tools"),
+            ReadinessItem(id="provider", status="ready" if connected else "missing", message="Provider connected" if connected else "Provider connection required", action="Connect the selected provider in Config, under Models"),
             ReadinessItem(id="model", status="ready" if selected else "missing", message=configuration.models.default.name or "Choose an explicit model", action="Choose the default model or provide explicit phase overrides"),
             ReadinessItem(id="project", status="ready" if projects else "missing", message=f"{len(projects)} registered projects", action="Register a repository and executable checks"),
             ReadinessItem(id="delivery", status="unavailable" if publisher and publisher.enabled and publisher.credential_configured else "missing", message="Delivery credential configured; repository access has not been verified" if publisher and publisher.credential_configured else "Draft PR delivery requires a GitHub connection", action="Configure and diagnose GitHub deliveries in Tools; audit flows can run without publication"),
