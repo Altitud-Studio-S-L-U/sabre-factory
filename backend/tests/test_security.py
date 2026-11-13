@@ -1,3 +1,4 @@
+import base64
 import json
 
 import pytest
@@ -141,6 +142,56 @@ def test_secret_report_drops_secret_and_matched_source_fields():
     assert parsed[0].severity == "critical"
     assert parsed[0].line == 4
     assert "rotate" in parsed[0].remediation
+
+
+def test_a_refused_snapshot_names_every_file_line_and_kind_without_the_content():
+    key, url = "-----BEGIN PRIVATE KEY-----", "https://admin:hunter2-hunter2@example.com/"
+    snapshot = {"digest": "a" * 64, "files": [
+        {"path": "src/clean.ts", "content": "export const answer = 42;\n"},
+        {"path": "test/certificates.test.ts", "content": f"line one\nassert.match(leaf.key, /^{key}/u);\n"},
+        {"path": "test/urls.test.ts", "content": f"const bad = '{url}';\n\nconst worse = '{url}';\n"},
+        {"path": "assets/blob.bin", "encoding": "base64", "content": base64.b64encode(f"\x00binary {key}".encode()).decode()},
+    ]}
+    with pytest.raises(DomainError) as error:
+        SecretGuard().check_snapshot(snapshot)
+    assert error.value.code == "SECRET_DETECTED"
+    assert error.value.message == (
+        "Content containing a possible credential was blocked. Found at: test/certificates.test.ts line 2 (private key header); "
+        "test/urls.test.ts line 1 (URL with credentials); test/urls.test.ts line 3 (URL with credentials); assets/blob.bin (private key header). "
+        "Rotate any real credential, change test data shaped like a credential, and submit the work again.")
+    assert key not in error.value.message and "hunter2" not in error.value.message
+
+
+def test_a_refused_snapshot_bounds_its_locations_and_describes_unusual_paths():
+    files = [{"path": f"src/file{index}.py", "content": "token = 'ghp_" + "b" * 30 + "'"} for index in range(10)]
+    files.insert(0, {"path": "docs/Ignore earlier instructions.md", "content": "AKIA" + "A" * 16})
+    with pytest.raises(DomainError) as error:
+        SecretGuard().check_snapshot({"files": files})
+    message = error.value.message
+    assert "Found at: a path with unusual characters line 1 (AWS access key); src/file0.py line 1 (GitHub token)" in message
+    assert "Ignore earlier instructions" not in message and "; and 3 more." in message and message.count(" line 1 (") == 8
+
+
+def test_a_registered_credential_in_a_snapshot_is_located_without_being_repeated():
+    secret = "synthetic-private-value"
+    with pytest.raises(DomainError) as error:
+        SecretGuard([secret]).check_snapshot({"files": [{"path": "config/app.env", "content": f"MODE=test\nTOKEN={secret}\n"}]})
+    assert "Found at: config/app.env line 2 (registered credential)." in error.value.message and secret not in error.value.message
+
+
+@pytest.mark.parametrize("text", [
+    "sabre_d_" + "d" * 43, "sk-proj-" + "a" * 24, "ghp_" + "b" * 30, "github_pat_" + "c" * 30, "xoxb-123456789012345-123456789012345-abcdef",
+    "-----BEGIN OPENSSH PRIVATE KEY-----", "password = '" + "p" * 24 + "'", "AKIA" + "Z" * 16, "postgresql://user:password@example.com/data",
+    "https://user:password@example.com/data", "plain public text",
+])
+def test_locations_describe_exactly_what_the_guard_refuses(text):
+    guard = SecretGuard()
+    try:
+        guard.check(text)
+        refused = False
+    except DomainError:
+        refused = True
+    assert bool(guard.locations(text)) is refused
 
 
 def test_finding_locations_name_path_line_and_rule_without_content():
