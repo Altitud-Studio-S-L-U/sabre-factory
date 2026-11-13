@@ -183,6 +183,19 @@ def scanner_error(scanner: str) -> SecurityFinding:
     )
 
 
+def finding_locations(findings: list[SecurityFinding], limit: int = 5) -> str:
+    """Where findings are: path, line and rule, never content. Paths and rules come from the scanned repository
+    and the rule set, so anything outside a plain path or identifier is described instead of repeated."""
+    places = []
+    for finding in findings[:limit]:
+        path = (finding.path or "").removeprefix("/workspace/")
+        place = path if re.fullmatch(r"[A-Za-z0-9._@+-][A-Za-z0-9._@+/-]{0,159}", path) else "a path with unusual characters"
+        rule = finding.reference if finding.reference and re.fullmatch(r"[A-Za-z0-9._-]{1,80}", finding.reference) else "unnamed rule"
+        places.append(f"{place}{f' line {finding.line}' if finding.line else ''} ({rule})")
+    more = len(findings) - len(places)
+    return "; ".join(places) + (f"; and {more} more" if more > 0 else "")
+
+
 def parse_findings(scanner: str, payload: Any) -> list[SecurityFinding]:
     """Parse only scanner report fields, never raw secrets or process output."""
     findings: list[SecurityFinding] = []

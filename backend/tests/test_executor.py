@@ -519,3 +519,28 @@ async def test_security_update_cannot_use_a_general_egress_network(tmp_path, mon
     with pytest.raises(DomainError) as error:
         await broker.refresh_security_database()
     assert error.value.code == "SECURITY_UPDATE_NETWORK_UNSAFE"
+
+
+async def test_admission_that_finds_a_possible_secret_says_where_and_keeps_no_workspace(tmp_path, monkeypatch):
+    broker = DockerBroker(tmp_path, SimpleNamespace())
+    project = Project(name="project", repository="https://github.com/owner/project", profile="node", gate_commands=[["npm", "test"]])
+    secret = "0123456789ABCDEF" * 2
+    removed = []
+
+    async def archive(_project):
+        return b"archive", "c" * 40
+
+    async def scanner(work_id, name):
+        assert name == "gitleaks"
+        return [{"File": "/workspace/test/client.test.ts", "RuleID": "generic-api-key", "StartLine": 14, "Secret": secret, "Match": f"key = '{secret}'"}]
+
+    monkeypatch.setattr(broker, "_github_archive", archive)
+    monkeypatch.setattr(broker, "_install_archive", lambda work_id, raw: None)
+    monkeypatch.setattr(broker, "_scanner", scanner)
+    monkeypatch.setattr(broker, "_remove_workspace_volume", removed.append)
+    with pytest.raises(DomainError) as error:
+        await broker.prepare(project, "work-1")
+    assert error.value.code == "SECRET_DETECTED"
+    assert "Found at: test/client.test.ts line 14 (generic-api-key)." in error.value.message
+    assert "content will not be sent to agents" in error.value.message and secret not in error.value.message
+    assert removed == ["work-1"] and not broker._metadata_path("work-1").exists()
