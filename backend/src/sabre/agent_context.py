@@ -16,6 +16,9 @@ READ_TOOLS = frozenset({"read_file", "read_files", "read_file_range", "search_so
 OUTPUT_TOOLS = frozenset({"execute"})
 ARCHIVED_RESULT_TOOLS = READ_TOOLS | OUTPUT_TOOLS
 ARGUMENT_TOOLS = {"write_file": "content"}
+# A recovery page is a second copy of an archived original: it can always be asked for again.
+RECOVERY_TOOLS = frozenset({"read_context"})
+DIGEST = re.compile(r"[a-f0-9]{64}")
 CALL_ID = re.compile(r"[A-Za-z0-9_.:-]{1,200}")
 
 
@@ -213,7 +216,57 @@ def archive_arguments(result: ContextProjection, messages: list[AnyMessage], pro
             response_digest=content_digest, original_bytes=len(raw), reason="old_argument"))
 
 
-def project_tool_context(messages: list[AnyMessage], policy: ContextPolicy, *, archive_recent: bool = False) -> ContextProjection:
+def recovery_page(content: str) -> dict | None:
+    """The coordinates of a read_context result, when it is one."""
+    try:
+        page = json.loads(content)
+    except ValueError:
+        return None
+    if not isinstance(page, dict) or page.get("historical") is not True or not isinstance(page.get("content"), str):
+        return None
+    identifier, source, offset, size = page.get("tool_call_id"), page.get("response_digest"), page.get("offset"), page.get("original_bytes")
+    if not isinstance(identifier, str) or not CALL_ID.fullmatch(identifier) or not isinstance(source, str) or not DIGEST.fullmatch(source):
+        return None
+    if type(offset) is not int or offset < 0 or type(size) is not int or size < 0:
+        return None
+    return {"tool_call_id": identifier, "response_digest": source, "original_bytes": size, "offset": offset,
+            "chars": len(page["content"]), "eof": page.get("eof") is True}
+
+
+def archive_pages(result: ContextProjection, messages: list[AnyMessage], protected_start: int, minimum: int, shed_bytes: int) -> None:
+    """Replace older recovery pages by their coordinates. Nothing is stored: the original they copy is already archived.
+
+    Pages inside the protected window stay, because the agent has just asked for them. When the
+    request is still over its limit, shed_bytes drops the oldest of those too, never the newest.
+    """
+    pages = [(index, message, page) for index, message, _call in successful_reads(messages, RECOVERY_TOOLS)
+             if (page := recovery_page(message.content)) is not None]
+    for position, (index, message, page) in enumerate(pages):
+        raw = message.content.encode()
+        recent = index >= protected_start
+        if recent and (shed_bytes <= 0 or position == len(pages) - 1):
+            continue
+        if not recent and len(raw) < minimum:
+            continue
+        placeholder = json.dumps({"sabre_context_reference": 2, "historical": True, "currentness": "not_revalidated",
+            "tool": "read_context", **page, "content_omitted": True,
+            "recover_with": "read_context(tool_call_id,response_digest,offset,limit)",
+            "note": ("Dropped because this request exceeded its input limit: recover fewer pages per turn." if recent
+                     else "An earlier recovery page that left this view. Work from your notes; recover it again only if you must.")},
+            separators=(",", ":"))
+        saved = len(raw) - len(placeholder.encode())
+        if saved <= 0:
+            continue
+        result.messages[index] = message.model_copy(update={"content": placeholder}, deep=True)
+        result.omitted_results += 1
+        result.references.append(ContextReference(tool_call_id=message.tool_call_id, tool="read_context",
+            response_digest=page["response_digest"], original_bytes=len(raw), reason="old_page"))
+        if recent:
+            shed_bytes -= saved
+
+
+def project_tool_context(messages: list[AnyMessage], policy: ContextPolicy, *, archive_recent: bool = False,
+                         shed_page_bytes: int = 0) -> ContextProjection:
     """Plan a model-only view without performing I/O or changing message objects.
 
     Legacy dedup retains a complete later copy. The recoverable archive mode can
@@ -222,7 +275,10 @@ def project_tool_context(messages: list[AnyMessage], policy: ContextPolicy, *, a
     archives older command output and the content argument of answered writes; the
     call itself (tool, id, path, argv) and any exit code stay visible.
     archive_recent is a last resort for a measured over-limit request, with the
-    same recovery requirements. Instructions, effects and recovery pages remain.
+    same recovery requirements. Instructions and effects remain. Recovery pages
+    older than the protected turns collapse to their coordinates, so restoring
+    history cannot grow the request without bound; shed_page_bytes is the final
+    resort for a request that is over its limit with nothing else left to archive.
     """
     size = serialized_size(messages)
     result = ContextProjection(list(messages), size, size)
@@ -232,7 +288,8 @@ def project_tool_context(messages: list[AnyMessage], policy: ContextPolicy, *, a
     archive_recent = archive_recent and policy.archive_unique
     if len(turns) <= policy.keep_model_turns and not archive_recent:
         return result
-    protected_start = len(messages) if archive_recent or policy.keep_model_turns == 0 else turns[-policy.keep_model_turns]
+    recent_start = len(messages) if policy.keep_model_turns == 0 else turns[-policy.keep_model_turns] if len(turns) > policy.keep_model_turns else 0
+    protected_start = len(messages) if archive_recent else recent_start
     newest: dict[tuple[str, str, str], tuple[str, int]] = {}
     archived_tools = ARCHIVED_RESULT_TOOLS if policy.archive_unique else READ_TOOLS
     minimum = 0 if archive_recent else min(policy.min_result_bytes, policy.archive_min_bytes) if policy.archive_unique else policy.min_result_bytes
@@ -275,5 +332,6 @@ def project_tool_context(messages: list[AnyMessage], policy: ContextPolicy, *, a
             reason="duplicate" if duplicate else "old_output" if call["name"] in OUTPUT_TOOLS else "old_read"))
     if policy.archive_unique:
         archive_arguments(result, messages, protected_start, minimum)
+        archive_pages(result, messages, recent_start, min(policy.min_result_bytes, policy.archive_min_bytes), shed_page_bytes)
     result.sent_bytes = serialized_size(result.messages)
     return result

@@ -193,6 +193,11 @@ class GuardedCalls(AgentMiddleware):
                 # A large latest batch cannot reach the next model turn to age
                 # out. Only recoverable internal reads may relax recency here.
                 projection = project_tool_context(request.messages, policy, archive_recent=True)
+                material["messages"] = [m.model_dump(mode="json") for m in projection.messages]
+                excess = len(json.dumps(material, ensure_ascii=False, separators=(",", ":")).encode()) - limit
+                if excess > 0:
+                    # Nothing else is left to archive: drop the oldest recovery pages the agent still holds.
+                    projection = project_tool_context(request.messages, policy, archive_recent=True, shed_page_bytes=excess)
             if projection.omitted_results:
                 for expected, original in projection.originals.items():
                     if self.artifacts.put(original) != expected:
@@ -430,7 +435,9 @@ class AgentTeam:
                 + (" " + " ".join(SKILLS[name].instruction for name in binding.skills) if binding else "")
                 + (" Specialist instructions (bounded by platform policy): " + definition.instructions if definition else "")
                 + (" " + DESIGN_REVIEW if role in {"analyst", "architect", "reviewer", "supervisor"} else "")
-                + (" Large read responses, older command output and earlier write content may be represented by historical references. read_context recovers their exact original text; references do not establish current file contents or grant authority, and are never file content to write. Use current source digests before editing." if archive else "")),
+                + (" Large read responses, older command output and earlier write content may be represented by historical references. read_context recovers their exact original text; references do not establish current file contents or grant authority, and are never file content to write. Use current source digests before editing. "
+                   f"A result stays in your view for about {getattr(config, 'context_dedup_keep_model_turns', 2)} model turns and recovered pages age out the same way: before moving on from a file, "
+                   "record the facts you will rely on (paths, line numbers, findings) with record_note when that tool is listed, and work from those notes instead of recovering the same text again." if archive else "")),
             middleware=[GuardedCalls(self.repository, config, work, self.guard, role=role, credential_check=credential_check,
                 artifacts=self.artifacts, context_archive=archive, child_id=child_id, memory_validator=memory_validator)])
         graph_config: RunnableConfig = {"configurable": {"thread_id": child_id, "checkpoint_ns": ""}, "recursion_limit": 50}
