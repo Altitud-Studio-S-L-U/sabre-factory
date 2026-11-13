@@ -554,6 +554,47 @@ async def test_idle_cancel_of_a_blocked_run_keeps_evidence_and_records_one_event
     assert [event["kind"] for event in await repo.events(work.id)].count("cancelled") == 1
 
 
+async def test_a_cancel_requested_while_another_run_holds_the_project_is_applied_when_that_run_releases_it(repository):
+    repo, project, blocked = await fixture_work(repository)
+    blocked.status, blocked.error_code, blocked.summary = Status.BLOCKED, "SECRET_DETECTED", "Content containing a possible credential was blocked"
+    await repo.save(blocked)
+    running = WorkOrder(project_id=project.id, mode="patch", objective="Second run of the project", acceptance=["Correct output"], budget=Budget(max_cost_usd=10), idempotency_key=new_id())
+    waiting = WorkOrder(project_id=project.id, mode="patch", objective="Third run of the project", acceptance=["Correct output"], budget=Budget(max_cost_usd=10), idempotency_key=new_id())
+
+    async def enqueue(conn, work_id):
+        return None
+
+    for order in (running, waiting):
+        await repo.admit(order, enqueue)
+    running.status, waiting.status = Status.RUNNING, Status.WAITING_INPUT
+    await repo.save(running)
+    await repo.save(waiting)
+    cleaned = []
+
+    async def cleanup(work_id):
+        cleaned.append(work_id)
+
+    executor = SimpleNamespace(cleanup=cleanup)
+    service = FactoryService(repo, SimpleNamespace(executor=executor), None, None, SecretGuard(), None)
+    factory = SimpleNamespace(repository=repo, executor=executor)
+    async with Factory.project_run(factory, running) as acquired:
+        assert acquired
+        # The owner's requests arrive while the project is busy: recorded, not applied.
+        assert (await service.control(blocked.id, "cancel")).status == Status.BLOCKED
+        assert (await service.control(waiting.id, "pause")).status == Status.WAITING_INPUT
+        assert (await service.control(running.id, "pause")).status == Status.RUNNING
+        assert cleaned == []
+    cancelled, paused, still_running = await repo.work(blocked.id), await repo.work(waiting.id), await repo.work(running.id)
+    assert cancelled.status == Status.CANCELLED and cancelled.error_code == "SECRET_DETECTED"
+    assert paused.status == Status.PAUSED
+    assert still_running.status == Status.RUNNING, "the driven run settles its own control at its next boundary"
+    assert cleaned == [blocked.id]
+    assert [event["kind"] for event in await repo.events(blocked.id)].count("cancelled") == 1
+    async with Factory.project_run(factory, running) as acquired:
+        assert acquired
+    assert cleaned == [blocked.id] and [event["kind"] for event in await repo.events(waiting.id)].count("paused") == 1
+
+
 async def test_repeated_idle_pause_records_a_single_event(repository):
     repo, project, work = await fixture_work(repository)
     work.status = Status.BLOCKED

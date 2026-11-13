@@ -6,6 +6,7 @@ import hashlib
 import json
 import re
 import time
+from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from typing import Any, Literal, TypedDict
 
@@ -823,12 +824,26 @@ class Factory:
         await self.repository.acknowledge_scope(work.id, revision)
         return saved
 
+    @asynccontextmanager
+    async def project_run(self, work: WorkOrder):
+        """The project lock for one drive. Before releasing it, apply the pause and cancel requests that arrived
+        for the project's resting runs meanwhile: with the lock busy they were only recorded."""
+        async with self.repository.project_lock(work.project_id) as acquired:
+            try:
+                yield acquired
+            finally:
+                pending = getattr(self.repository, "idle_controls", None)
+                if acquired and pending is not None:
+                    for other, command in await pending(work.project_id, work.id):
+                        if await self.repository.finalize_idle_control(other, command) and command == "cancel":
+                            await self.executor.cleanup(other)
+
     async def drive(self, work_id: str):
         work = await self.repository.work(work_id)
         if work.status == Status.CANCELLED:
             await self.executor.cleanup(work_id)
             return work
-        async with self.repository.project_lock(work.project_id) as acquired:
+        async with self.project_run(work) as acquired:
             if not acquired:
                 raise DomainError("PROJECT_BUSY", "The project has another active run")
             work = await self.repository.work(work_id)
