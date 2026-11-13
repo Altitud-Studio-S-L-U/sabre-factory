@@ -194,7 +194,7 @@ def parse_findings(scanner: str, payload: Any) -> list[SecurityFinding]:
             findings.append(SecurityFinding(
                 fingerprint=fingerprint(scanner, rule, path, str(row.get("StartLine", ""))),
                 scanner=scanner, category="secret", severity="critical",
-                title="Posible secreto detectado", path=path, reference=rule,
+                title="Possible secret detected", path=path, reference=rule,
                 line=_line(row.get("StartLine")),
                 remediation="Revoke or rotate the detected credential, remove it from code and check history before resubmitting the project.",
             ))
@@ -207,13 +207,13 @@ def parse_findings(scanner: str, payload: Any) -> list[SecurityFinding]:
                 rule = str(row["VulnerabilityID"])
                 severity = _severity(str(row.get("Severity", "UNKNOWN")))
                 fixed = str(row.get("FixedVersion") or "")
-                remediation = (f"Actualizar {row.get('PkgName', 'the dependency')} to a patched version ({fixed}); verify compatibility and run the tests again."
+                remediation = (f"Update {row.get('PkgName', 'the dependency')} to a patched version ({fixed}); verify compatibility and run the tests again."
                                if fixed else f"Investigate the applicability of {rule}; the advisory does not identify a patched version. Propose mitigation and repeat the scan.")
                 findings.append(SecurityFinding(
                     fingerprint=fingerprint(scanner, rule, path, json.dumps([row.get("PkgName", ""), row.get("InstalledVersion", ""), severity])),
                     scanner=scanner, category="vulnerability",
                     severity=severity,
-                    title=f"{rule}: {row.get('PkgName', 'dependencia')}", path=path, reference=rule,
+                    title=f"{rule}: {row.get('PkgName', 'dependency')}", path=path, reference=rule,
                     remediation=remediation,
                 ))
             for row in result.get("Misconfigurations", []) or []:
@@ -239,7 +239,7 @@ def parse_findings(scanner: str, payload: Any) -> list[SecurityFinding]:
                 scanner=scanner, category="code", severity=severity,
                 title=rule, path=path, reference=rule,
                 line=_line(row.get("start", {}).get("line")),
-                remediation=f"Review rule {rule} en {path}, remove the unsafe construction and verify a regression test.",
+                remediation=f"Review rule {rule} in {path}, remove the unsafe construction and verify a regression test.",
             ))
     else:
         raise ValueError("Unknown scanner")

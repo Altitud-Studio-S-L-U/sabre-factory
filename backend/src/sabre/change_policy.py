@@ -308,12 +308,12 @@ def material_changes(before: dict[str, str], after: dict[str, str]) -> list[str]
                 dependency = current or previous
                 if dependency is None:
                     raise _invalid()
-                verb = "add" if current else "retira"
-                changes.append(f"Se {verb} the dependency {_label(dependency.name)} en {_label(path)}.")
+                verb = "added to" if current else "removed from"
+                changes.append(f"The dependency {_label(dependency.name)} was {verb} {_label(path)}.")
             elif previous.source or current.source:
-                changes.append(f"The dependency source changed for {_label(current.name)} en {_label(path)}.")
+                changes.append(f"The dependency source changed for {_label(current.name)} in {_label(path)}.")
             elif previous.pin and current.pin and previous.pin[:2] == current.pin[:2] and not previous.pin[2] and not current.pin[2]:
                 continue
             else:
-                changes.append(f"The major version or constraint changed for {_label(current.name)} en {_label(path)}.")
+                changes.append(f"The major version or constraint changed for {_label(current.name)} in {_label(path)}.")
     return changes
