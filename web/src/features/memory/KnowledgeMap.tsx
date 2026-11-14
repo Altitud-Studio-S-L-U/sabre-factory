@@ -185,9 +185,9 @@ export default function KnowledgeMap({
       {!current && <KnowledgeMapSkeleton />}
       {graph && !graph.nodes.length && (
         <EmptyState as="h3" title="Nothing to map yet">
-          This map draws memories with the runs, commits and files they come from. A memory is recorded only
-          when a run delivers a pull request; audits and runs that stop before delivery record nothing, so
-          there is nothing to draw yet.
+          This map draws memories with the runs, commits and files they come from. Nothing has been proposed
+          for this project yet: read the repository, or let a run work on it, and what they record appears
+          here.
         </EmptyState>
       )}
       {graph && graph.nodes.length > 0 && (
