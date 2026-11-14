@@ -30,10 +30,12 @@ from pydantic import Field
 
 from sabre.browser_contracts import BrowserJob
 from sabre.browser_qa import BrowserRunner
+from sabre.logs import log
 from sabre.models import Contract, DomainError, Project, SecurityFinding
 from sabre.private_credentials import fetch_credentials
 from sabre.security import ScannerIncomplete, SecretGuard, finding_locations, parse_findings, scanner_error
 from sabre.settings import load_bootstrap, reject_secret_environment
+from sabre.telemetry import configure, span, traceparent
 
 CONTAINER_TEMP = "/tmp"  # noqa: S108 - private bounded tmpfs inside each disposable container
 # Fixed resource limits of every workspace and gate container; they are not configurable.
@@ -919,16 +921,27 @@ class ExecutorClient:
         self.base_url, self.token = base_url.rstrip("/"), token
 
     async def _request(self, method: str, path: str, body=None):
+        headers = {"Authorization": f"Bearer {self.token}"}
+        # The broker continues the caller's trace: each command it runs becomes a span under this one.
+        parent = traceparent()
+        if parent:
+            headers["traceparent"] = parent
+        run = re.match(r"/workspaces/([A-Za-z0-9_-]{1,64})(?:/|$)", path)
         try:
-            response = await self.client.request(method, f"{self.base_url}{path}", json=body, headers={"Authorization": f"Bearer {self.token}"})
+            response = await self.client.request(method, f"{self.base_url}{path}", json=body, headers=headers)
         except httpx.HTTPError:
+            log("executor.failed", work_id=run.group(1) if run else None, error_code="EXECUTOR_UNAVAILABLE")
             raise DomainError("EXECUTOR_UNAVAILABLE", "The runner is unavailable", 503) from None
         if response.status_code >= 400:
             try:
                 error = response.json()
             except ValueError:
                 error = {}
-            raise DomainError(str(error.get("code", "EXECUTOR_FAILED")), str(error.get("message", "The runner operation failed")), response.status_code)
+            code = str(error.get("code", "EXECUTOR_FAILED"))
+            if response.status_code >= 500:
+                # A refused request (4xx) is an answer; only a broker that could not do its work is a failure.
+                log("executor.failed", work_id=run.group(1) if run else None, error_code=code)
+            raise DomainError(code, str(error.get("message", "The runner operation failed")), response.status_code)
         return response.json()
 
     async def prepare(self, project: Project, work_id: str) -> None:
@@ -994,6 +1007,24 @@ def broker_bootstrap():
     return load_bootstrap(path, kind="broker") if path else {}
 
 
+_telemetry: Any = None
+
+
+def command_span(work_id: str, parent: str | None):
+    """One span per command the broker runs, under the caller's span when it sent its trace context."""
+    global _telemetry
+    if _telemetry is None:
+        # The broker exports to the same endpoint as the control services, when one is configured.
+        _telemetry = configure(os.environ.get("SABRE_OTLP_ENDPOINT")) or False
+    return span("executor.command", work_id=work_id, parent=parent)
+
+
+def measured(observation, result: ExecutionResult) -> ExecutionResult:
+    """Record how a command ended and how much it printed, never what it printed."""
+    observation.set(exit_code=result.exit_code, output_bytes=len(result.output.encode()))
+    return result
+
+
 def get_broker() -> DockerBroker:
     global _broker
     if _broker is None:
@@ -1042,8 +1073,9 @@ async def write_file(work_id: str, body: FileWrite):
 
 
 @app.post("/workspaces/{work_id}/execute", dependencies=[Depends(authenticate)])
-async def execute(work_id: str, body: Command):
-    return await get_broker().execute(work_id, body.argv, body.timeout_s)
+async def execute(work_id: str, body: Command, traceparent: str | None = Header(default=None)):
+    with command_span(work_id, traceparent) as observation:
+        return measured(observation, await get_broker().execute(work_id, body.argv, body.timeout_s))
 
 
 @app.get("/workspaces/{work_id}/snapshot", dependencies=[Depends(authenticate)])
@@ -1067,8 +1099,9 @@ class GateCommand(Command):
 
 
 @app.post("/workspaces/{work_id}/gate", dependencies=[Depends(authenticate)])
-async def execute_gate(work_id: str, body: GateCommand):
-    return await get_broker().execute_gate(work_id, body.argv, body.digest, body.timeout_s)
+async def execute_gate(work_id: str, body: GateCommand, traceparent: str | None = Header(default=None)):
+    with command_span(work_id, traceparent) as observation:
+        return measured(observation, await get_broker().execute_gate(work_id, body.argv, body.digest, body.timeout_s))
 
 
 @app.post("/workspaces/{work_id}/scan", dependencies=[Depends(authenticate)])

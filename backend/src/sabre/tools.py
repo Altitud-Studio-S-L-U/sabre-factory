@@ -3,6 +3,7 @@
 import asyncio
 import hashlib
 import json
+import re
 from collections.abc import Awaitable, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager, nullcontext
 from dataclasses import dataclass
@@ -17,7 +18,7 @@ from referencing.exceptions import Unresolvable
 from sabre.error_boundaries import guarded_call
 from sabre.models import DomainError
 from sabre.security import SecretGuard
-from sabre.telemetry import span
+from sabre.telemetry import span, tool_call
 
 
 def result_bytes(result: Any) -> int:
@@ -46,12 +47,16 @@ class ToolDefinition:
     handler: Callable[..., Awaitable[Any]]
     argument_policy: Callable[[dict, str], None] | None = None
     delegated_authorization: bool = False
+    # An external tool the owner reviewed by name: only then does telemetry name it.
+    reviewed: bool = False
 
 
 class ToolCatalog:
     def __init__(self, guard: SecretGuard | None = None):
         self.guard = guard or SecretGuard()
         self.tools: dict[str, ToolDefinition] = {}
+        # The run these tools belong to, for the tool span; None for a catalog outside a run.
+        self.work_id: str | None = None
         self.observer: Callable[[str], AbstractAsyncContextManager] | None = None
         self.credential_check: Callable[[], Awaitable[None]] | None = None
 
@@ -64,7 +69,10 @@ class ToolCatalog:
 
     async def invoke(self, name: str, arguments: dict, role: str, *, allow_external_write=False):
         internal = {"list_files", "read_file", "read_files", "search_source", "read_file_range", "write_file", "execute", "prepare_dependencies", "resolve_dependencies", "read_context", "read_memory", "edit_source", "record_note", "propose_memory"}
-        with span("tool.call", tool=name if name in internal else "mcp", role=role):
+        definition = self.tools.get(name)
+        named = name in internal or (definition is not None and definition.reviewed and re.fullmatch(r"[A-Za-z0-9_/:.-]{1,200}", name))
+        # Any other external tool is counted without its name: that name was never reviewed.
+        with span("tool.call", tool=name if named else "mcp", role=role, work_id=self.work_id, tool_call_id=tool_call.get()):
             async with self.observer(name) if self.observer else nullcontext() as boundary:
                 result = await guarded_call(self._invoke, self.guard, "TOOL_EXECUTION_FAILED", name, arguments, role, allow_external_write=allow_external_write)
                 if boundary is not None:

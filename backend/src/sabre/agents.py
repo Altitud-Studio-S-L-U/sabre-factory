@@ -28,6 +28,7 @@ from sabre.error_boundaries import guarded_call
 from sabre.events import ExecutionEvent
 from sabre.execution_observer import current_execution, observe
 from sabre.flows import phase_binding
+from sabre.logs import log
 from sabre.memory import PROPOSE_DESCRIPTION, PROPOSE_GUIDANCE, PROPOSE_SCHEMA, PROPOSE_TOOL
 from sabre.model_configuration import selection_updates
 from sabre.model_providers import chat_model
@@ -38,7 +39,7 @@ from sabre.provider_failures import call_with_retries
 from sabre.repository import digest
 from sabre.skills import SKILLS
 from sabre.specialists import DESIGN_REVIEW
-from sabre.telemetry import span, trace_identifiers
+from sabre.telemetry import TOOL_CALL_ID, span, tool_call, trace_identifiers
 from sabre.tools import MCPToolAdapter, ToolDefinition, ToolPolicy
 from sabre.tools import workspace_tools as catalog_workspace_tools
 from sabre.work_notes import NOTE_DESCRIPTION, NOTE_SCHEMA, NOTE_TOOL, WorkNotes
@@ -140,6 +141,9 @@ class GuardedCalls(AgentMiddleware):
         self.sleep = asyncio.sleep
 
     async def awrap_tool_call(self, request, handler):
+        # The tool span names the call by the identifier the model gave it, when that is a plain token.
+        call_id = request.tool_call.get("id") if isinstance(request.tool_call, dict) else None
+        token = tool_call.set(call_id if isinstance(call_id, str) and TOOL_CALL_ID.fullmatch(call_id) else None)
         try:
             return await handler(request)
         except DomainError as error:
@@ -150,6 +154,8 @@ class GuardedCalls(AgentMiddleware):
             return ToolMessage(content=json.dumps({"error": {"code": error.code, "message": error.message, "recoverable": True},
                 "guidance": "The operation had no effect. Correct the request (arguments, path, current digest) and continue."}),
                 tool_call_id=request.tool_call["id"], name=request.tool_call.get("name"), status="error")
+        finally:
+            tool_call.reset(token)
 
     @staticmethod
     def response_format_material(response_format):
@@ -191,6 +197,8 @@ class GuardedCalls(AgentMiddleware):
 
     async def _record_failed_call(self, failure: str, code: str, duration_ms: int, provider):
         """One event per failed model call: its class and code, never the provider's text."""
+        log("model.failed", work_id=getattr(self.work, "id", None), role=self.role, failure_class=failure, error_code=code,
+            agent_id=public_id(self.child_id) if self.child_id else None, duration_ms=duration_ms)
         recorder = getattr(self.repository, "record_execution_event", None)
         revision, phase = getattr(self.work, "plan_revision", None), getattr(self.work, "phase", None)
         if recorder is None or type(revision) is not int or not isinstance(phase, str):
@@ -256,6 +264,9 @@ class GuardedCalls(AgentMiddleware):
                 material["messages"] = [m.model_dump(mode="json") for m in request.messages]
                 self.guard.check(material)
             observation.set(**projection.stats())
+            if projection.omitted_results:
+                # This request carries a compacted view of the conversation, not all of it.
+                observation.set(context_compacted=True)
         sent_bytes = len(json.dumps(material, ensure_ascii=False, separators=(",", ":")).encode())
         if sent_bytes > limit:
             raise DomainError("CONTEXT_BUDGET_EXHAUSTED", "Required context exceeds the input limit; narrow the task or review its configuration before continuing", 409)
@@ -291,7 +302,7 @@ class GuardedCalls(AgentMiddleware):
         if self.context_archive:
             self.context_archive.acknowledge()
         observation.set(reserved_tokens=input_bound + output_bound, reserved_usd=reserve, invocation_kind="cli_invocation" if cli else "provider_call",
-                        model_provider=provider, model_name=getattr(self.settings, "model_name", None))
+                        model_provider=provider, model_name=getattr(self.settings, "model_name", None), max_output_tokens=output_bound)
         # Unknown outcomes retain the reservation: a lost response does not imply a free request.
         # A rate limit, an overload or a timeout is tried again inside this same reservation.
         started = [time.perf_counter()]
@@ -442,6 +453,7 @@ class AgentTeam:
                                           role=authorization_role, artifacts=self.artifacts)
         catalog.credential_check = credential_check
         catalog.observer = lambda name: observe(self.repository, work, "tool", name, parent_id=child_id, agent_id=public_id(child_id))
+        catalog.work_id = work.id
         archive = ContextArchive(self.artifacts, self.guard) if self.artifacts is not None else None
         memory_validator = memory_tools.get("validate_context") if memory_tools else None
         if archive:
@@ -483,7 +495,8 @@ class AgentTeam:
             await credential_check()
             policies = {key: ToolPolicy(frozenset(value.roles), value.effect, value.timeout_s) for key, value in remote.tools.items()}
             for definition in await adapter.discover(policies):
-                catalog.register(replace(definition, name=f"{name}__{definition.name}"))
+                # Both parts were reviewed: the server by the owner's connection, the tool by its policy entry.
+                catalog.register(replace(definition, name=f"{name}__{definition.name}", reviewed=True))
         if self.outbound_a2a is not None:
             from sabre.a2a_tools import attach_a2a_tools
             task_id = (task_context or {}).get("task_id")
@@ -547,7 +560,7 @@ class AgentTeam:
                if work.configuration_snapshot else {}),
         }, ensure_ascii=False))]}
         self.guard.check({"provider": getattr(config, "model_provider", None), "model": getattr(config, "model_name", None)})
-        with span("agent.role", role=role, work_id=work.id):
+        with span("agent.role", role=role, work_id=work.id, model_provider=getattr(config, "model_provider", None)):
             async with observe(self.repository, work, "agent", role, parent_id=child_id, provider=getattr(config, "model_provider", None), model=getattr(config, "model_name", None), agent_id=public_id(child_id)):
                 if saved and saved.values and not saved.next:
                     result = saved.values

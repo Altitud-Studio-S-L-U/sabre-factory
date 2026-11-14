@@ -23,7 +23,7 @@ from sabre.repository import Repository, digest
 from sabre.repository_ingestion import RepositoryIngestion
 from sabre.security import ScannerClient, SecretGuard, SecurityService
 from sabre.service import FactoryService
-from sabre.telemetry import configure, span
+from sabre.telemetry import configure, execution_span
 from sabre.vault import Vault
 from sabre.workflows import Factory
 
@@ -105,7 +105,7 @@ class Runtime:
 
         @self.queue.task(name="sabre.process_work", queue="work", retry=3)
         async def process_work(work_id: str):
-            with span("factory.work", work_id=work_id) as observation:
+            async with execution_span(self.repository, work_id) as observation:
                 try:
                     await self.credentials.refresh()
                     from sabre.delegation import authorize_delegated_work

@@ -554,6 +554,17 @@ class Repository(MemoryStore):
         from sabre.notifications import enqueue_notifications
         await enqueue_notifications(conn, self.notification_destinations, event_id, work)
 
+    async def trace_root(self, work_id: str) -> dict | None:
+        """The root span of this run's latest execution, for the next one to link to."""
+        async with self.connection() as conn:
+            row = await (await conn.execute("SELECT trace_root FROM work_orders WHERE id=%s", (work_id,))).fetchone()
+        return row["trace_root"] if row else None
+
+    async def remember_trace_root(self, work_id: str, identifiers: dict):
+        async with self.connection() as conn:
+            await conn.execute("UPDATE work_orders SET trace_root=%s WHERE id=%s",
+                (Jsonb({"trace_id": identifiers["trace_id"], "span_id": identifiers["span_id"]}), work_id))
+
     async def record_execution_event(self, event: ExecutionEvent):
         async with self.connection() as conn:
             await conn.execute("INSERT INTO run_events(id,work_id,data) VALUES(%s,%s,%s) ON CONFLICT(id) DO NOTHING",
