@@ -121,21 +121,33 @@ class MemoryService:
     async def propose(self, request: MemoryCreate, *, proposed_by: ProposedBy | None = None) -> MemoryItem:
         """``proposed_by`` names the calling entry point; it is never taken from the request body."""
         self.guard.check(request.model_dump())
-        work = await self.repository.work(request.source_work_id)
-        if work.project_id != request.project_id or not work.evidence or work.evidence.commit != request.source_commit:
-            raise DomainError("MEMORY_PROVENANCE", "Provenance does not match a project delivery")
-        # Recovery may queue a published order before replaying its final memory write.
-        delivered = work.status == "completed" or bool(work.evidence.branch and work.evidence.pr_url)
-        # Only the mechanically derived delivery fact activates itself, and it stays commit-scoped.
-        verifiable = (request.kind == "fact" and delivered and request.content == verified_fact(work)
-                      and request.evidence_digest == work.evidence.snapshot_digest and request.scope == "commit"
-                      and not request.citations and request.supersedes is None)
+        verifiable = False
+        if request.source_work_id is None:
+            # Without a run the anchor is a commit the factory indexed for this project; its snapshot is the evidence.
+            indexed = await self.repository.repository_index_digest(request.project_id, request.source_commit)
+            if indexed is None or request.evidence_digest not in (None, indexed):
+                raise DomainError("MEMORY_PROVENANCE", "Provenance must be a delivery of this project or one of its indexed commits")
+            request = request.model_copy(update={"evidence_digest": indexed})
+        else:
+            work = await self.repository.work(request.source_work_id)
+            if work.project_id != request.project_id or not work.evidence or work.evidence.commit != request.source_commit:
+                raise DomainError("MEMORY_PROVENANCE", "Provenance does not match a project delivery")
+            # Recovery may queue a published order before replaying its final memory write.
+            delivered = work.status == "completed" or bool(work.evidence.branch and work.evidence.pr_url)
+            # Only the mechanically derived delivery fact activates itself, and it stays commit-scoped.
+            verifiable = (request.kind == "fact" and delivered and request.content == verified_fact(work)
+                          and request.evidence_digest == work.evidence.snapshot_digest and request.scope == "commit"
+                          and not request.citations and request.supersedes is None)
         item = MemoryItem(**request.model_dump(), id=digest(memory_identity(request)), active=verifiable,
                           approved_at=now() if verifiable else None, proposed_by=proposed_by)
-        # Factory consolidation stays free of model calls, so its proposals are recalled lexically.
-        factory = proposed_by is not None and proposed_by.channel == "factory"
-        embedding = await self.embeddings.aembed_query(item.content) if self.embeddings and not verifiable and not factory else None
+        # Factory consolidation and repository reads stay free of model calls, so their proposals are recalled lexically.
+        mechanical = proposed_by is not None and proposed_by.channel in {"factory", "repository"}
+        embedding = await self.embeddings.aembed_query(item.content) if self.embeddings and not verifiable and not mechanical else None
         return await self.repository.create_memory(item, embedding)
+
+    async def withdraw(self, memory_id: str) -> bool:
+        """Withdraw a proposal nobody decided on; approved and already invalidated memories are left alone."""
+        return await self.repository.withdraw_memory(memory_id)
 
     async def update(self, memory_id: str, approve: bool, decision: MemoryApproval | None = None):
         if decision is None or not approve:
@@ -185,7 +197,7 @@ class MemoryService:
         commit = await self.repository.newest_indexed_commit(item.project_id)
         listed = (await self._list_items(await self.repository.memory_page(item.project_id, commit=commit, memory_id=memory_id, limit=1), commit))[0]
         outgoing, incoming = await self.repository.memory_links_of(memory_id)
-        work = await self.repository.memory_work_summary(item.project_id, item.source_work_id)
+        work = await self.repository.memory_work_summary(item.project_id, item.source_work_id) if item.source_work_id else None
         stats = (await self.repository.memory_recall_stats([memory_id])).get(memory_id) or {}
         detail = MemoryDetail(
             item=listed,

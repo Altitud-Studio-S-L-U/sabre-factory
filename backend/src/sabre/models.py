@@ -369,7 +369,9 @@ class MemoryCreate(Contract):
     kind: Literal["fact", "lesson"]
     content: str = Field(min_length=1, max_length=8000)
     source_commit: str
-    source_work_id: str
+    source_work_id: str | None = Field(default=None, max_length=128, description=(
+        "The delivered run the memory comes from. Leave it out to anchor the memory to a commit "
+        "of this project that has a repository index"))
     evidence_digest: str | None = None
     # A factory keeps "default" out of the request schema, so generated clients may omit the field.
     scope: Literal["commit", "project"] = Field(default_factory=lambda: "commit", description=(
@@ -405,7 +407,7 @@ def memory_identity(request: MemoryCreate) -> dict:
 class ProposedBy(Contract):
     """Entry point that proposed a memory. The server sets it; request bodies cannot supply it."""
 
-    channel: Literal["owner_console", "owner_mcp", "supervisor_chat", "factory"]
+    channel: Literal["owner_console", "owner_mcp", "supervisor_chat", "factory", "repository"]
     role: str | None = Field(default=None, max_length=64)
     work_id: str | None = Field(default=None, max_length=128)
 
@@ -416,6 +418,9 @@ class MemoryItem(MemoryCreate):
     created_at: datetime = Field(default_factory=now)
     approved_at: datetime | None = None
     invalidated_at: datetime | None = None
+    invalidated_as: Literal["rejected", "revoked", "superseded", "withdrawn"] | None = Field(default=None, description=(
+        "Why it stopped: rejected before approval, revoked after it, superseded by a replacement, or withdrawn "
+        "by the factory because the repository text it quoted changed before anyone decided. Absent on older records"))
     proposed_by: ProposedBy | None = Field(default=None, description="Absent on memories recorded before attribution; show as unknown")
 
 
