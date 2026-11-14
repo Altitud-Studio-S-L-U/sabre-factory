@@ -16,9 +16,14 @@ These specifications define the operator console's behavior and acceptance contr
 | [09](09-validation.md) | 02–08 | Integrated behavior and distribution evidence |
 | [10](10-budgets.md) | 01, 03, 04 | Per-metric bounds, reserves and amend/resume recovery |
 | [11](11-browser-qa.md) | 01, 02, 04, 05 | Isolated browser preview and visual verification capability |
+| [12](12-github-connection.md) | 05, 08 | One GitHub connection with per-operation tokens |
+| [13](13-projects.md) | 01, 05, 12 | Project editing, archiving and one way to add a project |
+| [14](14-context-economy.md) | 02, 10 | Batch archiving, stable prefix, provider cache and failure handling |
+| [15](15-observability.md) | 04, 10, 14 | Standard trace attributes, cost with cache prices, insights across runs |
+| [16](16-evaluation.md) | 02, 14 | Real-task suite, baseline and regression reports |
 
 Keep LangGraph as execution authority and PostgreSQL as the persistent store. Do not introduce an auxiliary routing model or duplicate execution state machine. All mutations must use the shared application authorization and durable receipts.
 
 Build screens from the shared components in `web/src/components` and Tailwind utilities over the SABRE tokens; do not add per-screen stylesheets or a second component system. Tokens own colour, radius and type. Blur is limited to the sticky header, the mobile tab bar and floating Supervisor chrome, with opaque fallbacks and readable contrast. Text is at least 12 px; every state reads without colour alone (text, icon or shape).
 
-Each spec closes with its observable acceptance checks. Prototype data never counts as runtime evidence.
+Each spec closes with its observable acceptance checks. Prototype data never counts as runtime evidence. Specs 12 to 16 describe work that is not built yet; the order of that work and the gaps against a public release are in [the roadmap](../roadmap.md).

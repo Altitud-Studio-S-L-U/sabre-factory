@@ -13,3 +13,5 @@ Review the five-section operator experience before further production UI changes
 
 ## Acceptance and boundary
 Review desktop and mobile, keyboard focus, readable translucency, navigation, inspector selection and error recovery. All demonstration values must remain labelled. The prototype's JSON check is illustrative, not the production YAML/schema validator. Obtain visual-direction approval before implementing this design in React. No backend or account state changes are part of this spec.
+
+The production console has since diverged where the owner asked for it: Config opens on a readiness board with tabs instead of a guided sequence ([03](03-configuration.md)), and Tools is organised by service instead of a catalog with an inspector ([05](05-tools.md)). The prototype is kept as the record of the reviewed concept.
