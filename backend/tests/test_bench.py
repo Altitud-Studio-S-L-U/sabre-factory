@@ -102,3 +102,30 @@ def test_probe_matches_structured_entries_not_shared_words():
     prompt = {"source_context": {"files": [{"path": "pricing.py"}]}, "task_context": {"task": {"scope": ["pricing.py"]}}}
     assert has_entry(prompt, "scope", ["pricing.py"])
     assert not has_entry({"source_context": {"files": [{"path": "pricing.py"}]}}, "scope", ["pricing.py"])
+
+
+async def test_an_audit_that_fits_its_window_keeps_what_it_read_and_a_long_one_rewrites_only_in_batches():
+    report = await run_suite(selected=["audit-ledger", "audit-ledger-full"])
+    fits, long = (next(result for result in report["tasks"] if result["task"] == name) for name in ("audit-ledger", "audit-ledger-full"))
+    assert fits["grade"]["verdict"] == long["grade"]["verdict"] == "pass"
+    # Six modules read over three turns stay below the high mark: nothing leaves the view, so the agent
+    # recovers nothing and every request only appends to the one before it.
+    assert fits["context"]["recoveries"] == 0 and "read_context" not in fits["tools"]["calls"]
+    prefix = fits["context"]["prefix"]
+    assert (prefix["turns"], prefix["batch_turns"], prefix["stable_turns"]) == (4, 0, 4) and prefix["min_share"] > 0.99
+    # Sixteen modules cannot all stay in view. The oldest leave in batches, the agent pages back the three
+    # it revisits, and a turn without a batch keeps the previous request whole.
+    assert long["context"]["recoveries"] == 3 and long["tools"]["calls"]["read_context"] == 3
+    prefix = long["context"]["prefix"]
+    assert 0 < prefix["batch_turns"] < prefix["turns"] and prefix["min_share_without_batch"] > 0.99
+    assert long["budget_feasibility"]["budget_max_tokens"] == 300000
+
+
+async def test_without_the_marks_the_audit_that_fits_loses_what_it_read_two_turns_ago(monkeypatch):
+    # The policy the marks replace: a result leaves as soon as it is outside the protected turns.
+    monkeypatch.setattr("sabre.agents.ARCHIVE_HIGH_WATER", 0.0)
+    monkeypatch.setattr("sabre.agents.ARCHIVE_LOW_WATER", 0.0)
+    result = (await run_suite(selected=["audit-ledger"]))["tasks"][0]
+    assert result["grade"]["verdict"] == "pass"
+    assert result["context"]["recoveries"] == 2 and result["tools"]["calls"]["read_context"] == 2
+    assert result["context"]["prefix"]["batch_turns"] == 2 and result["context"]["prefix"]["min_share"] < 0.5

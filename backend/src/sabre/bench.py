@@ -59,6 +59,11 @@ class PlanReference(StrictModel):
 
 class Reference(StrictModel):
     inspect: list[str] = Field(default_factory=list)
+    # Files read per turn; 0 reads every inspected file in the first turn.
+    read_batch: int = Field(default=0, ge=0, le=16)
+    # Files the agent needs in view again when it concludes. A naive agent: what is no longer
+    # there it recovers, which is what the recovery ratio counts.
+    revisit: list[str] = Field(default_factory=list)
     plan: PlanReference | None = None
     edits: list[Edit] = Field(default_factory=list)
     # A first developer attempt that fails its check. The policy notes the failure; only an
@@ -81,8 +86,35 @@ class BenchTask(StrictModel):
     objective: str
     acceptance: list[str]
     gate_commands: list[list[str]]
+    # The token limit of the run when the task needs more than the default of a work order.
+    max_tokens: int | None = Field(default=None, ge=1000, le=10_000_000)
     grader: Grader
     reference: Reference
+
+
+def common_prefix(first: bytes, second: bytes) -> int:
+    """How many leading bytes two requests share."""
+    limit = min(len(first), len(second))
+    if first[:limit] == second[:limit]:
+        return limit
+    low, high = 0, limit
+    while low < high:
+        middle = (low + high + 1) // 2
+        if first[:middle] == second[:middle]:
+            low = middle
+        else:
+            high = middle - 1
+    return low
+
+
+def prefix_stability(calls: list[dict]) -> dict:
+    """How much of each request the next one kept, over the turns that have a predecessor."""
+    turns = [entry for entry in calls if "prefix_share" in entry]
+    quiet = [entry["prefix_share"] for entry in turns if not entry["batch"]]
+    return {"turns": len(turns), "batch_turns": sum(entry["batch"] for entry in turns),
+            "min_share": min((entry["prefix_share"] for entry in turns), default=None),
+            "min_share_without_batch": min(quiet, default=None),
+            "stable_turns": sum(entry["prefix_share"] >= 0.9 for entry in turns)}
 
 
 def estimate_tokens(value: Any) -> int:
@@ -126,6 +158,8 @@ class Trace:
     openings: list[tuple[str, dict]] = field(default_factory=list)
     summaries: dict[str, str] = field(default_factory=dict)
     calls: list[dict] = field(default_factory=list)
+    # Tool calls made only to see again something the agent had already read.
+    recoveries: int = 0
 
 
 class ReferenceModel(BaseChatModel):
@@ -133,6 +167,8 @@ class ReferenceModel(BaseChatModel):
 
     task: BenchTask
     _trace: Trace = PrivateAttr(default_factory=Trace)
+    # The previous request of each role's conversation, to measure how much of it the next one keeps.
+    _requests: dict = PrivateAttr(default_factory=dict)
 
     @property
     def _llm_type(self) -> str:
@@ -158,12 +194,42 @@ class ReferenceModel(BaseChatModel):
         inputs = estimate_tokens([m.model_dump(mode="json") for m in messages])
         outputs = estimate_tokens(calls)
         message.usage_metadata = {"input_tokens": inputs, "output_tokens": outputs, "total_tokens": inputs + outputs}
-        trace.calls.append({"role": role, "round": rounds, "estimated_input_tokens": inputs, "estimated_output_tokens": outputs,
-                            "tools": [call["name"] for call in calls]})
+        entry = {"role": role, "round": rounds, "estimated_input_tokens": inputs, "estimated_output_tokens": outputs,
+                 "tools": [call["name"] for call in calls]}
+        # What a provider's prompt cache would see: the request as bytes, compared with the one before it.
+        request = json.dumps([m.model_dump(mode="json") for m in messages], ensure_ascii=False).encode()
+        archived = request.count(b"sabre_context_reference")
+        previous = self._requests.get(role) if rounds else None
+        if previous is not None:
+            entry["prefix_share"] = round(common_prefix(previous["bytes"], request) / len(previous["bytes"]), 4)
+            # A turn that replaced earlier results by references is a compaction batch.
+            entry["batch"] = archived > previous["archived"]
+        self._requests[role] = {"bytes": request, "archived": archived}
+        trace.calls.append(entry)
         return ChatResult(generations=[ChatGeneration(message=message)])
 
     def replies(self, messages) -> dict[str, Any]:
         return {m.tool_call_id: tool_payload(m) for m in messages if isinstance(m, ToolMessage)}
+
+    @staticmethod
+    def revisit(reference: Reference, replies: dict[str, Any], call) -> list[dict]:
+        """The calls that bring back into view the revisited files that are no longer there."""
+        from sabre.context_archive import READ_CONTEXT_PAGE
+        calls = []
+        for path in reference.revisit:
+            index = reference.inspect.index(path)
+            reply = replies.get(f"analyst-read-{index}")
+            if isinstance(reply, str):
+                continue  # Still in view as it was read.
+            if isinstance(reply, dict) and reply.get("content_omitted") and isinstance(reply.get("response_digest"), str):
+                pages = max(1, math.ceil(reply.get("original_chars", 1) / READ_CONTEXT_PAGE))
+                calls += [call("read_context", {"tool_call_id": reply["tool_call_id"], "response_digest": reply["response_digest"],
+                                                "offset": page * READ_CONTEXT_PAGE, "limit": READ_CONTEXT_PAGE}, f"again-{index}-{page}")
+                          for page in range(pages)]
+            else:
+                # The turn that read it left the view altogether: nothing to page back, so read the file again.
+                calls.append(call("read_file", {"path": path}, f"again-{index}"))
+        return calls
 
     def step(self, role: str, rounds: int, messages) -> tuple[list[dict], AgentResult | None]:
         reference, task = self.task.reference, self.task
@@ -173,8 +239,18 @@ class ReferenceModel(BaseChatModel):
             return {"name": name, "args": args, "id": f"{role}-{key}", "type": "tool_call"}
 
         if role == "analyst":
-            if rounds == 0:
-                return [call("list_files", {}, "list")] + [call("read_file", {"path": path}, f"read-{i}") for i, path in enumerate(reference.inspect)], None
+            issued = [item for m in messages if isinstance(m, AIMessage) for item in m.tool_calls]
+            identifiers = [str(item.get("id") or "") for item in issued]
+            pending = list(enumerate(reference.inspect))[sum(identifier.startswith("analyst-read-") for identifier in identifiers):]
+            if rounds == 0 or pending:
+                batch = reference.read_batch or len(pending)
+                return ([call("list_files", {}, "list")] if rounds == 0 else []) + [
+                    call("read_file", {"path": path}, f"read-{i}") for i, path in pending[:batch]], None
+            if reference.revisit and not any(identifier.startswith("analyst-again-") for identifier in identifiers):
+                again = self.revisit(reference, replies, call)
+                if again:
+                    self._trace.recoveries += len(again)
+                    return again, None
             summary = reference.findings or f"Requirements inspected for: {task.objective}"
             return [], AgentResult(accepted=True, summary=summary)
         if role == "supervisor":
@@ -505,7 +581,8 @@ async def run_task(task: BenchTask, suite: Path = SUITE) -> dict:
     project = Project(name=f"bench-{task.repo}", repository="https://github.com/sabre-bench/" + task.repo, profile="python",
                       gate_commands=task.gate_commands)
     work = WorkOrder(project_id=project.id, mode=task.mode, objective=task.objective, acceptance=task.acceptance,
-                     budget=Budget(max_cost_usd=0), idempotency_key=f"bench-{task.id}")
+                     budget=Budget(max_cost_usd=0, max_tokens=task.max_tokens) if task.max_tokens else Budget(max_cost_usd=0),
+                     idempotency_key=f"bench-{task.id}")
     repository = BenchRepository(work, project)
     started = time.perf_counter()
     with tempfile.TemporaryDirectory(prefix="sabre-bench-") as directory:
@@ -544,7 +621,8 @@ async def run_task(task: BenchTask, suite: Path = SUITE) -> dict:
                    "budget_max_tokens": work.budget.max_tokens,
                    "reserved_to_estimated": round(sum(reserved) / sum(estimated), 2) if sum(estimated) else None},
         "context": {"sent_bytes_total": sum(sent), "sent_bytes_max": max(sent, default=0),
-                    "original_bytes_total": sum(row["original_bytes"] or 0 for row in rows)},
+                    "original_bytes_total": sum(row["original_bytes"] or 0 for row in rows),
+                    "recoveries": trace.recoveries, "prefix": prefix_stability(trace.calls)},
         "tools": {"calls": dict(tool_names), "failed": sum(event.state == "failed" for event in tools),
                   "output_bytes": sum(event.output_bytes or 0 for event in tools),
                   "total_ms": sum(event.duration_ms or 0 for event in tools)},
