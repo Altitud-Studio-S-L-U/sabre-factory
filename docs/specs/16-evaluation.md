@@ -6,6 +6,13 @@ A number the factory can stand behind: on a fixed suite of real tasks, how often
 ## State it starts from
 The bench has four tasks on one Python fixture and drives the real graph with a scripted policy. It measures harness mechanics, which is useful and stays. No task has run with a real model, reports are local and never compared, and the bench is not part of CI. `sabre.evaluation` can score recorded runs against labels, and no labelled set is committed.
 
+## Built so far
+- *Regression.* `sabre bench compare` sets a run of the scripted driver against the baseline committed in `backend/bench/reports/baseline.json` and fails on a regression (a task that no longer passes, a probe that turned off, more model calls or tool failures, a cost up by more than 2%); `--strict` also fails on any other difference. `sabre bench baseline` records the baseline, which names the digest of the suite it measured.
+- *Determinism.* Apart from timing, two runs of the same commit report the same mechanics; a test holds that.
+- *Harness metrics.* The scripted driver reports the recovery ratio, tokens per model call and the share of tokens by specialist.
+
+Still to build: the suite beyond four Python tasks, the provider and baseline drivers, trials and intervals, prefix stability, ablations, the comparison in CI (Actions is off), and labelled real runs.
+
 ## Interfaces and behavior
 **Suite.** Between 20 and 50 tasks taken from real work orders and real failures, over at least three repositories and both supported stacks, in audit, patch and maintain modes. A task pins its snapshot, states the objective and acceptance as an owner would, and carries deterministic graders the agent never sees. Some tasks seed a defect that review or the security stage should flag, because passing tests is not the same as being mergeable. Fixtures are synthetic or licensed for redistribution.
 

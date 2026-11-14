@@ -76,7 +76,7 @@ Each phase ends on evidence, and Phase 1 is the gate: what it measures decides t
 | Item | State | Disposition |
 | --- | --- | --- |
 | No test covers the console mounted in the real application | Not done | Phase 5 |
-| Bench without a TypeScript fixture, a maintain task or a real-model driver | Partial | [16](specs/16-evaluation.md) |
+| Bench without a TypeScript fixture, a maintain task or a real-model driver; its reports now compare against a committed baseline | Partial | [16](specs/16-evaluation.md) |
 | Default budgets are the same for every flow | Not done | Decision 5 |
 | Timeline: zoom to selection, state kept per run across reloads | Not done | Phase 5, after the main path |
 | Supervisor avatar as the helmeted foreman; a drawn avatar per specialist | Partial (an orb; initials in a ring) | Phase 5 |
