@@ -755,7 +755,7 @@ export default function RunProcessConsole({
                       <span
                         key={`ruler-${gap.start}`}
                         title={`${idleLabel(gap.end - gap.start)} without recorded activity`}
-                        className="absolute top-1 z-10 flex h-6 -translate-x-1/2 items-center rounded-full border border-border bg-card px-2 text-[0.6875rem] whitespace-nowrap text-muted-foreground"
+                        className="absolute top-1 z-10 flex h-6 -translate-x-1/2 items-center rounded-full border border-border bg-card px-2 text-xs whitespace-nowrap text-muted-foreground"
                         style={{ left: `${((gap.from + gap.to) / 2) * 100}%` }}
                       >
                         {idleLabel(gap.end - gap.start)} idle

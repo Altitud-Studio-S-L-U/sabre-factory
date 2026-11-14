@@ -193,7 +193,7 @@ export default function ProductionLine({ api, orders }: { api: Api; orders: Work
                   <div
                     key={`${span.stage}-${span.start}`}
                     className={cn(
-                      'row-start-1 rounded-t-lg border-x border-t px-2.5 pt-1.5 pb-1 text-[0.6875rem] font-semibold tracking-wider uppercase',
+                      'row-start-1 rounded-t-lg border-x border-t px-2.5 pt-1.5 pb-1 text-xs font-semibold tracking-wider uppercase',
                       span.stage === focus?.stage
                         ? 'border-primary/40 bg-primary/10 text-primary'
                         : 'border-border bg-secondary/40 text-muted-foreground',
@@ -209,7 +209,7 @@ export default function ProductionLine({ api, orders }: { api: Api; orders: Work
                     style={{ gridColumn: `${repairFrom + 1} / ${repairTo + 2}` }}
                     title={`${repair.condition}. ${repair.limit}.`}
                   >
-                    <span className="absolute -top-3 left-1/2 inline-flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-primary/40 bg-card px-2.5 py-0.5 text-[0.6875rem] whitespace-nowrap text-primary">
+                    <span className="absolute -top-3 left-1/2 inline-flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-primary/40 bg-card px-2.5 py-0.5 text-xs whitespace-nowrap text-primary">
                       <Repeat aria-hidden="true" className="size-3" />
                       Repair loop · back to {stations[repairFrom].label}
                     </span>
@@ -249,13 +249,13 @@ export default function ProductionLine({ api, orders }: { api: Api; orders: Work
                           <span className="text-xs leading-tight text-muted-foreground">
                             {station.agent ?? (station.kind === 'gates' ? 'Checks' : 'Rules')}
                           </span>
-                          <span className="font-mono text-[0.6875rem] text-muted-foreground">
+                          <span className="font-mono text-xs text-muted-foreground">
                             {kindShort[station.kind]}
                           </span>
                           {here.length > 0 && (
                             <span
                               className={cn(
-                                'inline-flex items-center gap-1 font-mono text-[0.6875rem]',
+                                'inline-flex items-center gap-1 font-mono text-xs',
                                 waiting ? 'text-warning' : 'text-primary',
                               )}
                             >
@@ -274,7 +274,7 @@ export default function ProductionLine({ api, orders }: { api: Api; orders: Work
                           <span
                             key={helper.role}
                             title={helper.condition}
-                            className="mt-1 truncate rounded-full border border-dashed border-border px-2 py-0.5 text-center text-[0.6875rem] text-muted-foreground"
+                            className="mt-1 truncate rounded-full border border-dashed border-border px-2 py-0.5 text-center text-xs text-muted-foreground"
                           >
                             + {helper.agent}
                           </span>
