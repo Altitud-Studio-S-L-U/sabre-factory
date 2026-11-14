@@ -20,6 +20,7 @@ from sabre.agent_catalog import definition_errors
 from sabre.agents import cache_read_tokens, input_reservation_tokens
 from sabre.audit import AuditUsage, RunUsageSnapshot
 from sabre.budget_views import budget_view
+from sabre.costs import Rates, cache_write_tokens, call_cost_usd, reserved_cost_usd
 from sabre.credentials import model_secret_id
 from sabre.error_boundaries import guarded_call
 from sabre.model_configuration import selection_updates
@@ -125,13 +126,17 @@ class ChatGuard(AgentMiddleware):
         # The estimate the specialists use: bytes sent are not tokens, and a CLI adds its own instructions.
         input_bound = input_reservation_tokens(size(material), cli=cli)
         output_bound = self.config.model_max_output_tokens
-        input_rate = 0 if cli else self.config.model_input_usd_per_million
-        output_rate = 0 if cli else self.config.model_output_usd_per_million
-        cost = (input_bound * input_rate + output_bound * output_rate) / 1_000_000
+        rates = Rates.of(self.config, free=cli)
+        cost = reserved_cost_usd(rates, input_tokens=input_bound, output_tokens=output_bound)
         usage_id = await self.repository.reserve_chat_usage(f"{self.surface}:{self.event_id}", input_bound + output_bound, cost, self.config.monthly_budget_usd, self.config.chat_budget_usd)
         observation.set(reserved_tokens=input_bound + output_bound, reserved_usd=cost, invocation_kind="cli_invocation" if cli else "provider_call")
+        async def failed(failure: str, _code: str, number: int, final: bool):
+            observation.set(failure_class=failure, provider_attempts=number)
+            if final and hasattr(self.repository, "fail_usage"):
+                await self.repository.fail_usage(usage_id, failure)
+
         # A rate limit, an overload or a timeout is tried again inside the same reservation.
-        response = await call_with_retries(lambda: handler(request), before_retry=self.credential_check, sleep=self.sleep)
+        response = await call_with_retries(lambda: handler(request), on_failure=failed, before_retry=self.credential_check, sleep=self.sleep)
         if self.credential_check:
             await self.credential_check()
         self.guard.check([item.model_dump(mode="json") for item in response.result])
@@ -140,10 +145,12 @@ class ChatGuard(AgentMiddleware):
             inputs = sum(item.get("input_tokens", 0) for item in usages)
             outputs = sum(item.get("output_tokens", 0) for item in usages)
             cached = sum(cache_read_tokens(item) for item in usages)
-            cost = (inputs * input_rate + outputs * output_rate) / 1_000_000
+            written = sum(cache_write_tokens(item) for item in usages)
+            cost = call_cost_usd(rates, input_tokens=inputs, output_tokens=outputs, cache_read_tokens=cached, cache_write_tokens=written)
             await self.repository.settle_usage(usage_id, inputs + outputs, cost, breakdown={
-                "input_tokens": inputs, "output_tokens": outputs, "cache_read_tokens": cached})
-            observation.set(input_tokens=inputs, output_tokens=outputs, tokens=inputs + outputs, cost_usd=cost)
+                "input_tokens": inputs, "output_tokens": outputs, "cache_read_tokens": cached, "cache_write_tokens": written})
+            observation.set(input_tokens=inputs, output_tokens=outputs, cache_read_tokens=cached, cache_write_tokens=written,
+                            tokens=inputs + outputs, cost_usd=cost)
             if cli and inputs + outputs > input_bound + output_bound:
                 raise DomainError("CLI_USAGE_EXCEEDED", "The CLI consumed more tokens than reserved; review limits before resuming")
         return response

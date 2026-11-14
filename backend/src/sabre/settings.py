@@ -95,6 +95,8 @@ class RoleModelSettings(BaseModel):
     secret_ref: str | None = None
     model_input_usd_per_million: float | None = Field(default=None, ge=0)
     model_output_usd_per_million: float | None = Field(default=None, ge=0)
+    model_cache_read_usd_per_million: float | None = Field(default=None, ge=0)
+    model_cache_write_usd_per_million: float | None = Field(default=None, ge=0)
     model_max_output_tokens: int | None = Field(default=None, ge=128, le=32768)
     supports_tools: bool = True
     supports_structured_output: bool = True
@@ -125,6 +127,9 @@ class Settings(BaseSettings):
     model_secret_ref: str | None = None
     model_input_usd_per_million: float = Field(default=0, ge=0)
     model_output_usd_per_million: float = Field(default=0, ge=0)
+    # Prices of cached input; unset, cached tokens are charged at the input price.
+    model_cache_read_usd_per_million: float | None = Field(default=None, ge=0)
+    model_cache_write_usd_per_million: float | None = Field(default=None, ge=0)
     monthly_budget_usd: float = Field(default=0, ge=0)
     model_max_output_tokens: int = Field(default=4096, ge=128, le=32768)
     context_dedup_enabled: bool = True
@@ -182,6 +187,10 @@ class Settings(BaseSettings):
             updates["model_name"] = override.model_name or ""
             updates["model_input_usd_per_million"] = override.model_input_usd_per_million if override.model_input_usd_per_million is not None else 0
             updates["model_output_usd_per_million"] = override.model_output_usd_per_million if override.model_output_usd_per_million is not None else 0
+        if override.model_provider is not None or override.model_name is not None:
+            # Cache prices belong to the model they were set for: a role that names its own never inherits the default's.
+            updates["model_cache_read_usd_per_million"] = override.model_cache_read_usd_per_million
+            updates["model_cache_write_usd_per_million"] = override.model_cache_write_usd_per_million
         return self.model_copy(update=updates)
 
     def model_ready(self) -> bool:

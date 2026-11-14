@@ -23,6 +23,7 @@ from sabre.agent_context import ContextPolicy, memory_references, project_tool_c
 from sabre.audit import public_id
 from sabre.context_archive import READ_CONTEXT_PAGE, ContextArchive
 from sabre.context_receipts import ContextReceipt
+from sabre.costs import Rates, cache_tokens, cache_write_tokens, call_cost_usd, reserved_cost_usd
 from sabre.error_boundaries import guarded_call
 from sabre.events import ExecutionEvent
 from sabre.execution_observer import current_execution, observe
@@ -122,9 +123,7 @@ def correction_message(error: DomainError) -> HumanMessage:
 
 def cache_read_tokens(usage: dict) -> int:
     """Provider-reported cached input tokens (a subset of input tokens), or 0 when unreported."""
-    details = usage.get("input_token_details") or {}
-    value = details.get("cache_read", 0) if isinstance(details, dict) else 0
-    return value if type(value) is int and value >= 0 else 0
+    return cache_tokens(usage, "cache_read")
 
 
 class GuardedCalls(AgentMiddleware):
@@ -275,9 +274,8 @@ class GuardedCalls(AgentMiddleware):
         cli = provider in {"codex_cli", "claude_cli"}
         input_bound = input_reservation_tokens(sent_bytes, cli=cli)
         output_bound = self.settings.model_max_output_tokens
-        input_rate = 0 if cli else self.settings.model_input_usd_per_million
-        output_rate = 0 if cli else self.settings.model_output_usd_per_million
-        reserve = (input_bound * input_rate + output_bound * output_rate) / 1_000_000
+        rates = Rates.of(self.settings, free=cli)
+        reserve = reserved_cost_usd(rates, input_tokens=input_bound, output_tokens=output_bound)
         receipt = None
         if self.child_id:
             references = projection.references if projection else []
@@ -305,6 +303,8 @@ class GuardedCalls(AgentMiddleware):
         async def failed(failure: str, code: str, number: int, final: bool):
             observation.set(failure_class=failure, provider_attempts=number)
             await self._record_failed_call(failure, code, int((time.perf_counter() - started[0]) * 1000), provider)
+            if final and hasattr(self.repository, "fail_usage"):
+                await self.repository.fail_usage(usage_id, failure)
 
         response = await call_with_retries(attempt, on_failure=failed, before_retry=self._before_retry, sleep=self.sleep)
         if self.credential_check:
@@ -315,10 +315,12 @@ class GuardedCalls(AgentMiddleware):
             inputs = sum(u.get("input_tokens", 0) for u in usages)
             outputs = sum(u.get("output_tokens", 0) for u in usages)
             cached = sum(cache_read_tokens(u) for u in usages)
-            actual = (inputs * input_rate + outputs * output_rate) / 1_000_000
+            written = sum(cache_write_tokens(u) for u in usages)
+            actual = call_cost_usd(rates, input_tokens=inputs, output_tokens=outputs, cache_read_tokens=cached, cache_write_tokens=written)
             await self.repository.settle_usage(usage_id, inputs + outputs, actual, breakdown={
-                "input_tokens": inputs, "output_tokens": outputs, "cache_read_tokens": cached})
-            observation.set(input_tokens=inputs, output_tokens=outputs, cache_read_tokens=cached, tokens=inputs + outputs, cost_usd=actual)
+                "input_tokens": inputs, "output_tokens": outputs, "cache_read_tokens": cached, "cache_write_tokens": written})
+            observation.set(input_tokens=inputs, output_tokens=outputs, cache_read_tokens=cached, cache_write_tokens=written,
+                            tokens=inputs + outputs, cost_usd=actual)
             if cli and self.work.effective_budget_policy is not None and hasattr(self.repository, "check_dispatch_budget"):
                 await self.repository.check_dispatch_budget(self.work)
             if cli and self.work.effective_budget_policy is None and not self.work.budget.progress_limits and inputs + outputs > input_bound + output_bound:

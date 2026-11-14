@@ -9,12 +9,19 @@ from opentelemetry.sdk.trace.export import SimpleSpanProcessor, SpanExporter, Sp
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from opentelemetry.trace import StatusCode
 
-from sabre.agents import GuardedCalls
+from sabre.agents import AgentTeam, GuardedCalls
 from sabre.models import DomainError, Status
 from sabre.security import SecretGuard
-from sabre.telemetry import span
+from sabre.slack import ChatGuard
+from sabre.telemetry import SpanRecorder, span
 from sabre.tools import ToolCatalog, ToolDefinition, ToolPolicy
+from tests.test_agents import Executor, ScriptedModel
+from tests.test_agents import Repository as AgentRepository
+from tests.test_agents import setup as agent_fixture
+from tests.test_costs import cached_answer, priced
+from tests.test_error_boundaries import fixture_config, fixture_request
 from tests.test_factory_workflow import build_factory as build_factory
+from tests.test_provider_failures import sdk_error
 
 
 @pytest.fixture
@@ -153,3 +160,84 @@ def test_trace_identifier_failure_does_not_change_application_behavior(monkeypat
     from sabre.telemetry import trace_identifiers
     monkeypatch.setattr("sabre.telemetry.trace.get_current_span", Mock(side_effect=RuntimeError("unavailable")))
     assert trace_identifiers() == {"trace_id": None, "span_id": None}
+
+
+def test_every_error_code_the_factory_raises_passes_the_allowlist():
+    import re
+    from pathlib import Path
+
+    import sabre
+
+    codes = set()
+    for source in Path(sabre.__file__).parent.glob("*.py"):
+        codes |= set(re.findall(r'DomainError\(\s*"([^"]+)"', source.read_text(encoding="utf-8")))
+    assert len(codes) > 200 and "A2A_TASK_PENDING" in codes
+    recorder = SpanRecorder()
+    for code in codes:
+        recorder.set(error_code=code)
+    assert recorder.dropped == set(), sorted(code for code in codes if not re.fullmatch(r"[A-Z][A-Z0-9_]{1,79}", code))
+
+
+def test_the_recorder_remembers_what_it_refused_and_ignores_what_has_no_value():
+    recorder = SpanRecorder()
+    recorder.set(role=None, model_name="", tokens=3, prompt="private", reserved_usd=float("nan"), failure_class="unheard of")
+    assert recorder.dropped == {"prompt", "reserved_usd", "failure_class"}
+
+
+async def test_nothing_set_along_a_run_a_model_call_or_a_conversation_is_dropped(monkeypatch, recorded, build_factory):
+    import openai
+    from langchain.agents.middleware.types import ModelRequest
+    from langchain_core.messages import SystemMessage
+
+    recorders = []
+
+    class Watched(SpanRecorder):
+        def __init__(self, current=None):
+            super().__init__(current)
+            recorders.append(self)
+
+    monkeypatch.setattr("sabre.telemetry.SpanRecorder", Watched)
+    # A whole scripted run and each of its stages, inside the span the worker opens around it.
+    factory, repo, *_ = build_factory()
+    with span("factory.work", work_id=repo.current.id) as run:
+        assert (await factory.drive(repo.current.id)).status == Status.COMPLETED
+        run.outcome(DomainError("A2A_TASK_PENDING", ""))
+    # The real agent loop: a role, its model calls and its tool calls.
+    work, project, config = agent_fixture()
+    model = ScriptedModel()
+    await AgentTeam(config, AgentRepository(), Executor(), SecretGuard(), model_factory=lambda: model).run("developer", work, project, "Implement the task")
+    # A call through a CLI session and one through an API with cache prices, both reporting cached input.
+    for provider, name, tokens in (("claude_cli", "claude-opus-5-5", 1_000), ("openai", "fixture-model", 100_000)):
+        settings = priced(agent_fixture()[2])
+        settings.model_provider, settings.model_name = provider, name
+        calls = GuardedCalls(AgentRepository(), settings, work, SecretGuard(), role="analyst", child_id=f"{work.id}/r1/analyst/{'a' * 64}")
+        await calls.awrap_model_call(fixture_request(), AsyncMock(return_value=cached_answer(tokens)))
+    # A conversation close to its input limit, which carries the pressure notice.
+    pressed = agent_fixture()[2]
+    pressed.context_input_max_bytes = 20000
+    request = ModelRequest(model=ScriptedModel(), messages=[HumanMessage(content="x" * 18000)], system_message=SystemMessage(content="Instructions"))
+    await GuardedCalls(AgentRepository(), pressed, work, SecretGuard()).awrap_model_call(request, AsyncMock(return_value=SimpleNamespace(result=[])))
+    # A provider that keeps failing, in the agent loop and in the Supervisor's conversation.
+    failing = GuardedCalls(AgentRepository(), config, work, SecretGuard(), role="developer")
+    failing.sleep = AsyncMock()
+    with pytest.raises(DomainError):
+        await failing.awrap_model_call(fixture_request(), AsyncMock(side_effect=[sdk_error(openai.RateLimitError, 429) for _ in range(3)]))
+    ledger = SimpleNamespace(reserve_chat_usage=AsyncMock(return_value="usage"), settle_usage=AsyncMock())
+    chat = ChatGuard(ledger, priced(fixture_config()), SecretGuard(), "fixture-event")
+    chat.sleep = AsyncMock()
+    await chat.awrap_model_call(fixture_request(), AsyncMock(return_value=cached_answer()))
+    with pytest.raises(DomainError):
+        await chat.awrap_model_call(fixture_request(), AsyncMock(side_effect=[sdk_error(openai.AuthenticationError, 401)]))
+
+    assert len(recorders) > 10
+    assert {name for recorder in recorders for name in recorder.dropped} == set()
+    spans = recorded.get_finished_spans()
+    assert {"factory.work", "workflow.stage", "agent.role", "model.call", "tool.call"} <= {item.name for item in spans}
+    # The CLI call, the API call and the conversation: what each wrote to the cache beside what it read from it.
+    cached = sorted((item.attributes["sabre.cache_write_tokens"], item.attributes["sabre.cache_read_tokens"])
+                    for item in spans if item.attributes.get("sabre.cache_write_tokens"))
+    assert cached == [(200, 600), (20_000, 60_000), (20_000, 60_000)]
+    assert {item.attributes.get("sabre.invocation_kind") for item in spans} >= {"cli_invocation", "provider_call"}
+    assert sum(item.attributes.get("sabre.context_pressure_notice") is True for item in spans) == 1
+    assert {item.attributes.get("sabre.failure_class") for item in spans} >= {"rate_limit", "authentication"}
+    assert "private" not in json.dumps([dict(item.attributes) for item in spans])

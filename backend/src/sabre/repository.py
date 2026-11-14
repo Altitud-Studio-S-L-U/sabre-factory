@@ -768,8 +768,14 @@ class Repository(MemoryStore):
         split = breakdown or {}
         async with self.connection() as conn:
             await conn.execute("""UPDATE model_usage SET actual_tokens=%s,actual_usd=%s,input_tokens=%s,output_tokens=%s,
-                cache_read_tokens=%s,settled_at=clock_timestamp() WHERE id=%s""",
-                (tokens, usd, split.get("input_tokens"), split.get("output_tokens"), split.get("cache_read_tokens"), usage_id))
+                cache_read_tokens=%s,cache_write_tokens=%s,settled_at=clock_timestamp() WHERE id=%s""",
+                (tokens, usd, split.get("input_tokens"), split.get("output_tokens"), split.get("cache_read_tokens"),
+                 split.get("cache_write_tokens"), usage_id))
+
+    async def fail_usage(self, usage_id: str, failure_class: str):
+        """Say why a call that never settled failed. Its reservation stays: a lost response is not a free request."""
+        async with self.connection() as conn:
+            await conn.execute("UPDATE model_usage SET failure_class=%s WHERE id=%s AND actual_tokens IS NULL", (failure_class, usage_id))
 
     async def reserve_chat_usage(self, context_key: str, tokens: int, usd: float, monthly_limit: float, context_limit: float = 0.25):
         async with self.connection() as conn:
@@ -817,7 +823,8 @@ class Repository(MemoryStore):
                 SELECT context_receipt->>'role' AS role,
                     context_receipt->>'model_provider' AS model_provider,
                     context_receipt->>'model_name' AS model_name,
-                    reserved_tokens, actual_tokens, input_tokens, output_tokens, cache_read_tokens,
+                    reserved_tokens, actual_tokens, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
+                    failure_class,
                     (context_receipt->>'sent_bytes')::bigint AS sent_bytes,
                     (context_receipt->>'original_bytes')::bigint AS original_bytes,
                     CASE WHEN settled_at IS NULL THEN NULL

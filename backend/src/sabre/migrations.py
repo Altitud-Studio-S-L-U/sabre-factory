@@ -47,6 +47,15 @@ CREATE INDEX project_events_project ON project_events(project_id,seq);
 """
 
 
+# What the ledger did not keep: tokens written to the provider's cache, and why a call that never
+# settled failed. Older rows keep NULL, which projections report as unknown.
+USAGE_CACHE_AND_FAILURE = """
+ALTER TABLE model_usage ADD COLUMN cache_write_tokens bigint CHECK(cache_write_tokens>=0);
+ALTER TABLE model_usage ADD COLUMN failure_class text
+ CHECK(failure_class IN ('rate_limit','overloaded','timeout','authentication','invalid_request','other'));
+"""
+
+
 async def migrate(conn, baseline: str):
     from sabre.console_configuration import CONSOLE_CONFIGURATION_SCHEMA
     from sabre.delegation import DELEGATION_SCHEMA
@@ -93,7 +102,8 @@ async def migrate(conn, baseline: str):
             created_at timestamptz NOT NULL DEFAULT clock_timestamp(), PRIMARY KEY(work_id,revision));
         """, 10: INGESTION_SCHEMA, 11: RELEASE_SCHEMA, 12: PANEL_SESSION_DIRECTORY,
         13: USAGE_BREAKDOWN, 14: MEMORY_GRAPH_SCHEMA, 15: MEMORY_RECALL_SCHEMA,
-        16: OWNER_CONFIRMATION_SCHEMA, 17: OWNER_CONFIRMATION_SUBJECTS, 18: PROJECT_EVENTS}
+        16: OWNER_CONFIRMATION_SCHEMA, 17: OWNER_CONFIRMATION_SUBJECTS, 18: PROJECT_EVENTS,
+        19: USAGE_CACHE_AND_FAILURE}
     if set(applied) - set(migrations):
         raise DomainError("SCHEMA_NEWER_THAN_RUNTIME", "Restore the matching application version before opening this database", 503)
     for version, statement in migrations.items():
