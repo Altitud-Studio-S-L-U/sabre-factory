@@ -529,6 +529,9 @@ async def run_task(task: BenchTask, suite: Path = SUITE) -> dict:
     reserved = [row["reserved"] for row in rows]
     estimated = [row["actual"] or 0 for row in rows]
     sent = [row["sent_bytes"] or 0 for row in rows]
+    by_role: Counter = Counter()
+    for row in rows:
+        by_role[row["role"] or "unknown"] += row["actual"] or 0
     return {
         "task": task.id, "mode": task.mode, "status": result.status.value, "phase": result.phase, "error_code": result.error_code,
         "grade": grading, "probes": probes(task, trace), "budget_feasibility": budget_feasibility(work), "wall_ms": wall_ms,
@@ -536,6 +539,7 @@ async def run_task(task: BenchTask, suite: Path = SUITE) -> dict:
         "tokens": {"basis": ESTIMATE_BASIS, "estimated_total": sum(estimated),
                    "estimated_input": sum((row["breakdown"] or {}).get("input_tokens", 0) for row in rows),
                    "estimated_output": sum((row["breakdown"] or {}).get("output_tokens", 0) for row in rows),
+                   "estimated_by_role": dict(by_role),
                    "reserved_total": sum(reserved), "reserved_max": max(reserved, default=0),
                    "budget_max_tokens": work.budget.max_tokens,
                    "reserved_to_estimated": round(sum(reserved) / sum(estimated), 2) if sum(estimated) else None},

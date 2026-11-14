@@ -1,0 +1,246 @@
+{
+  "version": 1,
+  "driver": "reference_policy",
+  "token_basis": "estimated_utf8_bytes_div_4",
+  "tasks": {
+    "audit-pricing": {
+      "mode": "audit",
+      "verdict": "pass",
+      "status": "completed",
+      "calls": 5,
+      "calls_by_role": {
+        "analyst": 2,
+        "qa": 1,
+        "reviewer": 2
+      },
+      "estimated_tokens": 9733,
+      "estimated_input_tokens": 9421,
+      "estimated_tokens_by_role": {
+        "analyst": 4335,
+        "qa": 1680,
+        "reviewer": 3718
+      },
+      "reserved_tokens": 66324,
+      "tokens_per_call": 1947,
+      "sent_bytes": 89004,
+      "sent_bytes_max": 19758,
+      "tool_calls": {
+        "list_files": 1,
+        "read_file": 4
+      },
+      "tool_failures": 0,
+      "tool_output_bytes": 2085,
+      "recovery_ratio": 0,
+      "work_notes": 0,
+      "stages": [
+        "intake",
+        "analyze",
+        "clarify",
+        "checks",
+        "scope_guard",
+        "review",
+        "security_check",
+        "audit_report"
+      ],
+      "probes": {
+        "deterministic_gates_before_model_qa": true,
+        "developer_receives_task_acceptance": null,
+        "developer_receives_task_scope": null,
+        "qa_receives_gate_results": true,
+        "repair_receives_work_notes": null
+      }
+    },
+    "patch-discount": {
+      "mode": "patch",
+      "verdict": "pass",
+      "status": "completed",
+      "calls": 10,
+      "calls_by_role": {
+        "analyst": 2,
+        "developer": 4,
+        "qa": 1,
+        "reviewer": 2,
+        "supervisor": 1
+      },
+      "estimated_tokens": 21288,
+      "estimated_input_tokens": 20582,
+      "estimated_tokens_by_role": {
+        "analyst": 3936,
+        "developer": 9436,
+        "qa": 1801,
+        "reviewer": 3989,
+        "supervisor": 2126
+      },
+      "reserved_tokens": 144248,
+      "tokens_per_call": 2129,
+      "sent_bytes": 207008,
+      "sent_bytes_max": 26469,
+      "tool_calls": {
+        "execute": 1,
+        "list_files": 1,
+        "read_file": 3,
+        "write_file": 1
+      },
+      "tool_failures": 0,
+      "tool_output_bytes": 2335,
+      "recovery_ratio": 0,
+      "work_notes": 0,
+      "stages": [
+        "intake",
+        "analyze",
+        "clarify",
+        "plan",
+        "implement",
+        "checks",
+        "scope_guard",
+        "review",
+        "security_check",
+        "route",
+        "commit",
+        "deliver",
+        "remember"
+      ],
+      "probes": {
+        "deterministic_gates_before_model_qa": true,
+        "developer_receives_task_acceptance": true,
+        "developer_receives_task_scope": true,
+        "qa_receives_gate_results": true,
+        "repair_receives_work_notes": null
+      }
+    },
+    "patch-discount-repair": {
+      "mode": "patch",
+      "verdict": "pass",
+      "status": "completed",
+      "calls": 15,
+      "calls_by_role": {
+        "analyst": 2,
+        "developer": 9,
+        "qa": 1,
+        "reviewer": 2,
+        "supervisor": 1
+      },
+      "estimated_tokens": 35588,
+      "estimated_input_tokens": 34493,
+      "estimated_tokens_by_role": {
+        "analyst": 3936,
+        "developer": 23740,
+        "qa": 1801,
+        "reviewer": 3985,
+        "supervisor": 2126
+      },
+      "reserved_tokens": 228791,
+      "tokens_per_call": 2373,
+      "sent_bytes": 341560,
+      "sent_bytes_max": 29181,
+      "tool_calls": {
+        "execute": 2,
+        "list_files": 1,
+        "read_file": 4,
+        "record_note": 1,
+        "write_file": 2
+      },
+      "tool_failures": 0,
+      "tool_output_bytes": 5165,
+      "recovery_ratio": 0,
+      "work_notes": 1,
+      "stages": [
+        "intake",
+        "analyze",
+        "clarify",
+        "plan",
+        "implement",
+        "implement",
+        "checks",
+        "scope_guard",
+        "review",
+        "security_check",
+        "route",
+        "commit",
+        "deliver",
+        "remember"
+      ],
+      "probes": {
+        "deterministic_gates_before_model_qa": true,
+        "developer_receives_task_acceptance": true,
+        "developer_receives_task_scope": true,
+        "qa_receives_gate_results": true,
+        "repair_receives_work_notes": true
+      }
+    },
+    "patch-rounding": {
+      "mode": "patch",
+      "verdict": "pass",
+      "status": "completed",
+      "calls": 10,
+      "calls_by_role": {
+        "analyst": 2,
+        "developer": 4,
+        "qa": 1,
+        "reviewer": 2,
+        "supervisor": 1
+      },
+      "estimated_tokens": 21341,
+      "estimated_input_tokens": 20631,
+      "estimated_tokens_by_role": {
+        "analyst": 4185,
+        "developer": 9315,
+        "qa": 1787,
+        "reviewer": 3942,
+        "supervisor": 2112
+      },
+      "reserved_tokens": 144313,
+      "tokens_per_call": 2134,
+      "sent_bytes": 207170,
+      "sent_bytes_max": 26329,
+      "tool_calls": {
+        "execute": 1,
+        "list_files": 1,
+        "read_file": 4,
+        "write_file": 1
+      },
+      "tool_failures": 0,
+      "tool_output_bytes": 2840,
+      "recovery_ratio": 0,
+      "work_notes": 0,
+      "stages": [
+        "intake",
+        "analyze",
+        "clarify",
+        "plan",
+        "implement",
+        "checks",
+        "scope_guard",
+        "review",
+        "security_check",
+        "route",
+        "commit",
+        "deliver",
+        "remember"
+      ],
+      "probes": {
+        "deterministic_gates_before_model_qa": true,
+        "developer_receives_task_acceptance": true,
+        "developer_receives_task_scope": true,
+        "qa_receives_gate_results": true,
+        "repair_receives_work_notes": null
+      }
+    }
+  },
+  "summary": {
+    "tasks": 4,
+    "passed": 4,
+    "calls": 40,
+    "estimated_tokens": 87950,
+    "tokens_per_call": 2199,
+    "recovery_ratio": 0,
+    "token_share_by_role": {
+      "analyst": 0.1864,
+      "developer": 0.4831,
+      "qa": 0.0804,
+      "reviewer": 0.1778,
+      "supervisor": 0.0724
+    }
+  },
+  "suite_digest": "144ddce9e1367c7411ceed7ce6536cb836a8cc58c2a13bd05964c3df9ef9eeb8"
+}
