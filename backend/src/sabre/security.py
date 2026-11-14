@@ -76,7 +76,8 @@ class SecretGuard:
     patterns = (
         re.compile(r"\bsabre_d_[A-Za-z0-9_-]{43,}"),
         re.compile(r"\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}"),
-        re.compile(r"\bgh[pousr]_[A-Za-z0-9]{20,}"),
+        # By prefix, never by length: an installation token may be `ghs_` followed by an app id and a signed token.
+        re.compile(r"\bgh[pousr]_[A-Za-z0-9_.-]{20,}"),
         re.compile(r"\bgithub_pat_[A-Za-z0-9_]{20,}"),
         re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{15,}"),
         re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----"),

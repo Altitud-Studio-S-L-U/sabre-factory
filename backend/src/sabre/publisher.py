@@ -26,26 +26,48 @@ def github_repository(url: str) -> str:
 
 
 class GitHubPublisher:
-    def __init__(self, repository, token: str, client: httpx.AsyncClient | None = None, *, token_resolver=None):
+    def __init__(self, repository, token: str, client: httpx.AsyncClient | None = None, *, token_resolver=None, credential_resolver=None):
         self.repository = repository
         self.token = token
         self.client = client
         self.token_resolver = token_resolver
+        # Given the repository of a request, returns the credential for delivering to it: a token of the
+        # GitHub connection narrowed to that repository, or the pasted token while no app is connected.
+        self.credential_resolver = credential_resolver
+
+    async def _credential(self, repository: str | None):
+        """(token, came from the app, how to drop it when GitHub refuses it)."""
+        if self.credential_resolver:
+            credential = await self.credential_resolver(repository)
+            return credential.token.get_secret_value(), credential.app, credential.forget
+        token = (await self.token_resolver()).get_secret_value() if self.token_resolver else self.token
+        return token, False, lambda: None
+
+    async def signed_by_app(self, repository: str) -> bool:
+        """True when delivery uses the GitHub connection: GitHub then signs the commits it creates as the app."""
+        return (await self._credential(repository))[1]
 
     async def request(self, method: str, path: str, **kwargs):
-        token = (await self.token_resolver()).get_secret_value() if self.token_resolver else self.token
-        if not token:
-            raise DomainError("GITHUB_NOT_CONFIGURED", "Configure SABRE access to GitHub")
-        headers = {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
+        target = re.match(r"/repos/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)(?:/|$)", path)
         extra_headers = kwargs.pop("headers", {})
         if set(extra_headers) - {"Content-Type"}:
             raise DomainError("GITHUB_HEADERS_NOT_ALLOWED", "Only the fixed content type may extend GitHub request headers", 422)
-        headers.update(extra_headers)
-        if self.client:
-            response = await self.client.request(method, path, headers=headers, **kwargs)
-        else:
-            async with httpx.AsyncClient(base_url="https://api.github.com", timeout=30) as client:
-                response = await client.request(method, path, headers=headers, **kwargs)
+        for attempt in (1, 2):
+            token, app, forget = await self._credential(target[1] if target else None)
+            if not token:
+                raise DomainError("GITHUB_NOT_CONFIGURED", "Configure SABRE access to GitHub")
+            headers = {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
+            headers.update(extra_headers)
+            if self.client:
+                response = await self.client.request(method, path, headers=headers, **kwargs)
+            else:
+                async with httpx.AsyncClient(base_url="https://api.github.com", timeout=30) as client:
+                    response = await client.request(method, path, headers=headers, **kwargs)
+            if response.status_code == 401 and app and attempt == 1:
+                # An installation token GitHub no longer accepts is dropped and minted again, once.
+                forget()
+                continue
+            break
         if response.status_code == 404:
             return None
         if response.is_error:
@@ -89,12 +111,13 @@ class GitHubPublisher:
             if item["type"] == "blob" and item["path"] not in files and not dependency_path:
                 entries.append({"path": item["path"], "mode": item["mode"], "type": "blob", "sha": None})
         new_tree = await self.request("POST", f"/repos/{repo}/git/trees", json={"base_tree": tree["sha"], "tree": entries})
-        commit = await self.request("POST", f"/repos/{repo}/git/commits", json={
-            "message": message,
-            "tree": new_tree["sha"], "parents": [snapshot["base_commit"]],
-            "author": {"name": "SABRE", "email": "sabre@users.noreply.github.com", "date": work.created_at.isoformat()},
-            "committer": {"name": "SABRE", "email": "sabre@users.noreply.github.com", "date": work.created_at.isoformat()},
-        })
+        commit_request = {"message": message, "tree": new_tree["sha"], "parents": [snapshot["base_commit"]]}
+        if not await self.signed_by_app(repo):
+            identity = {"name": "SABRE", "email": "sabre@users.noreply.github.com", "date": work.created_at.isoformat()}
+            commit_request |= {"author": identity, "committer": identity}
+        # Through the connection the commit names no author, committer or signature: GitHub then creates it as the
+        # app and signs it, which a repository that requires signed commits accepts.
+        commit = await self.request("POST", f"/repos/{repo}/git/commits", json=commit_request)
         return commit["sha"]
 
     async def publish(self, work: WorkOrder, project: Project, *, expected_base: str) -> dict:

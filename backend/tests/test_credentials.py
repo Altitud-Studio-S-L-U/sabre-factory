@@ -79,8 +79,11 @@ def test_endpoint_normalization_and_refs_cannot_cross_destinations():
 
 
 async def test_private_adapters_require_their_own_identity_and_are_hidden_from_openapi():
+    asked = []
+
     class Service:
-        async def private_credentials(self, purpose):
+        async def private_credentials(self, purpose, repository=None):
+            asked.append((purpose, repository))
             return {"token": "synthetic-read-value"} if purpose == "github-read" else {"bot_token": "synthetic-bot-value", "app_token": "synthetic-app-value"}
 
         async def status(self):
@@ -101,6 +104,11 @@ async def test_private_adapters_require_their_own_identity_and_are_hidden_from_o
         response = await client.get(read, headers=broker)
         assert response.json() == {"token": "synthetic-read-value"}
         assert response.headers["cache-control"] == "no-store"
+        # The broker may name the repository it is about to read; anything that is not an owner and a name is refused.
+        assert (await client.get(read, params={"repository": "octo-fixture/widgets"}, headers=broker)).status_code == 200
+        assert asked == [("github-read", None), ("github-read", "octo-fixture/widgets")]
+        for invalid in ("widgets", "octo-fixture/widgets/extra", "octo fixture/widgets", "https://github.com/o/r"):
+            assert (await client.get(read, params={"repository": invalid}, headers=broker)).status_code == 422
         assert (await client.get(slack, headers=broker)).status_code == 401
         assert (await client.get(slack, headers=gateway)).status_code == 200
         assert (await client.get("/api/v1/status", headers=gateway)).status_code == 401

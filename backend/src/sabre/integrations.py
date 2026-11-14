@@ -122,11 +122,18 @@ class IntegrationService:
     async def list(self) -> list[IntegrationInfo]:
         preferences = {identifier: (enabled, revision) for identifier, enabled, revision in await self.preference_revision()}
         metadata = {row.id: row.configured for row in await self.credentials.vault.list_metadata()}
+        connection = getattr(self.credentials, "github_connection", None)
+        connected = (await connection.view()) if connection is not None else None
+        account = connected.account.login if connected is not None and connected.state == "connected" and connected.account else None
         result = []
         for identifier, kind, title, description, targets, tools in self._definitions():
             enabled, revision = preferences.get(identifier, (True, 0))
             configured = bool(targets) and (any(metadata.get(target, False) for target in targets) if kind == "model" else all(metadata.get(target, False) for target in targets))
-            if identifier == "github.read":
+            if account and identifier in {"github.read", "github.publish"}:
+                # The connection replaces the pasted token for reading and delivering; each call gets its own narrow token.
+                configured = True
+                access = f"Through the GitHub App installed on {account}; each operation uses a token for one repository."
+            elif identifier == "github.read":
                 access = "Read credential saved; access depends on its permissions." if configured else "Public access; add a read credential for private repositories."
             elif kind == "mcp":
                 access = "Credential saved; availability has not been checked." if configured else "No credential; the server must allow anonymous access."
@@ -157,9 +164,9 @@ class IntegrationService:
             await conn.execute("INSERT INTO integration_events(integration_id,revision,enabled) VALUES(%s,%s,%s)", (identifier, revision, change.enabled))
         return next(item for item in await self.list() if item.id == identifier)
 
-    async def _github_get(self, path: str, params=None, *, use_credentials=True):
+    async def _github_get(self, path: str, params=None, *, use_credentials=True, repository: str | None = None):
         await self.ensure_enabled("github.read")
-        token = (await self.credentials.resolve("github.read")).get_secret_value() if use_credentials else ""
+        token = (await self.credentials.github("github.read", repository)).token.get_secret_value() if use_credentials else ""
         headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
         if token:
             headers["Authorization"] = f"Bearer {token}"
@@ -222,7 +229,7 @@ class IntegrationService:
 
     async def github_import(self, request: GitHubRepositoryImport) -> ProjectCreate:
         self.guard.check(request.model_dump())
-        data, _ = await self._github_get(f"/repos/{request.owner}/{request.repository}")
+        data, _ = await self._github_get(f"/repos/{request.owner}/{request.repository}", repository=f"{request.owner}/{request.repository}")
         info = self._repository_info(data, request.owner)
         if info.full_name.casefold() != f"{request.owner}/{request.repository}".casefold():
             raise DomainError("GITHUB_RESPONSE_INVALID", "The repository does not match the selection", 502)

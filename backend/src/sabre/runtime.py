@@ -11,6 +11,7 @@ from sabre.credentials import Credentials
 from sabre.embeddings import BudgetedEmbeddings
 from sabre.error_boundaries import guarded_call
 from sabre.executor import ExecutorClient
+from sabre.github_app import GitHubConnection
 from sabre.integrations import IntegrationService
 from sabre.mcp_connections import MCPConnectionStore
 from sabre.memory import MemoryService
@@ -80,6 +81,8 @@ class Runtime:
         self.project_tools = ProjectToolService(self.repository, self.mcp_connections, guard)
         self.integrations = IntegrationService(self.repository, cfg, self.credentials, guard)
         self.credentials.integrations = self.integrations
+        self.github_connection = GitHubConnection(self.repository, self.vault, guard, origin=cfg.panel_origin)
+        self.credentials.github_connection = self.github_connection
         await self.credentials.refresh()
         executor = ExecutorClient(cfg.executor_url, cfg.executor_token.get_secret_value())
         artifacts = ArtifactStore(cfg.data_dir / "artifacts", guard)
@@ -100,7 +103,7 @@ class Runtime:
             return [SecurityFinding(fingerprint=digest({"work": work.id, "review": result.summary}), scanner="agent_review", category="code", severity="high", title=result.summary[:1000])]
 
         security = SecurityService(ScannerClient(executor), checkpointer=checkpoint, analyst=security_analyst, guard=guard)
-        publisher = GitHubPublisher(self.repository, "", token_resolver=lambda: self.credentials.resolve("github.publish"))
+        publisher = GitHubPublisher(self.repository, "", credential_resolver=lambda repository: self.credentials.github("github.publish", repository))
         self.factory = Factory(self.repository, team, executor, security, publisher, artifacts, guard, memory, checkpoint)
 
         @self.queue.task(name="sabre.process_work", queue="work", retry=3)

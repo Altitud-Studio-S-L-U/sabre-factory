@@ -11,6 +11,7 @@ from pydantic import SecretStr
 from sabre.models import DomainError, SecretTarget
 
 if TYPE_CHECKING:
+    from sabre.github_app import GitHubConnection, GitHubCredential
     from sabre.integrations import IntegrationService
     from sabre.mcp_connections import MCPConnectionStore
     from sabre.model_configuration import ModelConfigurationService
@@ -56,6 +57,7 @@ class Credentials:
         self.revision = None
         self.values: dict[str, SecretStr] = {}
         self.integrations: IntegrationService | None = None
+        self.github_connection: GitHubConnection | None = None
         self.mcp_connections: MCPConnectionStore | None = None
         self.a2a_connections = None
         self.model_configuration: ModelConfigurationService | None = None
@@ -183,6 +185,21 @@ class Credentials:
     async def ensure_enabled(self, identifier):
         if self.integrations:
             await self.integrations.ensure_enabled(identifier)
+
+    async def github(self, identifier: str, repository: str | None = None) -> GitHubCredential:
+        """The credential for reading or delivering on GitHub.
+
+        Once the app is installed it is a token of the connection, narrowed to this operation and, when
+        the caller names it, to this repository. Until then it is the pasted token, exactly as before.
+        """
+        from sabre.github_app import GitHubCredential
+
+        await self.ensure_enabled(identifier)
+        operation = {"github.read": "read", "github.publish": "publish"}.get(identifier)
+        if operation and self.github_connection is not None and await self.github_connection.active():
+            return await self.github_connection.credential(operation, repository)
+        await self.refresh()
+        return GitHubCredential(self.values.get(identifier, SecretStr("")))
 
     async def resolve(self, identifier):
         if identifier in {"github.read", "github.publish", "github.create"}:

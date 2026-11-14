@@ -486,7 +486,8 @@ class DockerBroker:
     async def _github_archive(self, project: Project) -> tuple[bytes, str]:
         owner, repo = github_repository(project.repository)
         headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
-        token = (await fetch_credentials(os.environ.get("SABRE_API_URL", "http://api:8000"), self.bootstrap.get("executor_token", ""), "github-read"))["token"]
+        token = (await fetch_credentials(os.environ.get("SABRE_API_URL", "http://api:8000"), self.bootstrap.get("executor_token", ""), "github-read",
+                                         repository=f"{owner}/{repo}"))["token"]
         if token:
             self.guard.known_secrets = tuple(dict.fromkeys((*self.guard.known_secrets, token)))
             headers["Authorization"] = f"Bearer {token}"
