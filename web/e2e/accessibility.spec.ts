@@ -1,6 +1,6 @@
 import { createRequire } from 'node:module';
 import { test, expect, type Page } from '@playwright/test';
-import { mockFactoryApi, syntheticRun } from './fixtures';
+import { githubConnection, mockFactoryApi, syntheticRun } from './fixtures';
 import { configurationHistory, runtimeSettings } from '../src/test/runtimeFixture';
 import { repositoryIndex } from '../src/test/memoryFixture';
 
@@ -119,6 +119,18 @@ for (const theme of ['dark', 'light'] as const)
     });
 
 const states: { name: string; open: (page: Page) => Promise<void> }[] = [
+  {
+    name: 'the connected GitHub card',
+    open: async (page) => {
+      await page.route('**/api/v1/github/connection', (route) =>
+        route.fulfill({ json: githubConnection('connected') }),
+      );
+      await page.goto('/tools');
+      await expect(
+        page.getByRole('region', { name: 'GitHub connection' }).getByText('Connected', { exact: true }),
+      ).toBeVisible();
+    },
+  },
   {
     name: 'the new run dialog',
     open: async (page) => {

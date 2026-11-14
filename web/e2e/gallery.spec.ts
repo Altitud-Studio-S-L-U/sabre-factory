@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { mockFactoryApi, syntheticRun } from './fixtures';
+import { githubConnection, mockFactoryApi, syntheticRun } from './fixtures';
 import {
   memoryDetail,
   memoryGraph,
@@ -22,6 +22,7 @@ const sections = [
   { name: 'run-detail', path: '/runs/synthetic-run', ready: 'Full objective' },
   { name: 'agents', path: '/agents', ready: 'Agents' },
   { name: 'tools', path: '/tools', ready: 'GitHub · read repositories' },
+  { name: 'tools-github-connected', path: '/tools', ready: 'GitHub connection' },
   { name: 'tools-mcp', path: '/tools?connection=mcp.docs', ready: 'MCP · docs' },
   { name: 'tools-notifications', path: '/tools?tab=notifications', ready: 'Delivery notifications' },
   { name: 'tools-builtin', path: '/tools?tab=builtin', ready: 'Tools available to specialists' },
@@ -216,6 +217,10 @@ test.describe('gallery', () => {
 
   for (const section of sections) {
     test(section.name, async ({ page }) => {
+      if (section.name === 'tools-github-connected')
+        await page.route('**/api/v1/github/connection', (route) =>
+          route.fulfill({ json: githubConnection('connected') }),
+        );
       await page.goto(section.path);
       await expect(page.getByText(section.ready, { exact: false }).first()).toBeVisible();
       if ('tab' in section && section.tab)

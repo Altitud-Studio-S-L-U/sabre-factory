@@ -226,6 +226,16 @@ it('keeps model providers out of Tools and changes only the chosen adapter revis
           { ...item, id: 'model.openai', kind: 'model', title: 'Model provider hidden' },
         ]);
       if (input.endsWith('/mcp-connections')) return Response.json([]);
+      // The console reads the GitHub connection too; here no app is connected.
+      if (input.endsWith('/github/connection'))
+        return Response.json({
+          version: 1,
+          state: 'not_connected',
+          app: null,
+          account: null,
+          install_url: null,
+          manage_url: null,
+        });
       if (input.endsWith('/repository-proposals')) return Response.json({ items: [], truncated: false });
       if (input.endsWith('/tools/catalog'))
         return Response.json({

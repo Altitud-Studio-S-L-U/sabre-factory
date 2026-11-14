@@ -293,7 +293,7 @@ class FactoryService:
             "model": {"configured": cli["authenticated"] is True if cli else self.config.model_ready(), "provider": self.config.model_provider, "name": self.config.model_name, "cli": cli},
             "runners": runners,
             "roles": roles,
-            "github": {"configured": bool(self.config.github_token.get_secret_value())},
+            "github": {"configured": bool(self.config.github_token.get_secret_value()) or await self._github_connected()},
             "slack": {"configured": bool(self.config.slack_bot_token.get_secret_value() and self.config.slack_owner_id)},
             "memory": {"store": "postgres-pgvector", "semantic_search": bool(self.config.embedding_model)},
             "security": {"chain": "independent", "scanner_failure": "blocking"},
@@ -301,6 +301,10 @@ class FactoryService:
             "monthly_budget_usd": self.config.monthly_budget_usd,
             "limits": {"concurrent_work": self.config.execution_slots, "writers_per_repository": 1, "repair_cycles": 2},
         }
+
+    async def _github_connected(self) -> bool:
+        connection = getattr(self.queue, "github_connection", None)
+        return bool(connection is not None and await connection.active())
 
     async def _runner_status(self, provider):
         if provider == "codex_cli":
@@ -409,10 +413,11 @@ class FactoryService:
         await credentials.refresh()
         return result
 
-    async def private_credentials(self, purpose):
+    async def private_credentials(self, purpose, repository=None):
         credentials = self._credentials()
         if purpose == "github-read":
-            return {"token": (await credentials.resolve("github.read")).get_secret_value()}
+            # The executor names the repository it is about to read, so a connected app answers with a token for that one.
+            return {"token": (await credentials.github("github.read", repository)).token.get_secret_value()}
         if purpose == "slack":
             await credentials.refresh()
             return {"bot_token": credentials.values.get("slack.bot", SecretStr("")).get_secret_value(),

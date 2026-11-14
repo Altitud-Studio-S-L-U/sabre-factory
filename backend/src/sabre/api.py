@@ -419,8 +419,8 @@ def create_app(service=None, config=None) -> FastAPI:
         return await svc().queue.operator_conversation.resume(message_id, body)
 
     @application.get("/internal/credentials/github-read", include_in_schema=False)
-    async def github_read_credentials():
-        return JSONResponse(await svc().private_credentials("github-read"), headers={"Cache-Control": "no-store"})
+    async def github_read_credentials(repository: str | None = Query(default=None, max_length=140, pattern=r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")):
+        return JSONResponse(await svc().private_credentials("github-read", repository), headers={"Cache-Control": "no-store"})
 
     @application.get("/internal/credentials/slack", include_in_schema=False)
     async def slack_credentials():
@@ -663,6 +663,8 @@ def create_app(service=None, config=None) -> FastAPI:
     install_confirmation_routes(application, svc)
     install_inspection_routes(application, svc)
     install_ingestion_routes(application, svc)
+    from sabre.github_app import install_github_routes
+    install_github_routes(application, svc)
     install_release_routes(application, svc)
     return application
 

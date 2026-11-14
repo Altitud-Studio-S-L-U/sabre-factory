@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { mockFactoryApi } from './fixtures';
+import { githubConnection, mockFactoryApi } from './fixtures';
 
 test.beforeEach(async ({ page }) => {
   await mockFactoryApi(page);
@@ -129,4 +129,91 @@ test('new repository flow requires explicit authorization and submits selected l
     budget: { max_calls: 12, max_cost_usd: 0 },
     flow_config: { repair_cycles: 2 },
   });
+});
+
+test('GitHub is connected in three steps from the console and nothing is pasted', async ({ page }) => {
+  const state = 's'.repeat(43);
+  const posted: { url: string; manifest: string | null }[] = [];
+  // GitHub itself is never reached: the form the console posts is recorded and answered with an empty page.
+  await page.route('https://github.com/**', async (route) => {
+    const request = route.request();
+    posted.push({
+      url: request.url(),
+      manifest: new URLSearchParams(request.postData() ?? '').get('manifest'),
+    });
+    await route.fulfill({ contentType: 'text/html', body: '<title>GitHub</title>' });
+  });
+  await page.route('**/api/v1/github/connection/manifest', (route) =>
+    route.fulfill({
+      json: {
+        action: `https://github.com/settings/apps/new?state=${state}`,
+        manifest: JSON.stringify({ name: 'SABRE Factory a1b2c3', public: false }),
+        state,
+      },
+    }),
+  );
+  await page.goto('/tools');
+  const card = page.getByRole('region', { name: 'GitHub connection' });
+  await expect(card.getByText('Not connected')).toBeVisible();
+  await expect(card.getByText(/Nothing\s+is pasted/)).toBeVisible();
+  await card.getByRole('button', { name: 'Connect GitHub' }).click();
+  await page.waitForURL('https://github.com/settings/apps/new?state=*');
+  expect(posted).toEqual([
+    {
+      url: `https://github.com/settings/apps/new?state=${state}`,
+      manifest: JSON.stringify({ name: 'SABRE Factory a1b2c3', public: false }),
+    },
+  ]);
+
+  // GitHub sends the owner back with a one-time code: it is exchanged once and leaves the address.
+  const conversions: unknown[] = [];
+  await page.route('**/api/v1/github/connection/conversion', async (route) => {
+    conversions.push(route.request().postDataJSON());
+    await route.fulfill({ json: githubConnection('registered') });
+  });
+  await page.goto(`/tools?github=registered&code=one-time-code&state=${state}`);
+  await expect(card.getByText('Not installed yet')).toBeVisible();
+  await expect(page).toHaveURL(/\/tools$/);
+  expect(conversions).toEqual([{ code: 'one-time-code', state }]);
+  await expect(card.getByRole('link', { name: 'Choose repositories on GitHub' })).toHaveAttribute(
+    'href',
+    'https://github.com/apps/sabre-factory-a1b2c3/installations/new',
+  );
+
+  // After installing, GitHub names the installation; the factory checks it before keeping it.
+  const installations: unknown[] = [];
+  await page.route('**/api/v1/github/connection/installation', async (route) => {
+    installations.push(route.request().postDataJSON());
+    await route.fulfill({ json: githubConnection('connected') });
+  });
+  await page.goto('/tools?github=installed&installation_id=7001&setup_action=install');
+  await expect(card.getByText('Connected', { exact: true })).toBeVisible();
+  await expect(page).toHaveURL(/\/tools$/);
+  expect(installations).toEqual([{ installation_id: 7001 }]);
+  await expect(
+    card.getByRole('list', { name: 'Repositories the connection reaches' }).getByRole('listitem'),
+  ).toHaveText(['octo-fixture/gadgets', 'octo-fixture/widgets']);
+  await expect(card.getByRole('link', { name: 'Manage on GitHub' })).toHaveAttribute(
+    'href',
+    'https://github.com/organizations/octo-fixture/settings/installations/7001',
+  );
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+
+  // Disconnecting asks first and says that nothing is revoked on GitHub.
+  let disconnected = false;
+  await page.route('**/api/v1/github/connection', async (route) => {
+    if (route.request().method() === 'DELETE') {
+      disconnected = true;
+      await route.fulfill({
+        json: { ...githubConnection('not_connected'), app: githubConnection('connected').app },
+      });
+    } else await route.fulfill({ json: githubConnection(disconnected ? 'not_connected' : 'connected') });
+  });
+  await card.getByRole('button', { name: 'Disconnect' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Disconnect GitHub' });
+  await expect(dialog).toContainText('Nothing is revoked on GitHub');
+  await dialog.getByRole('button', { name: 'Disconnect', exact: true }).click();
+  await expect(card.getByRole('status')).toContainText('Disconnected from this factory.');
+  await expect(card.getByRole('button', { name: 'Connect GitHub' })).toBeEnabled();
+  expect(disconnected).toBe(true);
 });
