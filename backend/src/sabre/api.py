@@ -657,6 +657,8 @@ def create_app(service=None, config=None) -> FastAPI:
     install_a2a(application, svc)
     install_browser_routes(application, svc)
     install_console_routes(application, svc)
+    from sabre.metrics import install_metrics_routes
+    install_metrics_routes(application, svc)
     install_confirmation_routes(application, svc)
     install_inspection_routes(application, svc)
     install_ingestion_routes(application, svc)
