@@ -17,6 +17,54 @@ export async function captureSource(page: Page, section: string) {
   });
 }
 
+/** The GitHub connection in each of its states, with a synthetic app and account. */
+export function githubConnection(state: 'not_connected' | 'registered' | 'connected') {
+  const app = {
+    slug: 'sabre-factory-a1b2c3',
+    name: 'SABRE Factory a1b2c3',
+    url: 'https://github.com/apps/sabre-factory-a1b2c3',
+    owner: 'octo-fixture',
+  };
+  return {
+    version: 1,
+    state,
+    app: state === 'not_connected' ? null : app,
+    account:
+      state === 'connected'
+        ? { login: 'octo-fixture', type: 'Organization', repository_selection: 'selected' }
+        : null,
+    install_url: state === 'not_connected' ? null : `${app.url}/installations/new`,
+    manage_url:
+      state === 'connected'
+        ? 'https://github.com/organizations/octo-fixture/settings/installations/7001'
+        : null,
+  };
+}
+
+export function githubReachable() {
+  return {
+    page: 1,
+    next_page: null,
+    total: 2,
+    items: [
+      {
+        id: 502,
+        full_name: 'octo-fixture/gadgets',
+        url: 'https://github.com/octo-fixture/gadgets',
+        default_branch: 'trunk',
+        visibility: 'public',
+      },
+      {
+        id: 501,
+        full_name: 'octo-fixture/widgets',
+        url: 'https://github.com/octo-fixture/widgets',
+        default_branch: 'main',
+        visibility: 'private',
+      },
+    ],
+  };
+}
+
 export function syntheticRun(): WorkOrder {
   return {
     id: 'synthetic-run',
@@ -125,6 +173,8 @@ export async function mockFactoryApi(page: Page) {
     }
     if (path.endsWith('/configuration')) json = factoryConfiguration();
     if (path.endsWith('/releases')) json = { version: 1, items: [], truncated: false };
+    if (path.endsWith('/github/connection')) json = githubConnection('not_connected');
+    if (path.endsWith('/github/connection/repositories')) json = githubReachable();
     if (path.endsWith('/metrics/runs'))
       json = runMetrics({
         window_days: Number(new URL(route.request().url()).searchParams.get('days') ?? 30),

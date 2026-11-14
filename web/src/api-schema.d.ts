@@ -1659,6 +1659,92 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/github/connection": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Github Connection */
+        get: operations["github_connection_api_v1_github_connection_get"];
+        put?: never;
+        post?: never;
+        /** Github Disconnect */
+        delete: operations["github_disconnect_api_v1_github_connection_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/github/connection/manifest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Github Manifest */
+        post: operations["github_manifest_api_v1_github_connection_manifest_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/github/connection/conversion": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Github Conversion */
+        post: operations["github_conversion_api_v1_github_connection_conversion_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/github/connection/installation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Github Installation */
+        post: operations["github_installation_api_v1_github_connection_installation_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/github/connection/repositories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Github Connected Repositories */
+        get: operations["github_connected_repositories_api_v1_github_connection_repositories_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/releases": {
         parameters: {
             query?: never;
@@ -2979,6 +3065,43 @@ export interface components {
             /** Request Digest */
             request_digest: string;
         };
+        /** ConnectedRepositories */
+        ConnectedRepositories: {
+            /** Items */
+            items: components["schemas"]["ConnectedRepository"][];
+            /** Page */
+            page: number;
+            /** Next Page */
+            next_page: number | null;
+            /** Total */
+            total: number;
+        };
+        /** ConnectedRepository */
+        ConnectedRepository: {
+            /** Id */
+            id: number;
+            /** Full Name */
+            full_name: string;
+            /** Url */
+            url: string;
+            /** Default Branch */
+            default_branch: string | null;
+            /**
+             * Visibility
+             * @enum {string}
+             */
+            visibility: "public" | "private";
+        };
+        /** ConnectionRequest */
+        ConnectionRequest: {
+            /**
+             * Account
+             * @enum {string}
+             */
+            account: "personal" | "organization";
+            /** Organization */
+            organization?: string | null;
+        };
         /** ContextConfiguration */
         ContextConfiguration: {
             /**
@@ -3054,6 +3177,13 @@ export interface components {
              * @enum {string}
              */
             action: "pause" | "resume" | "cancel";
+        };
+        /** Conversion */
+        Conversion: {
+            /** Code */
+            code: string;
+            /** State */
+            state: string;
         };
         /** CreateFlowLaunch */
         CreateFlowLaunch: {
@@ -3593,6 +3723,53 @@ export interface components {
             /** Snapshot Digest */
             snapshot_digest: string;
         };
+        /** GitHubAccount */
+        GitHubAccount: {
+            /** Login */
+            login: string;
+            /** Type */
+            type: string;
+            /** Repository Selection */
+            repository_selection: ("all" | "selected") | null;
+        };
+        /** GitHubApp */
+        GitHubApp: {
+            /** Slug */
+            slug: string;
+            /** Name */
+            name: string;
+            /** Url */
+            url: string;
+            /** Owner */
+            owner: string;
+        };
+        /** GitHubConnectionView */
+        GitHubConnectionView: {
+            /**
+             * Version
+             * @default 1
+             * @constant
+             */
+            version: 1;
+            /**
+             * State
+             * @description registered: the app exists and is not installed yet; connected: an installation the app lists is kept
+             * @enum {string}
+             */
+            state: "not_connected" | "registered" | "connected";
+            app: components["schemas"]["GitHubApp"] | null;
+            account: components["schemas"]["GitHubAccount"] | null;
+            /**
+             * Install Url
+             * @description Where the owner chooses the repositories the app may use
+             */
+            install_url: string | null;
+            /**
+             * Manage Url
+             * @description The installation's page on GitHub
+             */
+            manage_url: string | null;
+        };
         /** GitHubRepositoryImport */
         GitHubRepositoryImport: {
             /** Owner */
@@ -4021,6 +4198,11 @@ export interface components {
              */
             truncated: boolean;
         };
+        /** InstallationChoice */
+        InstallationChoice: {
+            /** Installation Id */
+            installation_id: number;
+        };
         /** IntegerSetting */
         IntegerSetting: {
             /** Value */
@@ -4154,6 +4336,18 @@ export interface components {
              * @default 60
              */
             timeout_s: number;
+        };
+        /**
+         * ManifestForm
+         * @description What the console posts to GitHub from the owner's browser: a form with one field.
+         */
+        ManifestForm: {
+            /** Action */
+            action: string;
+            /** Manifest */
+            manifest: string;
+            /** State */
+            state: string;
         };
         /**
          * MemoryApproval
@@ -9972,6 +10166,176 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["IngestionJob"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    github_connection_api_v1_github_connection_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitHubConnectionView"];
+                };
+            };
+        };
+    };
+    github_disconnect_api_v1_github_connection_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitHubConnectionView"];
+                };
+            };
+        };
+    };
+    github_manifest_api_v1_github_connection_manifest_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ManifestForm"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    github_conversion_api_v1_github_connection_conversion_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Conversion"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitHubConnectionView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    github_installation_api_v1_github_connection_installation_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["InstallationChoice"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitHubConnectionView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    github_connected_repositories_api_v1_github_connection_repositories_get: {
+        parameters: {
+            query?: {
+                page?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectedRepositories"];
                 };
             };
             /** @description Validation Error */

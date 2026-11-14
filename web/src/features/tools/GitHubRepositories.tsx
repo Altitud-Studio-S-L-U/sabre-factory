@@ -1,5 +1,11 @@
-import { useId, useState, type FormEvent } from 'react';
-import { ApiError, type Api, type GitHubRepositoryInfo, type GitHubRepositoryPage } from '../../api';
+import { useEffect, useId, useState, type FormEvent } from 'react';
+import {
+  ApiError,
+  type Api,
+  type ConnectedRepositories,
+  type GitHubRepositoryInfo,
+  type GitHubRepositoryPage,
+} from '../../api';
 import Button from '../../components/Button';
 import Field from '../../components/FormField';
 import Input from '../../components/Input';
@@ -19,15 +25,19 @@ function failure(error: unknown) {
 export default function GitHubRepositories({
   api,
   enabled,
+  installed = false,
   onChanged,
   className,
 }: {
   api: Api;
   enabled: boolean;
+  /** The GitHub App is installed: its repositories are listed directly instead of searching an account. */
+  installed?: boolean;
   onChanged: () => Promise<void>;
   className?: string;
 }) {
   const id = useId();
+  const [reachable, setReachable] = useState<ConnectedRepositories | null>(null);
   const [owner, setOwner] = useState('');
   const [ownerType, setOwnerType] = useState<'user' | 'org'>('org');
   const [query, setQuery] = useState<{ owner: string; owner_type: 'user' | 'org' } | null>(null);
@@ -58,6 +68,31 @@ export default function GitHubRepositories({
   const submit = (event: FormEvent) => {
     event.preventDefault();
     void search({ owner: owner.trim(), owner_type: ownerType }, 1);
+  };
+  const listed = installed && enabled;
+  useEffect(() => {
+    if (!listed) return;
+    let current = true;
+    api.githubConnectedRepositories(1).then(
+      (result) => current && setReachable(result),
+      (reason: unknown) => current && setError(failure(reason)),
+    );
+    return () => {
+      current = false;
+    };
+  }, [api, listed]);
+  const turn = async (next: number) => {
+    if (busy) return;
+    setBusy(true);
+    setError('');
+    setSelected(null);
+    try {
+      setReachable(await api.githubConnectedRepositories(next));
+    } catch (reason) {
+      setError(failure(reason));
+    } finally {
+      setBusy(false);
+    }
   };
   const choose = (repository: GitHubRepositoryInfo) => {
     setSelected(repository);
@@ -115,12 +150,100 @@ export default function GitHubRepositories({
       <SectionHeading
         id={`${id}-heading`}
         title="GitHub repositories"
-        description="Browse an account and import an existing repository. Import registers it with SABRE without changing GitHub or starting work."
+        description={
+          installed
+            ? 'The repositories the GitHub connection reaches. Import registers one with SABRE without changing GitHub or starting work.'
+            : 'Browse an account and import an existing repository. Import registers it with SABRE without changing GitHub or starting work.'
+        }
       />
       {!enabled && <Notice tone="neutral">Enable GitHub repository access to browse and import.</Notice>}
+      {listed && (
+        <div aria-live="polite" className="grid min-w-0 gap-3">
+          {!reachable && !error && (
+            <p className="text-sm text-muted-foreground">Reading the connection's repositories…</p>
+          )}
+          {reachable && !reachable.items.length && (
+            <p className="text-sm">
+              The GitHub App reaches no repository yet. Choose some on GitHub and return.
+            </p>
+          )}
+          {!!reachable?.items.length && (
+            <>
+              <p className="text-sm text-muted-foreground">
+                {reachable.total} {reachable.total === 1 ? 'repository' : 'repositories'} through the GitHub
+                connection. Page {reachable.page}.
+              </p>
+              <ul className="divide-y divide-border rounded-lg border border-border">
+                {reachable.items.map((repository) => (
+                  <li
+                    key={repository.id}
+                    className="flex min-w-0 flex-wrap items-center justify-between gap-3 px-4 py-3"
+                  >
+                    <div className="grid min-w-0 flex-1 gap-1 [overflow-wrap:anywhere]">
+                      <a
+                        href={repository.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-sm font-semibold text-link underline-offset-4 hover:underline"
+                      >
+                        {repository.full_name}
+                      </a>
+                      <span className="text-xs text-muted-foreground">
+                        {repository.visibility === 'private' ? 'Private' : 'Public'}
+                        {repository.default_branch ? ` · ${repository.default_branch}` : ' · No branch yet'}
+                      </span>
+                    </div>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      type="button"
+                      disabled={busy || !repository.default_branch}
+                      onClick={() =>
+                        choose({
+                          ...repository,
+                          archived: false,
+                          disabled: false,
+                          description: '',
+                          language: null,
+                        })
+                      }
+                      aria-label={`Import ${repository.full_name}`}
+                    >
+                      Import<span className="sr-only"> {repository.full_name}</span>
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+              {(reachable.page > 1 || reachable.next_page) && (
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    type="button"
+                    disabled={busy || reachable.page <= 1}
+                    onClick={() => void turn(reachable.page - 1)}
+                  >
+                    Previous page
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    type="button"
+                    disabled={busy || !reachable.next_page}
+                    onClick={() => reachable.next_page && void turn(reachable.next_page)}
+                  >
+                    Next page
+                  </Button>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
       <form
         className="grid min-w-0 items-end gap-3.5 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]"
         onSubmit={submit}
+        hidden={listed}
       >
         <Field label="Account type">
           <Select

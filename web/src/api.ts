@@ -59,6 +59,10 @@ export type GitHubRepositorySearch = components['schemas']['GitHubRepositorySear
 export type GitHubRepositoryPage = components['schemas']['GitHubRepositoryPage'];
 export type GitHubRepositoryInfo = components['schemas']['GitHubRepositoryInfo'];
 export type GitHubRepositoryImport = components['schemas']['GitHubRepositoryImport'];
+export type GitHubConnectionView = components['schemas']['GitHubConnectionView'];
+export type GitHubConnectionRequest = components['schemas']['ConnectionRequest'];
+export type GitHubManifestForm = components['schemas']['ManifestForm'];
+export type ConnectedRepositories = components['schemas']['ConnectedRepositories'];
 export type MCPConnectionInfo = components['schemas']['MCPConnectionInfo'];
 export type MCPConnectionSave = components['schemas']['MCPConnectionSave'];
 export type MCPDiscovery = components['schemas']['MCPDiscovery'];
@@ -530,6 +534,26 @@ export function createApi(csrfToken: string, onUnauthorized?: (message: string) 
         method: 'POST',
         body: JSON.stringify(value),
       }),
+    githubConnection: () => request<GitHubConnectionView>('/github/connection'),
+    githubManifest: (value: GitHubConnectionRequest) =>
+      request<GitHubManifestForm>('/github/connection/manifest', {
+        method: 'POST',
+        body: JSON.stringify(value),
+      }),
+    githubConversion: (value: { code: string; state: string }) =>
+      request<GitHubConnectionView>(
+        '/github/connection/conversion',
+        { method: 'POST', body: JSON.stringify(value) },
+        true,
+      ),
+    githubInstallation: (value?: { installation_id: number }) =>
+      request<GitHubConnectionView>('/github/connection/installation', {
+        method: 'POST',
+        ...(value ? { body: JSON.stringify(value) } : {}),
+      }),
+    githubDisconnect: () => request<GitHubConnectionView>('/github/connection', { method: 'DELETE' }),
+    githubConnectedRepositories: (page = 1) =>
+      request<ConnectedRepositories>(`/github/connection/repositories?page=${page}`),
     memory: (projectId: string) =>
       request<MemoryItem[]>(`/memory?project_id=${encodeURIComponent(projectId)}`),
     createMemory: (value: MemoryCreate) =>

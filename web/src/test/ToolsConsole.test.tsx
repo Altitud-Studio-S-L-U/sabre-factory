@@ -80,8 +80,31 @@ const server: MCPConnectionInfo = {
 
 type Call = { method: string; path: string; body: unknown };
 
+const connection = (state: 'not_connected' | 'connected') => ({
+  version: 1,
+  state,
+  app:
+    state === 'connected'
+      ? {
+          slug: 'sabre-factory-a1b2c3',
+          name: 'SABRE Factory a1b2c3',
+          url: 'https://github.com/apps/sabre-factory-a1b2c3',
+          owner: 'octo-fixture',
+        }
+      : null,
+  account:
+    state === 'connected'
+      ? { login: 'octo-fixture', type: 'Organization', repository_selection: 'selected' }
+      : null,
+  install_url: null,
+  manage_url:
+    state === 'connected'
+      ? 'https://github.com/organizations/octo-fixture/settings/installations/7001'
+      : null,
+});
+
 /** A synthetic control service. Returns every request it received. */
-function service(): Call[] {
+function service(github: 'not_connected' | 'connected' = 'not_connected'): Call[] {
   const calls: Call[] = [];
   vi.stubGlobal(
     'fetch',
@@ -98,6 +121,9 @@ function service(): Call[] {
           { ...read, id: 'model', kind: 'model', title: 'Model providers' },
         ]);
       if (path === '/mcp-connections') return Response.json([server]);
+      if (path === '/github/connection') return Response.json(connection(github));
+      if (path.startsWith('/github/connection/repositories'))
+        return Response.json({ page: 1, next_page: null, total: 0, items: [] });
       if (path === '/tools/catalog')
         return Response.json({
           version: 1,
@@ -289,4 +315,31 @@ it('the notifications tab shows the owner channel and loads the delivery log', a
   expect(await within(log).findByRole('cell', { name: 'HTTP_503' })).toBeVisible();
   expect(within(log).getByRole('button', { name: 'Retry delivery' })).toBeEnabled();
   expect(writes(calls)).toEqual([]);
+});
+
+it('offers the connection first and keeps the token rows while GitHub is not connected', async () => {
+  service();
+  open('/tools');
+  const card = await screen.findByRole('region', { name: 'GitHub connection' });
+  expect(await within(card).findByText('Not connected')).toBeVisible();
+  expect(within(card).getByRole('button', { name: 'Connect GitHub' })).toBeEnabled();
+  expect(screen.getByText(/Each permission has its own token/)).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Add token for GitHub · read repositories' })).toBeEnabled();
+  expect(screen.queryByText('Uses the connection')).not.toBeInTheDocument();
+});
+
+it('with the app installed, reading and delivering use the connection and no token is offered for them', async () => {
+  service('connected');
+  open('/tools');
+  const card = await screen.findByRole('region', { name: 'GitHub connection' });
+  expect(await within(card).findByText('Connected')).toBeVisible();
+  expect(await screen.findAllByText('Uses the connection')).toHaveLength(2);
+  expect(screen.getByText(/Reading and delivering use the connection above/)).toBeVisible();
+  for (const name of ['GitHub · read repositories', 'GitHub · draft pull requests']) {
+    expect(
+      screen.queryByRole('button', { name: new RegExp(`(Add|Replace) token for ${name}`) }),
+    ).not.toBeInTheDocument();
+    // Each capability keeps its own switch.
+    expect(screen.getByRole('button', { name: `Disable ${name}` })).toBeEnabled();
+  }
 });

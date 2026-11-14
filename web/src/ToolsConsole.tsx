@@ -8,6 +8,7 @@ import {
   type MCPDiscovery,
   type Project,
   type ProjectToolsPolicy,
+  type GitHubConnectionView,
 } from './api';
 import Credentials from './Credentials';
 import MCPConnections from './MCPConnections';
@@ -15,6 +16,7 @@ import Deliveries from './Deliveries';
 import RepoCreations from './RepoCreations';
 import BuiltinTools from './features/tools/BuiltinTools';
 import ConnectionRow from './features/tools/ConnectionRow';
+import GitHubConnection from './features/tools/GitHubConnection';
 import GitHubRepositories from './features/tools/GitHubRepositories';
 import Button from './components/Button';
 import CheckField from './components/CheckField';
@@ -98,6 +100,9 @@ export default function ToolsConsole({ api, projects, connected = true, onRefres
   );
   const [projectDialog, setProjectDialog] = useState(false);
   const [repositories, setRepositories] = useState(false);
+  // Whether the GitHub App is installed: reading and delivering then use it instead of the saved tokens.
+  const [githubInstalled, setGithubInstalled] = useState(false);
+  const knownInstalled = useRef<boolean | null>(null);
   const [projectId, setProjectId] = useState('');
   const [policy, setPolicy] = useState<ProjectToolsPolicy | null>(null);
   const [allowed, setAllowed] = useState<string[]>([]);
@@ -138,6 +143,16 @@ export default function ToolsConsole({ api, projects, connected = true, onRefres
     setError('');
     await fetchCatalog();
   };
+  const onGitHubConnection = useCallback(
+    (view: GitHubConnectionView) => {
+      const installed = view.state === 'connected';
+      setGithubInstalled(installed);
+      // The capability rows say where their access comes from: read them again when that changes.
+      if (knownInstalled.current !== null && knownInstalled.current !== installed) void fetchCatalog();
+      knownInstalled.current = installed;
+    },
+    [fetchCatalog],
+  );
   const changed = async () => {
     await load();
     await onRefresh?.();
@@ -224,6 +239,8 @@ export default function ToolsConsole({ api, projects, connected = true, onRefres
   const row = (item: IntegrationInfo) => {
     const server = serverOf(item);
     const noun = credentialNoun(item);
+    // Reading and delivering use the installed app; a token saved earlier is no longer what gives access.
+    const throughApp = githubInstalled && (item.id === 'github.read' || item.id === 'github.publish');
     const result = server && diagnostic?.server === server.name ? diagnostic.result : null;
     return (
       <ConnectionRow
@@ -249,16 +266,20 @@ export default function ToolsConsole({ api, projects, connected = true, onRefres
                 {item.enabled ? 'Enabled' : 'Disabled'}
               </Badge>
             )}
-            {!!item.credential_ids.length && (
-              <Badge variant={item.credential_configured ? 'success' : 'neutral'}>
-                {item.credential_configured ? `${capitalized(noun)} saved` : `No ${noun}`}
-              </Badge>
+            {throughApp ? (
+              <Badge variant="success">Uses the connection</Badge>
+            ) : (
+              !!item.credential_ids.length && (
+                <Badge variant={item.credential_configured ? 'success' : 'neutral'}>
+                  {item.credential_configured ? `${capitalized(noun)} saved` : `No ${noun}`}
+                </Badge>
+              )
             )}
           </>
         }
         actions={
           <>
-            {!!item.credential_ids.length && (
+            {!!item.credential_ids.length && !throughApp && (
               <Button
                 type="button"
                 variant="secondary"
@@ -433,11 +454,16 @@ export default function ToolsConsole({ api, projects, connected = true, onRefres
           {(current) =>
             current === 'github' ? (
               <>
+                <GitHubConnection api={api} online={connected} onChanged={onGitHubConnection} />
                 <section className="grid min-w-0 gap-4" aria-labelledby="tools-github-title">
                   <SectionHeading
                     id="tools-github-title"
                     title="Access"
-                    description="Each permission has its own token, so reading a repository never carries write access."
+                    description={
+                      githubInstalled
+                        ? 'Reading and delivering use the connection above, each with its own switch. Creating repositories keeps its own token.'
+                        : 'Each permission has its own token, so reading a repository never carries write access.'
+                    }
                   />
                   {github.length ? (
                     <ul className={rows}>{github.map(row)}</ul>
@@ -620,6 +646,7 @@ export default function ToolsConsole({ api, projects, connected = true, onRefres
       >
         <GitHubRepositories
           api={api}
+          installed={githubInstalled}
           enabled={connected && !!items.find((item) => item.id === 'github.read')?.enabled}
           onChanged={async () => {
             await onRefresh?.();
