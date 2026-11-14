@@ -14,7 +14,8 @@ from sabre.models import DomainError
 
 SPAN_NAMES = {"factory.work", "workflow.stage", "agent.role", "tool.call", "model.call"}
 IDENTIFIERS = {"work_id", "role", "phase", "tool", "model_provider", "model_name"}
-NUMBERS = {"attempt", "tokens", "input_tokens", "output_tokens", "cost_usd", "reserved_tokens", "reserved_usd",
+FAILURE_CLASSES = {"rate_limit", "overloaded", "timeout", "authentication", "invalid_request", "other"}
+NUMBERS = {"attempt", "provider_attempts", "tokens", "input_tokens", "output_tokens", "cost_usd", "reserved_tokens", "reserved_usd",
            "context_original_bytes", "context_sent_bytes", "context_dedup_results", "context_compacted_results",
            "context_request_original_bytes", "context_request_sent_bytes"}
 ERROR_TYPES = {"DomainError", "ValueError", "TypeError", "RuntimeError", "TimeoutError", "CancelledError",
@@ -63,6 +64,7 @@ class SpanRecorder:
             allowed = allowed or key in NUMBERS and isinstance(value, int | float) and 0 <= value <= 10**15 and isfinite(value)
             allowed = allowed or key == "result" and isinstance(value, str) and value in {"success", "error", "interrupted"}
             allowed = allowed or key == "invocation_kind" and isinstance(value, str) and value in {"cli_invocation", "provider_call"}
+            allowed = allowed or key == "failure_class" and isinstance(value, str) and value in FAILURE_CLASSES
             allowed = allowed or key == "error_type" and isinstance(value, str) and value in ERROR_TYPES | {"Exception"}
             allowed = allowed or key == "error_code" and isinstance(value, str) and re.fullmatch(r"[A-Z][A-Z_]{1,79}", value) is not None
             if allowed and self.current is not None:

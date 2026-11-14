@@ -1,8 +1,8 @@
 from contextlib import asynccontextmanager
 from decimal import Decimal
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
-import httpx
 import pytest
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
@@ -281,11 +281,18 @@ async def test_unknown_model_outcome_keeps_its_spending_reservation():
     middleware = ChatGuard(svc.repository, svc.config, svc.guard, "Ev12345678")
     request = SimpleNamespace(messages=[HumanMessage(content="Estado del proyecto")], tools=[], system_message=None)
 
+    calls = 0
+
     async def handler(_request):
+        nonlocal calls
+        calls += 1
         raise TimeoutError("Synthetic provider timeout")
 
-    with pytest.raises(httpx.ReadTimeout):
+    middleware.sleep = AsyncMock()
+    # A timeout is tried again inside the same reservation, then leaves with its class.
+    with pytest.raises(DomainError) as caught:
         await middleware.awrap_model_call(request, handler)
+    assert caught.value.code == "MODEL_TIMEOUT" and calls == 3 and middleware.sleep.await_count == 2
     assert len(svc.repository.reservations) == 1
     assert not svc.repository.settled
 

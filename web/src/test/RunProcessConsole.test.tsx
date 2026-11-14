@@ -264,6 +264,38 @@ describe('Recorded process console', () => {
     );
     expect(onInspect).toHaveBeenCalledTimes(1);
   });
+  it('shows a failed model call with its failure class next to the agent that made it', async () => {
+    const user = userEvent.setup();
+    const agent = event(1, 'analyst', 'agent');
+    const call = failed(2, 'rate limit', 'failed-call', 'MODEL_RATE_LIMITED');
+    render(
+      <RunProcessConsole
+        order={order('blocked')}
+        topology={topology}
+        entries={[
+          { ...agent, event: { ...agent.event, kind: 'agent', phase: 'analyze' } },
+          // A failed call has no "started" record: it is drawn from its own duration.
+          {
+            ...call,
+            event: {
+              ...call.event,
+              kind: 'model',
+              phase: 'analyze',
+              parent_id: 'agent',
+              provider: 'anthropic',
+            },
+          },
+        ]}
+      />,
+    );
+    await user.click(screen.getByRole('button', { name: /Spec.*PM.*2 actions/ }));
+    const rows = screen.getAllByTestId('timeline-child-row');
+    expect(rows.map((row) => row.textContent)).toEqual(
+      expect.arrayContaining([expect.stringMatching(/^modelrate limit/)]),
+    );
+    expect(screen.getByRole('button', { name: 'rate limit · failed' })).toBeVisible();
+  });
+
   it('binds a selected agent attempt to its recorded invocation rather than the latest agent with the same role', async () => {
     const user = userEvent.setup();
     const onInspect = vi.fn();

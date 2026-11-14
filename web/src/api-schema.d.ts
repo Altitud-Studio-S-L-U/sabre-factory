@@ -3194,7 +3194,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "stage" | "agent" | "tool" | "status";
+            kind: "stage" | "agent" | "tool" | "status" | "model";
             /**
              * State
              * @enum {string}
