@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { EventEmitter } from 'node:events';
 import { prepareScannerImages, openPanelAccess, requireClaudeOwnerTerminal, runClaudeOwnerLogin, releaseClaudeBridge,
-  browserOpener, launchWithOpener, serveHandoff } from './ops.mjs';
+  browserOpener, launchWithOpener, serveHandoff, traceSettings } from './ops.mjs';
 
 test('Claude account login requires owner stdin and stdout terminals', () => {
   for (const [input, output] of [[{}, {}], [{ isTTY: true }, {}], [{}, { isTTY: true }]]) {
@@ -171,4 +171,18 @@ test('security preparation pulls rendered immutable scanners before execution', 
     await assert.rejects(prepareScannerImages({ services: { executor: { environment } } }, async () => assert.fail('Validation must precede every pull')), /digest-pinned/);
   }
   await assert.rejects(prepareScannerImages({}, async () => assert.fail()), /digest-pinned/);
+});
+
+test('up --traces points the services at the bundled viewer and keeps what the operator configured', () => {
+  assert.deepEqual(traceSettings({}, false), {});
+  assert.deepEqual(traceSettings({ SABRE_OTLP_ENDPOINT: '' }, true), {
+    SABRE_OTLP_ENDPOINT: 'http://jaeger:4318/v1/traces',
+    SABRE_TRACE_VIEWER_URL: 'http://127.0.0.1:16686/trace/{trace_id}',
+  });
+  const own = { SABRE_OTLP_ENDPOINT: 'https://collector.example/v1/traces', SABRE_TRACE_VIEWER_URL: 'https://traces.example/t/{trace_id}' };
+  assert.deepEqual(traceSettings(own, true), own);
+  // The viewer listens on the loopback interface only, and the endpoint is the service's name on the control network.
+  const compose = readFileSync(new URL('./compose.yml', import.meta.url), 'utf8');
+  assert.match(compose, /jaeger:\n\s+profiles: \[telemetry\][\s\S]*?ports: \["127\.0\.0\.1:16686:16686"\]/);
+  assert.match(compose, /SABRE_TRACE_VIEWER_URL: \$\{SABRE_TRACE_VIEWER_URL:-\}/);
 });

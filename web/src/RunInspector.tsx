@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useContext, useState, type ReactNode } from 'react';
 import type { Api, ProcessTopology, RunInspection, WorkOrder } from './api';
 import type { ObservedSpan } from './executionProjection';
 import Tabs from './components/Tabs';
@@ -11,6 +11,7 @@ import { Badge } from './components/ui/badge';
 import BrowserReportsPanel from './BrowserReportsPanel';
 import CrewAvatar from './features/crew/CrewAvatar';
 import { isControlCode } from './runState';
+import { TraceViewer, traceLink } from './lib/traceViewer';
 
 type InspectionTab = 'State' | 'Messages' | 'Tools' | 'Memory' | 'Evals' | 'Logs' | 'JSON' | 'Trace';
 const tabs: { value: InspectionTab; label: string }[] = [
@@ -92,6 +93,8 @@ export default function RunInspector({
   onMore?: () => void;
 }) {
   const [tab, setTab] = useState<InspectionTab>('State');
+  const viewer = useContext(TraceViewer);
+  const trace = traceLink(viewer, current?.event.trace_id);
   const records = inspection?.records ?? [];
   const tools = records.filter(
     (record) =>
@@ -343,7 +346,18 @@ export default function RunInspector({
                     ],
                     [
                       'Trace ID',
-                      <code className="font-mono text-xs">{current?.event.trace_id ?? 'Not recorded'}</code>,
+                      trace ? (
+                        <a
+                          href={trace}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="font-mono text-xs text-link underline underline-offset-2"
+                        >
+                          {current?.event.trace_id}
+                        </a>
+                      ) : (
+                        <code className="font-mono text-xs">{current?.event.trace_id ?? 'Not recorded'}</code>
+                      ),
                     ],
                     [
                       'Span ID',
@@ -353,7 +367,12 @@ export default function RunInspector({
                 />
                 <Caption>
                   These identifiers correlate actual OpenTelemetry spans. No trace is inferred when
-                  instrumentation was absent.
+                  instrumentation was absent.{' '}
+                  {trace
+                    ? 'The trace opens in the configured viewer.'
+                    : viewer
+                      ? 'This step recorded no trace to open.'
+                      : 'No trace viewer is configured, so the identifiers are shown as text.'}
                 </Caption>
               </>
             )}

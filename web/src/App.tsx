@@ -47,6 +47,7 @@ import SecurityView from './features/security/SecurityView';
 import InsightsView from './features/insights/InsightsView';
 import WorkAreaNav from './features/runs/WorkAreaNav';
 import { ErrorNotice, message, statusLabels, usesOnlyCliModels } from './features/runs/shared';
+import { TraceViewer, traceViewerOf } from './lib/traceViewer';
 
 // Sections load on first visit; Runs stays in the main bundle.
 const sections = {
@@ -207,6 +208,7 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
   const [confirmations, setConfirmations] = useState<OwnerConfirmation[]>([]);
   const [status, setStatus] = useState<Record<string, unknown>>({});
   const cliMode = usesOnlyCliModels(status);
+  const traceViewer = useMemo(() => traceViewerOf(status), [status]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
@@ -453,15 +455,17 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
                 <>
                   {selected ? (
                     <section className="@container/run min-w-0" aria-label="Selected run">
-                      <RunDetail
-                        connected={!error}
-                        key={selected.id}
-                        api={api}
-                        order={selected}
-                        project={allProjects.find((project) => project.id === selected.project_id)}
-                        cliMode={cliMode}
-                        onChanged={reload}
-                      />
+                      <TraceViewer value={traceViewer}>
+                        <RunDetail
+                          connected={!error}
+                          key={selected.id}
+                          api={api}
+                          order={selected}
+                          project={allProjects.find((project) => project.id === selected.project_id)}
+                          cliMode={cliMode}
+                          onChanged={reload}
+                        />
+                      </TraceViewer>
                     </section>
                   ) : (
                     <>
