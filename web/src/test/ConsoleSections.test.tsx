@@ -134,6 +134,26 @@ it('validates the same configuration document and retains the model draft after 
   expect(writes[0]).not.toHaveProperty('api_key');
 });
 
+it.each(['models', 'provider'])('a link to %s opens the Models view of Config', async (section) => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: string) => {
+      if (input.endsWith('/model-configuration')) return Response.json(models);
+      if (input.endsWith('/integrations')) return Response.json([]);
+      return Response.json(factory());
+    }),
+  );
+  window.history.replaceState(null, '', `/config?section=${section}`);
+  render(
+    <MemoryRouter>
+      <ConfigConsole api={createApi('synthetic-csrf')} projects={[project]} />
+    </MemoryRouter>,
+  );
+  expect(await screen.findByRole('button', { name: 'Models' })).toHaveAttribute('aria-pressed', 'true');
+  expect(screen.getByRole('textbox', { name: 'Model identifier' })).toBeVisible();
+  window.history.replaceState(null, '', '/');
+});
+
 it('reports field diagnostics and blocks saving invalid YAML without erasing the document', async () => {
   const user = userEvent.setup();
   const current = factory();
