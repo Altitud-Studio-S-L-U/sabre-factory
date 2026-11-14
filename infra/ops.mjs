@@ -132,6 +132,36 @@ export function requireClaudeOwnerTerminal(input = process.stdin, output = proce
   }
 }
 
+/**
+ * What a login does about a bridge that is already running. A bridge serving a connected subscription is
+ * never replaced implicitly: changing the account takes an explicit stop. A bridge with no usable session
+ * has nothing to protect (it is what `up` starts after prepare-claude), so the login stops it by itself.
+ * A status that cannot be read counts as connected.
+ */
+export async function releaseClaudeBridge({ running, status, stop }) {
+  if (!running) return 'absent';
+  let state = null;
+  try { state = await status(); } catch { state = null; }
+  if (state?.authenticated !== false) {
+    throw new Error('Stop the bridge with node bin/sabre.mjs stop claude-runner before changing the Claude account.');
+  }
+  await stop();
+  return 'stopped';
+}
+
+/** Whether the running bridge serves a connected subscription. Its token is read inside the container and never printed. */
+async function claudeBridgeStatus() {
+  const check = String.raw`
+import json,urllib.request
+from sabre.claude_model import read_bridge_token
+request=urllib.request.Request('http://127.0.0.1:8092/status',headers={'Authorization':'Bearer '+read_bridge_token()})
+with urllib.request.urlopen(request,timeout=30) as response: value=json.load(response).get('authenticated')
+if type(value) is not bool: raise SystemExit(1)
+print(json.dumps({'authenticated':value}))
+`;
+  return privateJson((await privateDocker(['exec', 'sabre-factory-claude-runner-1', 'python', '-I', '-c', check])).toString());
+}
+
 export async function runClaudeOwnerLogin({ input = process.stdin, output = process.stdout, create, attach, remove }) {
   requireClaudeOwnerTerminal(input, output);
   let created = false;
@@ -319,7 +349,8 @@ if (action === 'init') {
   if (component !== 'all' || rest.length) throw new Error('Use claude-login without arguments; it connects your Claude subscription.');
   const consumers = (await privateDocker(['ps', '--filter', 'label=com.docker.compose.project=sabre-factory',
     '--filter', 'label=com.docker.compose.service=claude-runner', '--format', '{{.ID}}'])).toString().trim();
-  if (consumers) throw new Error('Stop the bridge with node bin/sabre.mjs stop claude-runner before changing the Claude account.');
+  await releaseClaudeBridge({ running: Boolean(consumers), status: claudeBridgeStatus,
+    stop: () => compose(['--profile', 'claude', 'stop', 'claude-runner']) });
   await provisionClaude();
   enableClaudeProfile();
   const name = 'sabre-factory-claude-owner-login';

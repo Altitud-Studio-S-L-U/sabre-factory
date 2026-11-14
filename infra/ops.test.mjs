@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { EventEmitter } from 'node:events';
-import { prepareScannerImages, openPanelAccess, requireClaudeOwnerTerminal, runClaudeOwnerLogin,
+import { prepareScannerImages, openPanelAccess, requireClaudeOwnerTerminal, runClaudeOwnerLogin, releaseClaudeBridge,
   browserOpener, launchWithOpener, serveHandoff } from './ops.mjs';
 
 test('Claude account login requires owner stdin and stdout terminals', () => {
@@ -23,6 +23,21 @@ test('Claude login creates first, then attaches to owner input and cleans its st
     create: async () => { output.isTTY = false; }, attach: async () => assert.fail('No owner console remains'),
     remove: async () => { calls.push('lost-console-cleanup'); } }), (error) => error.code === 'CLAUDE_OWNER_TERMINAL_REQUIRED');
   assert.equal(calls.at(-1), 'lost-console-cleanup');
+});
+
+test('Claude login stops a bridge that serves no account and never one that does', async () => {
+  const calls = [];
+  const stop = async () => { calls.push('stop'); };
+  assert.equal(await releaseClaudeBridge({ running: false, status: async () => assert.fail('No bridge to ask'), stop }), 'absent');
+  // What up starts after prepare-claude: a bridge with nothing to protect.
+  assert.equal(await releaseClaudeBridge({ running: true, status: async () => ({ authenticated: false }), stop }), 'stopped');
+  assert.deepEqual(calls, ['stop']);
+  // A connected subscription, or a status that cannot be read, still takes the owner's explicit stop.
+  for (const status of [async () => ({ authenticated: true }), async () => ({}), async () => null,
+    async () => { throw new Error('Bridge unreachable'); }]) {
+    await assert.rejects(releaseClaudeBridge({ running: true, status, stop }), /stop claude-runner before changing the Claude account/);
+  }
+  assert.deepEqual(calls, ['stop']);
 });
 
 const ticket = 'synthetic-owner-panel-grant-'.padEnd(43, 'x');
