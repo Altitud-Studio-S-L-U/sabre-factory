@@ -109,7 +109,7 @@ The panel and MCP use one durable model configuration with compare-and-swap revi
 
 ## Security graph
 
-The independent graph collects scanner evidence, applies the owner-approved baseline and produces a blocking decision. Gitleaks handles secrets; Trivy handles dependencies and configuration; Semgrep CE handles code rules. A scanner that is missing, fails or produces an incomplete report blocks assessment. Secrets and new high/critical findings block delivery.
+The independent graph collects scanner evidence, applies the owner-approved baseline and produces a blocking decision. Gitleaks handles secrets; Trivy handles dependencies and configuration; Semgrep CE handles code rules. A scanner that is missing, fails or produces an incomplete report blocks assessment. When Semgrep runs but reports code it could not parse, the scan is still incomplete; its finding names the first file and line and how many places were skipped, never their content, and an audit stopped for it (`AUDIT_INCOMPLETE`) repeats that reason. Secrets and new high/critical findings block delivery.
 
 Findings bind the source snapshot and rules configuration. Baselines are explicit owner configuration. Expiring exceptions require an owner justification and bind one finding, work order, plan revision, snapshot and rules version. The independent graph validates them; neither scanners nor agents can supply an accepted exception id. Secrets and scanner failures remain blocking. Delivery evidence records the policy digest and exception ids; expiry or revocation invalidates pending publication.
 
