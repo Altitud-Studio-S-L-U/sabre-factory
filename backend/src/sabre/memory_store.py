@@ -294,11 +294,16 @@ class MemoryStore:
             return item_from(row["data"])
 
     async def _record_overlaps(self, conn, item: MemoryItem, embedding: list[float] | None):
-        """Store ``overlaps`` links to similar active or pending memories; never a conflict verdict."""
+        """Store ``overlaps`` links to similar active or pending memories; never a conflict verdict.
+
+        The delivery count a run recorded by itself (factory channel, no role) is not knowledge and is
+        left out; what a run's specialists proposed is compared like any other record.
+        """
         candidates = await (await conn.execute("""SELECT id,data->>'content' AS content,
                 CASE WHEN %(vector)s::text IS NOT NULL AND embedding IS NOT NULL THEN 1-(embedding <=> %(vector)s::vector) END AS cosine
             FROM memories WHERE project_id=%(project)s AND id<>%(id)s AND data->>'invalidated_at' IS NULL
-                AND NOT (coalesce(data->'proposed_by'->>'channel','')='factory' AND data->>'kind'='fact')
+                AND NOT (coalesce(data->'proposed_by'->>'channel','')='factory' AND data->>'kind'='fact'
+                         AND data->'proposed_by'->>'role' IS NULL)
             ORDER BY (data->>'created_at')::timestamptz DESC,id DESC LIMIT %(limit)s""",
             {"vector": str(embedding) if embedding else None, "project": item.project_id, "id": item.id, "limit": OVERLAP_CANDIDATES})).fetchall()
         found = [(row["id"], result) for row in candidates

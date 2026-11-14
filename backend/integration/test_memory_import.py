@@ -256,3 +256,22 @@ async def test_an_owner_citation_of_a_line_past_the_end_of_the_file_is_refused(r
     with pytest.raises(DomainError) as error:
         await memory.propose(request("src/app.py#L3"), proposed_by=owner)
     assert error.value.code == "MEMORY_CITATION_UNKNOWN" and "src/app.py#L3" in error.value.message
+
+
+async def test_what_a_specialist_proposes_is_compared_with_what_an_earlier_run_proposed(repository, tmp_path):
+    ingestion, memory, repo, project, runner = await setup(repository, tmp_path)
+    _, _, template = await fixture_work(repository)
+    runs = []
+    for name in ("first-run", "second-run"):
+        await repo.admit(template.model_copy(update={"id": f"overlap-{name}", "idempotency_key": f"overlap-{name}", "project_id": project.id}), AsyncMock())
+        runs.append(await repo.work(f"overlap-{name}"))
+    await read(ingestion, project, runner, A, {"src/pricing.py": "def total(items):\n    return sum(items)\n"})
+    first = await memory.proposer(runs[0], "analyst", A)(statement="Totals are computed by total() in the pricing module.",
+                                                         why="A change to rounding belongs there.", citations=["src/pricing.py#L1"])
+    second = await memory.proposer(runs[1], "reviewer", A)(statement="Totals are computed by total() in the pricing module of the service.",
+                                                           why="A change to rounding belongs there too.", citations=["src/pricing.py"])
+    assert first["proposed"] and second["proposed"] and first["memory_id"] != second["memory_id"]
+    review = await memory.review(project.id)
+    newer = next(entry for entry in review.pending if entry.item.id == second["memory_id"])
+    # Both are facts from the factory channel: the comparison must not skip them as it skips the old delivery count.
+    assert [overlap.memory_id for overlap in newer.overlaps] == [first["memory_id"]] and newer.overlaps[0].state == "pending"
