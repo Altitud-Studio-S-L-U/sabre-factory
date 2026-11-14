@@ -32,7 +32,7 @@ phases:
     skills: [review]
 ```
 
-Add a `model` to a phase, or a selection under `phase_models`, using the same provider/name/destination contract as Integrations. Precedence is run `phase_models`, flow phase `model`, published specialist model, legacy role configuration, default configuration. A specialist with no model override preserves existing role inheritance. Destinations must already be approved. Explicit model names and available credentials are required; the factory does not fall back to another provider. CLI sessions use official binaries and separate authentication directories. Their tokens are never converted into API credentials.
+Add a `model` to a phase, or a selection under `phase_models`, using the same provider/name/destination contract as Config › Models. Precedence is run `phase_models`, flow phase `model`, published specialist model, legacy role configuration, default configuration. A specialist with no model override preserves existing role inheritance. Destinations must already be approved. Explicit model names and available credentials are required; the factory does not fall back to another provider. CLI sessions use official binaries and separate authentication directories. Their tokens are never converted into API credentials.
 
 A run retains the resolved selections, model revision, graph/flow versions, skill digests and configuration digest. Global model changes affect later runs. Credential revocation applies immediately at the next authorized call. Restoring a run requires its recorded skill versions. Skills provide bounded instructions and cannot expand permissions.
 
@@ -50,7 +50,7 @@ Unknown provider outcomes require reconciliation before a versioned run resumes.
 
 ## Create a new repository at launch
 
-In Integrations, open **Create a repository and launch its flow**, review its exact owner, name, visibility, checks and budget, then grant the explicit creation permission. The same strict request is available at `POST /api/v1/create-flows` and `sabre_launch_create`. It requires version `1`, `authorize_repository_creation: true` and `repository.initialize: true`. The dedicated `github.create` credential must be configured. GitHub initializes the default branch; the receipt binds the project to the branch GitHub actually returned.
+In Tools › GitHub, under Repositories, open **Create a repository and launch its flow**, review its exact owner, name, visibility, checks and budget, then grant the explicit creation permission. The same strict request is available at `POST /api/v1/create-flows` and `sabre_launch_create`. It requires version `1`, `authorize_repository_creation: true` and `repository.initialize: true`. The dedicated `github.create` credential must be configured. GitHub initializes the default branch; the receipt binds the project to the branch GitHub actually returned.
 
 The launch stores its resolved flow before enqueueing repository creation. Reusing the repository request key preserves that snapshot and rejects changed scope. An uncertain GitHub outcome requires reconciliation; the factory never repeats an unconfirmed creation. After a confirmed receipt, project registration and work admission use fixed identities. Retrying an interrupted continuation cannot enqueue a second flow. Existing-repository create flows remain available from Runs.
 
@@ -83,7 +83,7 @@ Replace the example path with your checkout path. On Windows, forward slashes wo
 
 Install a Slack app using [the manifest](../infra/slack-manifest.yml), enable Socket Mode, and create an app token with `connections:write`. Store bot/app credentials through the factory credential controls. Set `SABRE_SLACK_OWNER_ID` to the one explicitly linked owner. Only direct messages from that owner are admitted. Repository text and tool output cannot authorize commands. Do not send secrets in Slack messages.
 
-Delivery records use deduplication and a bounded retry schedule. Uncertain Slack effects are reconciled against receipts and message metadata before another send. They are shown as uncertain if confirmation is impossible; they are never blindly reposted. Failed deliveries can be retried explicitly from Integrations after fixing the cause.
+Delivery records use deduplication and a bounded retry schedule. Uncertain Slack effects are reconciled against receipts and message metadata before another send. They are shown as uncertain if confirmation is impossible; they are never blindly reposted. Failed deliveries can be retried explicitly from Tools › Notifications after fixing the cause.
 
 ## Signed webhooks
 

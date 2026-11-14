@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Credentials from './Credentials';
 import { type Api, type DeliveryStatus } from './api';
 import Button from './components/Button';
@@ -19,6 +19,21 @@ export default function Deliveries({ api }: { api: Api }) {
   const [keys, setKeys] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  // State is applied in promise callbacks, so the mount effect never sets state synchronously.
+  useEffect(() => {
+    let active = true;
+    void api.deliveries().then(
+      (value) => {
+        if (active) setItems(value);
+      },
+      () => {
+        if (active) setError('Delivery status could not be refreshed. Check the connection and retry.');
+      },
+    );
+    return () => {
+      active = false;
+    };
+  }, [api]);
   const refresh = async (id?: string) => {
     setBusy(true);
     setError('');
