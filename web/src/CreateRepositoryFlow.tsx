@@ -8,6 +8,7 @@ import {
 import Button from './components/Button';
 import CheckField from './components/CheckField';
 import Disclosure from './components/Disclosure';
+import Experimental from './components/Experimental';
 import Field from './components/FormField';
 import Input from './components/Input';
 import Notice from './components/Notice';
@@ -89,9 +90,13 @@ export default function CreateRepositoryFlow({
       onToggle={(event) => setOpen(event.currentTarget.open)}
       contentClassName="gap-4"
     >
-      <p className="text-sm text-muted-foreground">
-        Authorize the exact repository below and the work it may perform. SABRE stops at a draft PR.
-      </p>
+      {/* Inside the content, not in the summary: the control keeps the name people and tests know it by. */}
+      <div className="flex min-w-0 flex-wrap items-center gap-2">
+        <Experimental />
+        <p className="text-sm text-muted-foreground">
+          Authorize the exact repository below and the work it may perform. SABRE stops at a draft PR.
+        </p>
+      </div>
       {error && (
         <Notice tone="danger" role="alert">
           {error}

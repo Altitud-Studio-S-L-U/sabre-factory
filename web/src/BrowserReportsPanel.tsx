@@ -3,6 +3,7 @@ import { ApiError, type Api, type BrowserReport } from './api';
 import Button from './components/Button';
 import DescriptionList from './components/DescriptionList';
 import Disclosure from './components/Disclosure';
+import Experimental from './components/Experimental';
 import JsonView from './components/JsonView';
 import Notice from './components/Notice';
 import { Badge } from './components/ui/badge';
@@ -96,7 +97,10 @@ export default function BrowserReportsPanel({
   return (
     <section className="mt-5 grid min-w-0 gap-3" aria-label="Browser verification evidence">
       <header className="flex min-w-0 flex-wrap items-center justify-between gap-2">
-        <h4 className="text-base font-semibold">Browser verification</h4>
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <h4 className="text-base font-semibold">Browser verification</h4>
+          <Experimental />
+        </div>
         <span className="text-xs text-muted-foreground">Visual model review unavailable</span>
       </header>
       <p className="text-xs leading-relaxed text-muted-foreground">

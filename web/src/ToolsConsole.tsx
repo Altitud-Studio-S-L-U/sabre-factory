@@ -22,6 +22,7 @@ import Button from './components/Button';
 import CheckField from './components/CheckField';
 import Dialog, { DialogActions } from './components/Dialog';
 import EmptyState from './components/EmptyState';
+import Experimental from './components/Experimental';
 import Field from './components/FormField';
 import { SkeletonList, SkeletonStatus, SkeletonTabs } from './components/Skeletons';
 import Notice from './components/Notice';
@@ -266,6 +267,7 @@ export default function ToolsConsole({ api, projects, connected = true, onRefres
                 {item.enabled ? 'Enabled' : 'Disabled'}
               </Badge>
             )}
+            {item.kind === 'slack' && <Experimental />}
             {throughApp ? (
               <Badge variant="success">Uses the connection</Badge>
             ) : (

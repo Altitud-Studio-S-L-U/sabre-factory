@@ -50,6 +50,8 @@ jobs:
         run: node infra/dev.mjs lint
       - name: Backend type checks
         run: node infra/dev.mjs types
+      - name: Harness bench against the committed baseline
+        run: node infra/bench.mjs compare --strict
       - name: Worker crash and recovery
         run: node infra/recovery-check.mjs
       - name: Stop isolated services

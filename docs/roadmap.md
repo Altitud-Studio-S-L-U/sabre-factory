@@ -40,7 +40,7 @@ The decision that matters is narrower: who runs the inner tool loop of the imple
 | G7 | Provider failures | A rate limit, an overload and a timeout are now retried twice inside the same reservation, each failure leaves with a code that names its class, and every failed call leaves an event. No fallback model yet, and no real provider has exercised it | [14](specs/14-context-economy.md) |
 | G8 | No CI evidence and one verified platform | GitHub Actions is disabled for the repository, so no commit since 2026-11-11 has a CI result. Only Windows has been exercised | Phase 5 |
 | G9 | The documented setup leads with subscription logins | The README starts by connecting a Codex or Claude CLI session, and the only real runs were made that way. Anthropic's documentation reserves subscription login for its own applications and asks products built on Claude to use API keys or a cloud provider. OpenAI's terms for the Codex CLI were not reviewed | Lead public documentation with API-key providers; present the CLI bridges as the owner's private option, whose terms the owner checks |
-| G10 | Isolation is a hardened container | Read-only root, no network by default, dropped capabilities, seccomp and a Docker permission proxy, on a kernel shared with the control services. Current guidance for untrusted code is VM-level isolation with default-deny egress | Write the threat model, test egress denial, evaluate a stronger runtime where the host offers one |
+| G10 | Isolation is a hardened container | Read-only root, no network by default, dropped capabilities, seccomp and a Docker permission proxy, on a kernel shared with the control services. Current guidance for untrusted code is VM-level isolation with default-deny egress. The [threat model](threat-model.md) is written and names both as undefended | Make the executor's egress acceptance script part of a check that runs on the deployed host, evaluate a stronger runtime where the host offers one |
 | G11 | The role pipeline is unmeasured | Seven specialists and several model stages, none justified by an ablation | [16](specs/16-evaluation.md) |
 | G12 | Console and plan leftovers | See "Left over from the previous plan" | Phase 0 and Phase 5 |
 | G13 | Work is sequential | One task at a time and no streaming; the console polls every five seconds | After G1 and G2: read-only parallel subagents first |
@@ -60,14 +60,14 @@ Each phase ends on evidence, and Phase 1 is the gate: what it measures decides t
 
 **Phase 4 · Observable.** [Spec 15](specs/15-observability.md). Built except the price table per model: the ledger, cost with cache prices, a cost the provider reports, the metrics endpoint, Insights, standard attribute names, trace continuity, executor spans, logs and the viewer link. *Exit:* cost per run that matches the provider's invoice within the price table's precision, and an Insights page fed by real runs.
 
-**Phase 5 · Installable and showable.** Verify macOS and Linux installs, turn CI back on, write the threat model, mark unproven surfaces as experimental, publish the report and real screenshots in the README. *Exit:* [spec 09](specs/09-validation.md)'s release gate.
+**Phase 5 · Installable and showable.** Verify macOS and Linux installs, turn CI back on, write the threat model (done), mark unproven surfaces as experimental (done as labels; hiding them instead stays the owner's choice), publish the report and real screenshots in the README. *Exit:* [spec 09](specs/09-validation.md)'s release gate.
 
 ## Decisions for the owner
 
 1. **Scanner partial parse.** Record a warning-level partial parse as a visible coverage finding and let the audit complete, or keep failing closed. The audit it stopped was removed with the reset, and the next audit of that repository will stop the same way; nothing changes until this is decided.
 2. **Real-model evaluation.** Authorization and budget for provider runs, and an API key for them: the baseline and the cache measurements need an API provider, and the public path needs one anyway (G9).
 3. **Sample repositories** for the suite and for the public demonstration.
-4. **Unproven surfaces** (A2A, releases, browser checks, the create flow, Slack): ship as experimental or hide in the first public version.
+4. **Unproven surfaces** (A2A, releases, browser checks, the create flow, Slack, the GitHub connection): they now carry an Experimental label that hides and disables nothing. Keep the label or hide them in the first public version.
 5. **Default budgets by flow**, once Phase 1 shows what an audit and a patch cost. The single default of 100,000 tokens stopped the real audit at its fourth call.
 6. **CI and visibility.** When to turn Actions back on; the repository stays private until the release gate holds.
 
@@ -88,4 +88,4 @@ Each phase ends on evidence, and Phase 1 is the gate: what it measures decides t
 
 Corrected with this document: the operations and configuration guides named an Integrations section that no longer exists, the provider list omitted `claude_cli`, [spec 03](specs/03-configuration.md) described a setup wizard and [spec 05](specs/05-tools.md) did not describe the console.
 
-Still to reconcile, by changing the code or the sentence: blur is used on the dialog backdrop, the command palette and the timeline although the spec index limits it to three places; the architecture guide says the console keeps nothing in browser storage, and the attention inbox keeps a per-browser list of what it already announced; it names one stylesheet, and the Supervisor dock and avatar have their own; it lists independent QA before the gates, and the gates run first; the timeline is described as a real time scale, and idle time is collapsed by default.
+Corrected since, by changing the sentence to what the code does: where blur is used, what the console keeps in browser storage, the Supervisor's two own stylesheets, the order of the registered checks and independent QA, and the timeline collapsing idle time by default.

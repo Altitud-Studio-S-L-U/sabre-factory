@@ -9,6 +9,7 @@ import Input from './components/Input';
 import LoadingState from './components/LoadingState';
 import Notice from './components/Notice';
 import { SectionHeading } from './components/PageHeader';
+import Experimental from './components/Experimental';
 import { Badge } from './components/ui/badge';
 import { Card } from './components/ui/card';
 
@@ -204,6 +205,7 @@ export default function InboundAccessPanel({
       <SectionHeading
         className="items-start [&>:first-child]:flex-1 [&>:first-child]:basis-72"
         title="Inbound access"
+        badge={<Experimental />}
         description="Issue a separate credential for an external agent to use this factory. Grants cover selected projects and assigned runs; they never reuse your owner credential or change network exposure."
         actions={
           <>
