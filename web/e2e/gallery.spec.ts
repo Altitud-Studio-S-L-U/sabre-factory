@@ -6,6 +6,7 @@ import {
   memoryItem,
   memoryRecalls,
   memoryReview,
+  repositoryIndex,
 } from '../src/test/memoryFixture';
 import { configurationHistory, runtimeSettings } from '../src/test/runtimeFixture';
 
@@ -23,7 +24,9 @@ const sections = [
   { name: 'tools-mcp', path: '/tools?connection=mcp.docs', ready: 'MCP · docs' },
   { name: 'tools-notifications', path: '/tools?tab=notifications', ready: 'Delivery notifications' },
   { name: 'tools-builtin', path: '/tools?tab=builtin', ready: 'Tools available to specialists' },
-  { name: 'memory', path: '/memory', ready: 'Memory' },
+  { name: 'memory-repository', path: '/memory', ready: 'Repository map' },
+  { name: 'memory-repository-directory', path: '/memory', ready: 'Repository map' },
+  { name: 'memory', path: '/memory', ready: 'Memory', tab: 'Knowledge map' },
   { name: 'memory-records', path: '/memory', ready: 'Memory', tab: 'Records' },
   { name: 'memory-review', path: '/memory', ready: 'Memory', tab: 'Review queue' },
   { name: 'memory-recalls', path: '/memory', ready: 'Memory', tab: 'Recall log' },
@@ -105,6 +108,31 @@ test.describe('gallery', () => {
               tokens: null,
             },
           ],
+        },
+      }),
+    );
+    // The repository as indexed, so the repository map has something to draw.
+    await page.route('**/api/v1/projects/*/ingestion', (route) =>
+      route.fulfill({
+        json: {
+          version: 1,
+          project_id: 'synthetic-project',
+          jobs: [
+            {
+              version: 1,
+              id: 'synthetic-ingestion',
+              project_id: 'synthetic-project',
+              index_version: 1,
+              state: 'completed',
+              source_commit: repositoryIndex().source_commit,
+              expected_source_commit: null,
+              created_at: '2026-11-10T07:39:00Z',
+              finished_at: '2026-11-10T07:40:00Z',
+              error_code: null,
+              error_message: null,
+            },
+          ],
+          latest: repositoryIndex(),
         },
       }),
     );
@@ -205,6 +233,8 @@ test.describe('gallery', () => {
       await expect(page.getByText(section.ready, { exact: false }).first()).toBeVisible();
       if ('tab' in section && section.tab)
         await page.getByRole('tab', { name: section.tab, exact: true }).click();
+      if (section.name === 'memory-repository-directory')
+        await page.getByRole('button', { name: /^Open src: / }).click();
       if (section.name === 'memory')
         await page.getByRole('button', { name: "Memory: Discount uses banker's rounding" }).click();
       if (section.name === 'projects-archived')
