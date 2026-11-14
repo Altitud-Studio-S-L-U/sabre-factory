@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { mockFactoryApi, syntheticRun } from './fixtures';
+import { githubConnection, mockFactoryApi, syntheticRun } from './fixtures';
 
 type Project = Record<string, unknown> & { revision: number; archived_at: string | null };
 
@@ -162,4 +162,50 @@ test('a refused archive names the run that holds the project and changes nothing
   await expect(page.getByRole('heading', { name: 'Example project', exact: true })).toBeVisible();
   // Still only the project that was archived before: the refused one did not join it.
   await expect(page.getByRole('checkbox', { name: 'Show archived (1)' })).toBeVisible();
+});
+
+test('a project is added from one place: from GitHub, by address or as a new repository', async ({
+  page,
+}) => {
+  await mockFactoryApi(page);
+  await page.goto('/projects');
+  await page.getByRole('button', { name: '+ Add project' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Add project' });
+  const source = dialog.getByRole('group', { name: 'Where the project comes from' });
+  await expect(source.getByRole('button')).toHaveText(['From GitHub', 'By address', 'New repository']);
+  // With no app installed the address form comes first, and its draft survives a look at the other sources.
+  await expect(source.getByRole('button', { name: 'By address' })).toHaveAttribute('aria-pressed', 'true');
+  await dialog.getByLabel('Project name').fill('Draft name');
+  // The sources differ in height: the choice stays where the pointer left it.
+  const top = async () => Math.round((await source.boundingBox())?.y ?? -1);
+  const place = await top();
+  await source.getByRole('button', { name: 'From GitHub' }).click();
+  await expect(dialog.getByRole('button', { name: 'Search repositories' })).toBeVisible();
+  expect(await top()).toBe(place);
+  await source.getByRole('button', { name: 'New repository' }).click();
+  await expect(dialog.getByRole('button', { name: 'Propose repository' })).toBeVisible();
+  expect(await top()).toBe(place);
+  await source.getByRole('button', { name: 'By address' }).click();
+  await expect(dialog.getByLabel('Project name')).toHaveValue('Draft name');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test('with the GitHub App installed, adding a project starts from the repositories it reaches', async ({
+  page,
+}) => {
+  await mockFactoryApi(page);
+  await page.route('**/api/v1/github/connection', (route) =>
+    route.fulfill({ json: githubConnection('connected') }),
+  );
+  await page.goto('/projects');
+  await page.getByRole('button', { name: '+ Add project' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Add project' });
+  await expect(
+    dialog
+      .getByRole('group', { name: 'Where the project comes from' })
+      .getByRole('button', { name: 'From GitHub' }),
+  ).toHaveAttribute('aria-pressed', 'true');
+  await expect(dialog.getByText(/2 repositories through the GitHub\s+connection/)).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Import octo-fixture/widgets' })).toBeEnabled();
+  await expect(dialog.getByRole('button', { name: 'Search repositories' })).toHaveCount(0);
 });

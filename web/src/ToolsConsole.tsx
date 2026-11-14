@@ -13,11 +13,9 @@ import {
 import Credentials from './Credentials';
 import MCPConnections from './MCPConnections';
 import Deliveries from './Deliveries';
-import RepoCreations from './RepoCreations';
 import BuiltinTools from './features/tools/BuiltinTools';
 import ConnectionRow from './features/tools/ConnectionRow';
 import GitHubConnection from './features/tools/GitHubConnection';
-import GitHubRepositories from './features/tools/GitHubRepositories';
 import Button from './components/Button';
 import CheckField from './components/CheckField';
 import Dialog, { DialogActions } from './components/Dialog';
@@ -26,10 +24,12 @@ import Experimental from './components/Experimental';
 import Field from './components/FormField';
 import { SkeletonList, SkeletonStatus, SkeletonTabs } from './components/Skeletons';
 import Notice from './components/Notice';
+import RoutedLink from './components/RoutedLink';
 import PageHeader, { SectionHeading } from './components/PageHeader';
 import Select from './components/Select';
 import Tabs from './components/Tabs';
 import { Badge } from './components/ui/badge';
+import { buttonVariants } from './components/ui/button';
 
 const failure = (reason: unknown) =>
   reason instanceof ApiError
@@ -100,7 +100,6 @@ export default function ToolsConsole({ api, projects, connected = true, onRefres
     request.setup ? { name: null } : null,
   );
   const [projectDialog, setProjectDialog] = useState(false);
-  const [repositories, setRepositories] = useState(false);
   // Whether the GitHub App is installed: reading and delivering then use it instead of the saved tokens.
   const [githubInstalled, setGithubInstalled] = useState(false);
   const knownInstalled = useRef<boolean | null>(null);
@@ -482,19 +481,17 @@ export default function ToolsConsole({ api, projects, connected = true, onRefres
                   <SectionHeading
                     id="tools-repositories-title"
                     title="Repositories"
-                    description="Bring an existing repository in as a project, or create a new one. Importing changes nothing on GitHub and starts no work."
+                    description="A repository becomes a project in Projects: from this GitHub access, by address, or as a new repository. This page keeps only the access."
                     actions={
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        disabled={!connected}
-                        onClick={() => setRepositories(true)}
+                      <RoutedLink
+                        className={buttonVariants({ variant: 'secondary' })}
+                        to="/projects"
+                        state={{ form: 'project' }}
                       >
-                        Import a repository
-                      </Button>
+                        Add a project
+                      </RoutedLink>
                     }
                   />
-                  <RepoCreations api={api} />
                 </section>
               </>
             ) : current === 'mcp' ? (
@@ -639,21 +636,6 @@ export default function ToolsConsole({ api, projects, connected = true, onRefres
             </form>
           )}
         </div>
-      </Dialog>
-      <Dialog
-        open={repositories}
-        title="GitHub repositories"
-        description="Repository access is independent of model provider authentication."
-        onClose={() => setRepositories(false)}
-      >
-        <GitHubRepositories
-          api={api}
-          installed={githubInstalled}
-          enabled={connected && !!items.find((item) => item.id === 'github.read')?.enabled}
-          onChanged={async () => {
-            await onRefresh?.();
-          }}
-        />
       </Dialog>
     </div>
   );

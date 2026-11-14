@@ -14,5 +14,10 @@ Projects stays a page of the Runs area; the sidebar keeps its five sections.
 
 **Contract.** `Project` gains `revision` and `archived_at`. `PUT /api/v1/projects/{id}` replaces the editable fields, and `POST .../archive` and `POST .../restore` change its state; each takes `expected_revision`. `GET /api/v1/projects` returns active projects and accepts `include=archived`. Admission and resumption refuse an archived project with a typed error before any effect. Every change records its revision, its action and the names of the fields it changed. The schema change is an additive, forward-only migration.
 
+## Built so far
+Edit, archive and restore, with their contract and audit, are built. Add project is one dialog in Projects with the three sources: From GitHub lists what the connection reaches and falls back to the account search while only tokens are configured; By address is the form that existed; New repository holds the creation proposals and the create flow. The dialog starts on From GitHub once the app is installed and on By address otherwise, and a draft by address survives a look at another source. Tools › GitHub no longer imports or creates: it keeps the access and links to the dialog.
+
+Not built: the three sources do not yet end on one shared form. Importing from GitHub and registering by address each keep their own fields for name, environment and checks, and a created repository is still registered as a project in a separate step.
+
 ## Acceptance
 Edit under a stale revision is refused and keeps the form's unsaved values. An edit is refused while a run of the project is executing. Archiving hides the project everywhere and blocks submission through the console, the API, MCP and A2A; its past runs still open. Archiving is refused while a run is queued, running, paused, blocked or waiting. Restore brings the project back with its memory intact. Browser tests cover the three sources on desktop and mobile, the edit conflict and the archived filter.
