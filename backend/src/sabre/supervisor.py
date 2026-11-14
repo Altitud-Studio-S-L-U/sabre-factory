@@ -16,7 +16,7 @@ from langchain_core.tools import tool
 from pydantic import SecretStr
 
 from sabre.agent_catalog import definition_errors
-from sabre.agents import cache_read_tokens
+from sabre.agents import cache_read_tokens, input_reservation_tokens
 from sabre.audit import AuditUsage, RunUsageSnapshot
 from sabre.budget_views import budget_view
 from sabre.credentials import model_secret_id
@@ -117,9 +117,10 @@ class ChatGuard(AgentMiddleware):
                 observation.set(context_original_bytes=original, context_sent_bytes=size(material))
             if size(material) > self.input_limit:
                 raise DomainError("CONTEXT_BUDGET_EXHAUSTED", "This message and its tool results exceed the Supervisor's bounded input context", 409)
-        input_bound = size(material) + 2048
-        output_bound = self.config.model_max_output_tokens
         cli = getattr(self.config, "model_provider", "") in {"codex_cli", "claude_cli"}
+        # The estimate the specialists use: bytes sent are not tokens, and a CLI adds its own instructions.
+        input_bound = input_reservation_tokens(size(material), cli=cli)
+        output_bound = self.config.model_max_output_tokens
         input_rate = 0 if cli else self.config.model_input_usd_per_million
         output_rate = 0 if cli else self.config.model_output_usd_per_million
         cost = (input_bound * input_rate + output_bound * output_rate) / 1_000_000

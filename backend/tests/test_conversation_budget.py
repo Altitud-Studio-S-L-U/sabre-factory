@@ -1,3 +1,4 @@
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -5,6 +6,7 @@ import pytest
 from langchain.agents.middleware.types import ModelRequest
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
+from sabre.agents import input_reservation_tokens
 from sabre.models import DomainError
 from sabre.supervisor import ChatGuard, conversation_window
 from tests.test_slack import service
@@ -48,6 +50,23 @@ async def test_cli_conversation_keeps_zero_api_spend_without_paid_pricing(provid
     assert owner.repository.settled[0][2] == 0
 
 
+@pytest.mark.parametrize("provider,cli", [("local", False), ("codex_cli", True), ("claude_cli", True)])
+async def test_the_reservation_estimates_tokens_from_the_bytes_sent_instead_of_counting_bytes_as_tokens(provider, cli):
+    owner = service()
+    owner.config.model_provider = provider
+    if cli:
+        owner.config.model_input_usd_per_million = owner.config.model_output_usd_per_million = 0
+    request = SimpleNamespace(messages=[HumanMessage(content="Inspect status " + "x" * 100_000)], tools=[], system_message=None)
+    provider_call = AsyncMock(return_value=SimpleNamespace(result=[AIMessage(content="Observed status")]))
+    await ChatGuard(owner.repository, owner.config, owner.guard, "message").awrap_model_call(request, provider_call)
+    sent = len(json.dumps({"messages": [item.model_dump(mode="json") for item in request.messages], "tools": [], "system": ""},
+                          ensure_ascii=False).encode())
+    reserved = owner.repository.reservations[0][1]
+    assert reserved == input_reservation_tokens(sent, cli=cli) + owner.config.model_max_output_tokens
+    # About 2.5 bytes per token: far below the byte count the reservation used to carry.
+    assert reserved < sent
+
+
 def turn(number, size=400):
     """One complete owner turn: question, a tool call with its result, and the reply."""
     return [HumanMessage(content=f"Question {number}: " + "q" * size, id=f"human-{number}"),
@@ -85,7 +104,7 @@ async def test_a_long_conversation_sends_its_most_recent_complete_turns_and_says
     assert f"left out of this request to fit its context: {omitted} messages" in sent[0].system_message.content
     assert request.system_message.content == "Supervisor instructions."
     reserved = owner.repository.reservations[0][1]
-    assert reserved <= 6000 + 2048 + owner.config.model_max_output_tokens
+    assert reserved <= input_reservation_tokens(6000, cli=True) + owner.config.model_max_output_tokens
 
 
 async def test_a_conversation_inside_its_limit_is_sent_whole_and_unchanged():
