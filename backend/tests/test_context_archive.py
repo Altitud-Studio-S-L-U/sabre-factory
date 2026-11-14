@@ -343,6 +343,105 @@ async def test_recent_read_fallback_preserves_required_context_and_policy(tmp_pa
     assert [m.model_dump(mode="json") for m in messages] == original
 
 
+PAGE_SOURCE = "a" * 64
+
+
+def recovered(offset, text="recovered line\n" * 400, eof=False):
+    return json.dumps({"historical": True, "currentness": "not_revalidated", "tool_call_id": "read-0", "response_digest": PAGE_SOURCE,
+        "original_bytes": 50000, "offset": offset, "next_offset": None if eof else offset + len(text), "eof": eof, "content": text})
+
+
+def restoring_history(turns, content=recovered):
+    """One read, then model turns that each recover one page of it."""
+    messages = [HumanMessage(content="Owner: preserve tests and approvals"),
+        AIMessage(id="ai-read", content="", tool_calls=[{"id": "read-0", "name": "read_file", "args": {"path": "a.py"}}]),
+        ToolMessage(id="tool-read", tool_call_id="read-0", content=SOURCE)]
+    for index in range(turns):
+        arguments = {"tool_call_id": "read-0", "response_digest": PAGE_SOURCE, "offset": index * 6000}
+        messages += [AIMessage(id=f"ai-{index}", content="", tool_calls=[{"id": f"page-{index}", "name": "read_context", "args": arguments}]),
+            ToolMessage(id=f"tool-{index}", tool_call_id=f"page-{index}", content=content(index * 6000))]
+    return messages
+
+
+def test_recovery_pages_older_than_the_protected_turns_collapse_to_their_coordinates():
+    messages = restoring_history(6)
+    original = [m.model_dump(mode="json") for m in messages]
+    projection = project_tool_context(messages, ContextPolicy(archive_unique=True, keep_model_turns=2))
+    pages = {m.tool_call_id: m for m in projection.messages if isinstance(m, ToolMessage) and m.tool_call_id.startswith("page-")}
+    for index in range(4):
+        reference = json.loads(pages[f"page-{index}"].content)
+        assert reference["content_omitted"] is True and "content" not in reference and "recovered line" not in pages[f"page-{index}"].content
+        assert (reference["tool"], reference["tool_call_id"], reference["response_digest"], reference["offset"], reference["chars"]) == (
+            "read_context", "read-0", PAGE_SOURCE, index * 6000, 6000)
+        assert reference["recover_with"] == "read_context(tool_call_id,response_digest,offset,limit)"
+    # The two turns the agent has just asked for stay complete.
+    assert pages["page-4"] is messages[-3] and pages["page-5"] is messages[-1]
+    assert [(ref.tool_call_id, ref.tool, ref.response_digest) for ref in projection.references if ref.reason == "old_page"] == [
+        (f"page-{index}", "read_context", PAGE_SOURCE) for index in range(4)]
+    # A page copies an original that is already archived: nothing new is stored for it.
+    assert set(projection.originals) == {hashlib.sha256(SOURCE.encode()).hexdigest()}
+    assert projection.omitted_results == 5 == len(projection.references)
+    assert [m.model_dump(mode="json") for m in messages] == original
+
+
+def test_restoring_history_grows_the_request_by_a_reference_per_turn_not_by_a_page():
+    policy = ContextPolicy(archive_unique=True, keep_model_turns=2)
+    short, long = (project_tool_context(restoring_history(turns), policy) for turns in (6, 30))
+    assert long.original_bytes - short.original_bytes > 24 * 6000
+    # Each further turn costs its call and a reference (about 1.1 KB), against 6.6 KB for the page.
+    assert long.sent_bytes - short.sent_bytes < 24 * 1200
+    assert long.sent_bytes < 50000
+
+
+def test_an_over_limit_request_keeps_the_pages_just_asked_for_and_sheds_the_oldest_of_them_last():
+    messages = restoring_history(3)
+    policy = ContextPolicy(archive_unique=True, keep_model_turns=3)
+    kept = project_tool_context(messages, policy, archive_recent=True)
+    assert json.loads(kept.messages[2].content)["tool"] == "read_file", "the recent read is archived first"
+    assert [kept.messages[index] is messages[index] for index in (4, 6, 8)] == [True, True, True]
+    shed = project_tool_context(messages, policy, archive_recent=True, shed_page_bytes=1)
+    dropped = json.loads(shed.messages[4].content)
+    assert dropped["content_omitted"] is True and "exceeded its input limit" in dropped["note"]
+    assert shed.messages[6] is messages[6] and shed.messages[8] is messages[8]
+    everything = project_tool_context(messages, policy, archive_recent=True, shed_page_bytes=10**9)
+    assert json.loads(everything.messages[6].content)["content_omitted"] is True
+    assert everything.messages[8] is messages[8], "the newest page is never dropped"
+
+
+@pytest.mark.parametrize("content", [
+    lambda offset: "Exact requested recovery page " * 300,
+    lambda offset: json.dumps({"historical": True, "tool_call_id": "read-0", "response_digest": "not-a-digest", "original_bytes": 1,
+                               "offset": offset, "content": "x" * 6000}),
+    lambda offset: json.dumps({"historical": True, "tool_call_id": "read-0", "response_digest": PAGE_SOURCE, "original_bytes": 1,
+                               "offset": -1, "content": "x" * 6000}),
+    lambda offset: json.dumps({"tool_call_id": "read-0", "response_digest": PAGE_SOURCE, "original_bytes": 1, "offset": offset,
+                               "content": "x" * 6000}),
+])
+def test_a_result_that_is_not_a_recovery_page_is_never_collapsed(content):
+    messages = restoring_history(6, content)
+    projection = project_tool_context(messages, ContextPolicy(archive_unique=True, keep_model_turns=2), archive_recent=True, shed_page_bytes=10**9)
+    for old, new in zip(messages, projection.messages, strict=True):
+        if isinstance(old, ToolMessage) and old.tool_call_id.startswith("page-"):
+            assert old is new
+    assert not [ref for ref in projection.references if ref.reason == "old_page"]
+
+
+async def test_an_agent_that_keeps_restoring_history_is_not_stopped_by_its_own_recovery_pages(tmp_path):
+    work, _, config = setup()
+    config.context_input_max_bytes = 40000
+    config.context_archive_enabled, config.context_dedup_enabled, config.context_dedup_keep_model_turns = True, True, 2
+    messages = restoring_history(12)
+    assert len(json.dumps([m.model_dump(mode="json") for m in messages]).encode()) > 2 * config.context_input_max_bytes
+    guard, repository, handler = SecretGuard(), Repository(), AsyncMock(return_value=SimpleNamespace(result=[]))
+    store = ArtifactStore(tmp_path, guard)
+    request = ModelRequest(model=ScriptedModel(), messages=messages, system_message=SystemMessage(content="Current platform instructions"))
+    await GuardedCalls(repository, config, work, guard, artifacts=store, context_archive=ContextArchive(store, guard)).awrap_model_call(request, handler)
+    sent = handler.await_args.args[0]
+    complete = [m.tool_call_id for m in sent.messages if isinstance(m, ToolMessage) and "recovered line" in m.content]
+    assert complete == ["page-10", "page-11"]
+    assert len(repository.reservations) == 1
+
+
 def test_reused_tool_id_cannot_hide_old_memory_from_validation():
     messages = [AIMessage(content="", tool_calls=[{"id": "reused", "name": "read_memory", "args": {}}]),
         ToolMessage(tool_call_id="reused", content=json.dumps({"id": "memory", "content_digest": "a" * 64})),
