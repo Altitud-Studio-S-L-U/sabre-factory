@@ -23,6 +23,7 @@ from sabre.budget_views import budget_view
 from sabre.costs import Rates, cache_write_tokens, call_cost_usd, reserved_cost_usd
 from sabre.credentials import model_secret_id
 from sabre.error_boundaries import guarded_call
+from sabre.logs import log
 from sabre.model_configuration import selection_updates
 from sabre.model_providers import chat_model
 from sabre.models import (
@@ -129,9 +130,12 @@ class ChatGuard(AgentMiddleware):
         rates = Rates.of(self.config, free=cli)
         cost = reserved_cost_usd(rates, input_tokens=input_bound, output_tokens=output_bound)
         usage_id = await self.repository.reserve_chat_usage(f"{self.surface}:{self.event_id}", input_bound + output_bound, cost, self.config.monthly_budget_usd, self.config.chat_budget_usd)
-        observation.set(reserved_tokens=input_bound + output_bound, reserved_usd=cost, invocation_kind="cli_invocation" if cli else "provider_call")
-        async def failed(failure: str, _code: str, number: int, final: bool):
+        observation.set(reserved_tokens=input_bound + output_bound, reserved_usd=cost, invocation_kind="cli_invocation" if cli else "provider_call",
+                        model_provider=getattr(self.config, "model_provider", None), model_name=getattr(self.config, "model_name", None),
+                        max_output_tokens=output_bound)
+        async def failed(failure: str, code: str, number: int, final: bool):
             observation.set(failure_class=failure, provider_attempts=number)
+            log("model.failed", role="supervisor", failure_class=failure, error_code=code, attempt=number)
             if final and hasattr(self.repository, "fail_usage"):
                 await self.repository.fail_usage(usage_id, failure)
 

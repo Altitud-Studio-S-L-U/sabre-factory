@@ -192,8 +192,8 @@ async def test_nothing_set_along_a_run_a_model_call_or_a_conversation_is_dropped
     recorders = []
 
     class Watched(SpanRecorder):
-        def __init__(self, current=None):
-            super().__init__(current)
+        def __init__(self, *arguments):
+            super().__init__(*arguments)
             recorders.append(self)
 
     monkeypatch.setattr("sabre.telemetry.SpanRecorder", Watched)

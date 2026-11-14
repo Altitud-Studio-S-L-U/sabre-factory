@@ -12,6 +12,7 @@ x-app-environment: &app-environment
   SABRE_MODEL_PROVIDER: ${SABRE_MODEL_PROVIDER:-openai}
   SABRE_MODEL_BASE_URL: ${SABRE_MODEL_BASE_URL:-}
   SABRE_OTLP_ENDPOINT: ${SABRE_OTLP_ENDPOINT:-}
+  SABRE_TRACE_VIEWER_URL: ${SABRE_TRACE_VIEWER_URL:-}
   SABRE_MONTHLY_BUDGET_USD: ${SABRE_MONTHLY_BUDGET_USD:-0}
   SABRE_MODEL_INPUT_USD_PER_MILLION: ${SABRE_MODEL_INPUT_USD_PER_MILLION:-0}
   SABRE_MODEL_OUTPUT_USD_PER_MILLION: ${SABRE_MODEL_OUTPUT_USD_PER_MILLION:-0}
@@ -140,6 +141,8 @@ services:
       <<: *executor-docker
       SABRE_BOOTSTRAP_FILE: /run/secrets/sabre/broker.json
       SABRE_API_URL: http://api:8000
+      # One span per command, sent to the same local endpoint as the control services when one is set.
+      SABRE_OTLP_ENDPOINT: ${SABRE_OTLP_ENDPOINT:-}
       SABRE_EXECUTOR_STATE: /workspaces
       SABRE_DEPENDENCY_PROXY: http://dependencies-proxy:3128
       SABRE_SECURITY_UPDATE_PROXY: http://security-proxy:3128

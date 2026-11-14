@@ -3,6 +3,7 @@ import asyncio
 from pydantic import SecretStr
 
 from sabre import __version__
+from sabre.logs import log, owner_decision
 from sabre.models import (
     Answer,
     CallBudgetIncrease,
@@ -99,8 +100,11 @@ class FactoryService:
                     raise DomainError('MODEL_LIMITS_REQUIRED', 'API phases require explicit cumulative limits', 422)
         if work.resolved_flow:
             await self.preflight(work)
-        return await self.repository.admit(work, self.enqueue)
+        admitted = await self.repository.admit(work, self.enqueue)
+        log("work.admitted", work_id=admitted.id, project_id=admitted.project_id, mode=admitted.mode, channel=admitted.channel)
+        return admitted
 
+    @owner_decision("owner.budget", "amend")
     async def amend_budget(self, work_id, request):
         self.guard.check(request)
         async with self.repository.project_lock((await self.repository.work(work_id)).project_id, execution_slot=False) as acquired:
@@ -113,6 +117,7 @@ class FactoryService:
                 return await self.repository.resume(work_id, self.enqueue)
             return work
 
+    @owner_decision("owner.budget", "reconcile_usage")
     async def reconcile_budget_usage(self, work_id, request):
         self.guard.check(request)
         async with self.repository.project_lock((await self.repository.work(work_id)).project_id, execution_slot=False) as acquired:
@@ -140,11 +145,13 @@ class FactoryService:
             if not key.get_secret_value():
                 raise DomainError("MODEL_CREDENTIAL_MISSING", "Configure the selected API credential before launching", 409)
 
+    @owner_decision("owner.answer", "answer")
     async def answer(self, work_id: str, request: Answer):
         self.guard.check(request.model_dump())
         await self.repository.answer(work_id, request.model_dump(), self.enqueue)
         return await self.repository.work(work_id)
 
+    @owner_decision("owner.control")
     async def control(self, work_id: str, command: str):
         work = await self.repository.work(work_id)
         if work.phase == "security_watch":
@@ -179,6 +186,7 @@ class FactoryService:
                     await self.factory.executor.cleanup(work_id)
         return await self.repository.work(work_id)
 
+    @owner_decision("owner.scope", "change")
     async def change_scope(self, work_id: str, change: ScopeChange):
         self.guard.check(change.model_dump())
         work = await self.repository.work(work_id)
@@ -193,6 +201,7 @@ class FactoryService:
                 raise DomainError("PROJECT_BUSY", "Wait for the run to reach its pause point")
             return await self.repository.revise_scope(work_id, change)
 
+    @owner_decision("owner.budget", "increase_tokens")
     async def increase_token_budget(self, work_id: str, change: TokenBudgetIncrease):
         self.guard.check(change.model_dump())
         work = await self.repository.work(work_id)
@@ -203,6 +212,7 @@ class FactoryService:
                 raise DomainError("PROJECT_BUSY", "Wait for the run to reach its pause point")
             return await self.repository.increase_token_budget(work_id, change)
 
+    @owner_decision("owner.budget", "increase_calls")
     async def increase_call_budget(self, work_id: str, change: CallBudgetIncrease):
         self.guard.check(change.model_dump())
         work = await self.repository.work(work_id)
@@ -220,6 +230,7 @@ class FactoryService:
             raise DomainError("MODEL_LIMITS_REQUIRED", "Select CLI sessions for the default model and all roles, or retain explicit quotas", 409)
         return selection.revision
 
+    @owner_decision("owner.budget", "cli_progress_limits")
     async def use_cli_progress_limits(self, work_id: str, change: CliProgressLimitsChange):
         self.guard.check(change.model_dump())
         work = await self.repository.work(work_id)
@@ -231,6 +242,7 @@ class FactoryService:
             revision = await self._cli_progress_selection()
             return await self.repository.use_cli_progress_limits(work_id, change, revision)
 
+    @owner_decision("owner.security_exception", "approve")
     async def approve_security_exception(self, work_id: str, request: SecurityExceptionCreate):
         self.guard.check(request)
         work = await self.repository.work(work_id)
@@ -250,6 +262,7 @@ class FactoryService:
             await self.repository.event(work, "security_exception", "Exception approved by the owner; resume to review against the current policy")
             return approved
 
+    @owner_decision("owner.security_exception", "revoke")
     async def revoke_security_exception(self, work_id: str, exception_id: str):
         work = await self.repository.work(work_id)
         async with self.repository.project_lock(work.project_id, execution_slot=False) as acquired:
@@ -284,7 +297,7 @@ class FactoryService:
             "slack": {"configured": bool(self.config.slack_bot_token.get_secret_value() and self.config.slack_owner_id)},
             "memory": {"store": "postgres-pgvector", "semantic_search": bool(self.config.embedding_model)},
             "security": {"chain": "independent", "scanner_failure": "blocking"},
-            "telemetry": {"configured": bool(self.config.otlp_endpoint)},
+            "telemetry": {"configured": bool(self.config.otlp_endpoint), "viewer_url": getattr(self.config, "trace_viewer_url", None)},
             "monthly_budget_usd": self.config.monthly_budget_usd,
             "limits": {"concurrent_work": self.config.execution_slots, "writers_per_repository": 1, "repair_cycles": 2},
         }

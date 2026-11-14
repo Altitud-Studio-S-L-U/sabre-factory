@@ -56,6 +56,12 @@ ALTER TABLE model_usage ADD COLUMN failure_class text
 """
 
 
+# The root span of a run's latest execution, so the next execution's trace can link to it.
+TRACE_ROOT = """
+ALTER TABLE work_orders ADD COLUMN trace_root jsonb;
+"""
+
+
 async def migrate(conn, baseline: str):
     from sabre.console_configuration import CONSOLE_CONFIGURATION_SCHEMA
     from sabre.delegation import DELEGATION_SCHEMA
@@ -103,7 +109,7 @@ async def migrate(conn, baseline: str):
         """, 10: INGESTION_SCHEMA, 11: RELEASE_SCHEMA, 12: PANEL_SESSION_DIRECTORY,
         13: USAGE_BREAKDOWN, 14: MEMORY_GRAPH_SCHEMA, 15: MEMORY_RECALL_SCHEMA,
         16: OWNER_CONFIRMATION_SCHEMA, 17: OWNER_CONFIRMATION_SUBJECTS, 18: PROJECT_EVENTS,
-        19: USAGE_CACHE_AND_FAILURE}
+        19: USAGE_CACHE_AND_FAILURE, 20: TRACE_ROOT}
     if set(applied) - set(migrations):
         raise DomainError("SCHEMA_NEWER_THAN_RUNTIME", "Restore the matching application version before opening this database", 503)
     for version, statement in migrations.items():

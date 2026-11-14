@@ -136,3 +136,33 @@ async def test_figures_across_runs_agree_with_the_ledger_and_the_event_log(repos
         assert response.status_code == 200
         served = RunMetrics.model_validate(response.json())
         assert served.model_dump(exclude={"generated_at"}) == narrowed.model_dump(exclude={"generated_at"})
+
+
+async def test_a_run_keeps_the_root_span_of_its_latest_execution_and_the_next_one_links_to_it(repository, monkeypatch):
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+    from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+
+    from sabre.telemetry import execution_span, trace_identifiers
+
+    repo, _, work = await fixture_work(repository)
+    assert await repo.trace_root(work.id) is None and await repo.trace_root("no-such-run") is None
+    before = await repo.work(work.id)
+    await repo.remember_trace_root(work.id, {"trace_id": "a" * 32, "span_id": "b" * 16, "anything_else": "left out"})
+    assert await repo.trace_root(work.id) == {"trace_id": "a" * 32, "span_id": "b" * 16}
+    # Keeping the root is not a change to the run: nothing the owner sees moves.
+    assert await repo.work(work.id) == before
+
+    exporter, provider = InMemorySpanExporter(), TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    monkeypatch.setattr("sabre.telemetry.trace.get_tracer", lambda _: provider.get_tracer("test"))
+    async with execution_span(repo, work.id):
+        first = trace_identifiers()
+    async with execution_span(repo, work.id):
+        second = trace_identifiers()
+    earlier, later = exporter.get_finished_spans()
+    assert [(f"{link.context.trace_id:032x}", f"{link.context.span_id:016x}") for link in earlier.links] == [("a" * 32, "b" * 16)]
+    assert [(f"{link.context.trace_id:032x}", f"{link.context.span_id:016x}") for link in later.links] == [
+        (first["trace_id"], first["span_id"])]
+    assert await repo.trace_root(work.id) == second
+    provider.shutdown()

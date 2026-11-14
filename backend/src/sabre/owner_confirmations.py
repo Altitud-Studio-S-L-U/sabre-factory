@@ -19,6 +19,7 @@ from pydantic import Field, ValidationError
 from sabre.budget_contracts import BudgetAmendment, BudgetReconciliation
 from sabre.contracts import StrictContract
 from sabre.create_flow import CreateFlowLaunch, launch_create
+from sabre.logs import log
 from sabre.models import (
     OWNER_DECISIONS,
     Answer,
@@ -281,11 +282,14 @@ class OwnerConfirmations:
         raise DomainError("CONFIRMATION_CLOSED", "This request was already decided or has expired", 409)
 
     async def reject(self, identifier: str, decision: ConfirmationDecision) -> OwnerConfirmation:
-        return self._view(await self._claim(identifier, decision, "rejected"))
+        row = await self._claim(identifier, decision, "rejected")
+        log("owner.confirmation", work_id=row["work_id"], kind=row["kind"], decision="reject")
+        return self._view(row)
 
     async def confirm(self, identifier: str, decision: ConfirmationDecision) -> OwnerConfirmation:
         """Apply the stored request once. The claim precedes the effect, so a second click cannot repeat it."""
         row = await self._claim(identifier, decision, "applying")
+        log("owner.confirmation", work_id=row["work_id"], kind=row["kind"], decision="confirm")
         operation = OPERATIONS[row["kind"]]
         try:
             request = operation.model.model_validate_json(json.dumps(row["request"]))

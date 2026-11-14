@@ -14,7 +14,8 @@ const windows = process.platform === 'win32';
 import { executable, prefix } from './platform.mjs';
 const cliArguments = process.argv.slice(2);
 const noOpen = cliArguments.includes('--no-open');
-const [action = 'status', component = 'all', ...rest] = cliArguments.filter((value) => value !== '--no-open');
+const traces = cliArguments.includes('--traces');
+const [action = 'status', component = 'all', ...rest] = cliArguments.filter((value) => !['--no-open', '--traces'].includes(value));
 const invoked = Boolean(process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href);
 const configFiles = invoked ? ['.env', '.env.runtime'] : [];
 const config = {};
@@ -79,6 +80,15 @@ async function compose(args, document, capture = false) {
   child.stdin.end(document ?? readFileSync(resolve(root, 'infra/compose.yml')));
   await done(child);
   return capture ? Buffer.concat(chunks).toString('utf8') : '';
+}
+
+/** What `up --traces` adds to the public configuration; nothing without the flag, and never over a configured value. */
+export function traceSettings(current, enabled) {
+  if (!enabled) return {};
+  return {
+    SABRE_OTLP_ENDPOINT: current.SABRE_OTLP_ENDPOINT || 'http://jaeger:4318/v1/traces',
+    SABRE_TRACE_VIEWER_URL: current.SABRE_TRACE_VIEWER_URL || 'http://127.0.0.1:16686/trace/{trace_id}',
+  };
 }
 
 export async function prepareScannerImages(document, pull) {
@@ -457,7 +467,11 @@ if (action === 'init') {
   const usesClaude = config.SABRE_CLAUDE_ENABLED === 'true' || component === 'claude-runner' || config.SABRE_MODEL_PROVIDER === 'claude_cli'
     || Object.values(privateJson(config.SABRE_ROLE_MODELS || '{}')).some((role) => role.model_provider === 'claude_cli');
   if (usesClaude) await provisionClaude();
-  await compose([...(usesCodex ? ['--profile', 'codex'] : []), ...(usesClaude ? ['--profile', 'claude'] : []),
+  // --traces is the one flag for local traces: the bundled viewer, the endpoint the services export to
+  // and the address a trace opens at. Values the operator configured are kept.
+  Object.assign(config, traceSettings(config, traces));
+  await compose([...(traces ? ['--profile', 'telemetry'] : []), ...(usesCodex ? ['--profile', 'codex'] : []),
+    ...(usesClaude ? ['--profile', 'claude'] : []),
     'up', '-d', '--wait', '--wait-timeout', '90', ...(component === 'all' ? [] : [component]), ...rest]);
   if (component === 'all' && !rest.length && !noOpen && !process.env.CI) {
     // Opening the panel is a convenience: services are already running if it fails.

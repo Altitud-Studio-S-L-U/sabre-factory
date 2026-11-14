@@ -5,7 +5,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, SecretStr
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from sabre.models import DomainError
@@ -156,6 +156,8 @@ class Settings(BaseSettings):
     mcp_servers: dict[str, MCPServerSettings] = Field(default_factory=dict)
     role_models: dict[str, RoleModelSettings] = Field(default_factory=dict)
     otlp_endpoint: str | None = None
+    # Where a trace opens in the operator's viewer: an http(s) address with {trace_id} in it.
+    trace_viewer_url: str | None = None
     web_dir: Path = Path("/app/web/dist")
     allowed_origins: list[str] = ["http://localhost:8000", "http://127.0.0.1:8000"]
 
@@ -192,6 +194,17 @@ class Settings(BaseSettings):
             updates["model_cache_read_usd_per_million"] = override.model_cache_read_usd_per_million
             updates["model_cache_write_usd_per_million"] = override.model_cache_write_usd_per_million
         return self.model_copy(update=updates)
+
+    @field_validator("trace_viewer_url")
+    @classmethod
+    def viewer_address(cls, value):
+        if not value:
+            return None
+        from urllib.parse import urlsplit
+        parts = urlsplit(value)
+        if parts.scheme not in {"http", "https"} or not parts.hostname or parts.username or parts.password or "{trace_id}" not in value:
+            raise ValueError("Use an http(s) address that contains {trace_id}")
+        return value
 
     def model_ready(self) -> bool:
         if self.model_provider in {"codex_cli", "claude_cli"}:
