@@ -129,6 +129,21 @@ def correction_message(error: DomainError) -> HumanMessage:
         "with valid arguments, and return the final result through the required structured output.")}))
 
 
+def provider_cache_middleware(config) -> list:
+    """What a provider needs before it caches the stable part of a request.
+
+    OpenAI and Gemini cache a stable prefix on their own. The Anthropic API caches only what a request marks,
+    so its requests mark the end of the tool definitions, the end of the instructions and the end of the
+    conversation. The marks are added after the reservation and the guard, which therefore measure and check
+    the request as the factory wrote it. A CLI session manages its own cache and is left alone.
+    """
+    if getattr(config, "model_provider", None) != "anthropic":
+        return []
+    from langchain_anthropic.middleware import AnthropicPromptCachingMiddleware
+
+    return [AnthropicPromptCachingMiddleware(unsupported_model_behavior="ignore")]
+
+
 def cache_read_tokens(usage: dict) -> int:
     """Provider-reported cached input tokens (a subset of input tokens), or 0 when unreported."""
     return cache_tokens(usage, "cache_read")
@@ -541,7 +556,8 @@ class AgentTeam:
                    f"A result stays in your view for about {getattr(config, 'context_dedup_keep_model_turns', 2)} model turns and recovered pages age out the same way: before moving on from a file, "
                    "record the facts you will rely on (paths, line numbers, findings) with record_note when that tool is listed, and work from those notes instead of recovering the same text again." if archive else "")),
             middleware=[GuardedCalls(self.repository, config, work, self.guard, role=role, credential_check=credential_check,
-                artifacts=self.artifacts, context_archive=archive, child_id=child_id, memory_validator=memory_validator)])
+                artifacts=self.artifacts, context_archive=archive, child_id=child_id, memory_validator=memory_validator),
+                *provider_cache_middleware(config)])
         graph_config: RunnableConfig = {"configurable": {"thread_id": child_id, "checkpoint_ns": ""}, "recursion_limit": 50}
         saved = await agent.aget_state(graph_config) if self.checkpointer else None
         if saved and saved.values and saved.next:

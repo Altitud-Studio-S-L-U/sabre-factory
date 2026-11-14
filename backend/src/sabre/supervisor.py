@@ -17,7 +17,7 @@ from langchain_core.tools import tool
 from pydantic import SecretStr
 
 from sabre.agent_catalog import definition_errors
-from sabre.agents import cache_read_tokens, input_reservation_tokens
+from sabre.agents import cache_read_tokens, input_reservation_tokens, provider_cache_middleware
 from sabre.audit import AuditUsage, RunUsageSnapshot
 from sabre.budget_views import budget_view
 from sabre.costs import Rates, cache_write_tokens, call_cost_usd, reported_cost_usd, reserved_cost_usd
@@ -411,7 +411,8 @@ class SupervisorConversation:
         if snapshot is not None:
             prompt += "\nPinned specialist instructions, bounded by owner grants and platform policy: " + snapshot.definition.instructions
             prompt += "\n" + " ".join(SKILLS[skill.name].instruction for skill in snapshot.definition.skills)
-        agent = create_agent(model=self.model(cfg), tools=tools, system_prompt=prompt, middleware=[middleware], checkpointer=self.checkpointer)
+        agent = create_agent(model=self.model(cfg), tools=tools, system_prompt=prompt, middleware=[middleware, *provider_cache_middleware(cfg)],
+                             checkpointer=self.checkpointer)
         config: RunnableConfig = {"configurable": {"thread_id": event.conversation_id}, "recursion_limit": 25}
         saved = await agent.aget_state(config) if self.checkpointer else None
         seen = bool(saved and any(getattr(item, "id", None) == event.event_id for item in saved.values.get("messages", [])))
