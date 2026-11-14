@@ -132,6 +132,9 @@ class Settings(BaseSettings):
     context_dedup_min_result_bytes: int = Field(default=4096, ge=1024, le=1048576)
     context_dedup_keep_model_turns: int = Field(default=2, ge=2, le=20)
     context_archive_enabled: bool = True
+    # Shares of the input ceiling between which the recoverable archive works in batches.
+    context_archive_high_water: float = Field(default=0.6, ge=0.2, le=0.95)
+    context_archive_low_water: float = Field(default=0.4, ge=0.1, le=0.9)
     context_input_max_bytes: int = Field(default=98304, ge=16384, le=1048576)
     github_token: SecretStr = Field(default=SecretStr(""), exclude=True, repr=False)
     slack_bot_token: SecretStr = Field(default=SecretStr(""), exclude=True, repr=False)

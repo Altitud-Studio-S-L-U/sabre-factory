@@ -12,7 +12,7 @@ from langchain.agents import create_agent
 from langchain.agents.middleware import AgentMiddleware
 from langchain.agents.middleware.types import InputAgentState
 from langchain.agents.structured_output import AutoStrategy, ProviderStrategy, ToolStrategy
-from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import HumanMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.errors import GraphRecursionError
 from pydantic import BaseModel, SecretStr, TypeAdapter
@@ -74,9 +74,13 @@ BYTES_PER_TOKEN_FLOOR = 2.5
 # From this share of the input limit on, the agent is told that its conversation is running out of room.
 CONTEXT_PRESSURE = 0.85
 CONTEXT_PRESSURE_RESERVE = 512
-CONTEXT_PRESSURE_NOTICE = (" Context status: this conversation is at {percent}% of its input limit and earlier results are leaving your view. "
+CONTEXT_PRESSURE_NOTICE = ("Context status: this conversation is at {percent}% of its input limit and earlier results are leaving your view. "
     "Do not start new exploration. Record what matters with record_note when that tool is listed, finish the step you are on, "
     "and return your result with what you have established, saying what you could not verify.")
+# The recoverable archive works in batches between these shares of the input limit: nothing leaves the
+# request below the high mark, and a batch brings it down to the low one.
+ARCHIVE_HIGH_WATER = 0.6
+ARCHIVE_LOW_WATER = 0.4
 API_INPUT_MARGIN_TOKENS = 2048
 CLI_INPUT_MARGIN_TOKENS = 16384
 
@@ -199,7 +203,13 @@ class GuardedCalls(AgentMiddleware):
                 material["messages"] = [m.model_dump(mode="json") for m in candidate.messages]
                 return len(json.dumps(material, ensure_ascii=False, separators=(",", ":")).encode()) - (limit - CONTEXT_PRESSURE_RESERVE)
 
-            projection = project_tool_context(request.messages, policy)
+            if policy.archive_unique:
+                high = getattr(self.settings, "context_archive_high_water", ARCHIVE_HIGH_WATER)
+                low = min(getattr(self.settings, "context_archive_low_water", ARCHIVE_LOW_WATER), high)
+                policy = replace(policy, high_water_bytes=int(limit * high), low_water_bytes=int(limit * low))
+            # What the request carries besides its messages: instructions, tool definitions and the response contract.
+            overhead = len(json.dumps({**material, "messages": []}, ensure_ascii=False, separators=(",", ":")).encode())
+            projection = project_tool_context(request.messages, policy, overhead_bytes=overhead)
             if excess(projection) > 0 and policy.enabled and policy.archive_unique:
                 # A large latest batch cannot reach the next model turn to age
                 # out. Only recoverable internal reads may relax recency here.
@@ -225,12 +235,12 @@ class GuardedCalls(AgentMiddleware):
         sent_bytes = len(json.dumps(material, ensure_ascii=False, separators=(",", ":")).encode())
         if sent_bytes > limit:
             raise DomainError("CONTEXT_BUDGET_EXHAUSTED", "Required context exceeds the input limit; narrow the task or review its configuration before continuing", 409)
-        system = request.system_message.content if request.system_message else None
-        if isinstance(system, str) and limit * CONTEXT_PRESSURE <= sent_bytes <= limit - CONTEXT_PRESSURE_RESERVE:
-            # The agent cannot see its own request size: say so while there is still room to conclude.
-            system += CONTEXT_PRESSURE_NOTICE.format(percent=round(100 * sent_bytes / limit))
-            request = request.override(system_message=SystemMessage(content=system))
-            material["system"] = system
+        if limit * CONTEXT_PRESSURE <= sent_bytes <= limit - CONTEXT_PRESSURE_RESERVE:
+            # The agent cannot see its own request size: say so while there is still room to conclude. The notice
+            # travels as the last message of this request only, so the instructions before it stay byte-identical.
+            notice = HumanMessage(content=json.dumps({"platform_notice": CONTEXT_PRESSURE_NOTICE.format(percent=round(100 * sent_bytes / limit))}))
+            request = request.override(messages=[*request.messages, notice])
+            material["messages"] = [m.model_dump(mode="json") for m in request.messages]
             noticed = len(json.dumps(material, ensure_ascii=False, separators=(",", ":")).encode())
             # The notice is the harness's own text: it counts on both sides of the receipt.
             original_bytes, sent_bytes = original_bytes + noticed - sent_bytes, noticed
