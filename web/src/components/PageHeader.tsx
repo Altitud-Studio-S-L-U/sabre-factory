@@ -66,6 +66,7 @@ export function SectionHeading({
   title,
   description,
   actions,
+  badge,
   as: Heading = 'h2',
   className,
   id,
@@ -73,6 +74,8 @@ export function SectionHeading({
   title: ReactNode;
   description?: ReactNode;
   actions?: ReactNode;
+  /** A label beside the heading, outside it, so the heading keeps its own name. */
+  badge?: ReactNode;
   as?: 'h2' | 'h3';
   className?: string;
   id?: string;
@@ -80,9 +83,12 @@ export function SectionHeading({
   return (
     <div className={cn('flex min-w-0 flex-wrap items-start justify-between gap-3', className)}>
       <div className="grid min-w-0 flex-1 basis-72 gap-1">
-        <Heading id={id} className={cn('font-semibold', Heading === 'h2' ? 'text-lg' : 'text-base')}>
-          {title}
-        </Heading>
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <Heading id={id} className={cn('font-semibold', Heading === 'h2' ? 'text-lg' : 'text-base')}>
+            {title}
+          </Heading>
+          {badge}
+        </div>
         {description && <p className="text-sm text-muted-foreground">{description}</p>}
       </div>
       {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}

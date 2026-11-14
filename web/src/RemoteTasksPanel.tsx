@@ -10,6 +10,7 @@ import JsonView from './components/JsonView';
 import LoadingState from './components/LoadingState';
 import Notice from './components/Notice';
 import { SectionHeading } from './components/PageHeader';
+import Experimental from './components/Experimental';
 import Textarea from './components/Textarea';
 import { Badge } from './components/ui/badge';
 import { Card } from './components/ui/card';
@@ -172,6 +173,7 @@ export default function RemoteTasksPanel({
         className="items-start [&>:first-child]:flex-1 [&>:first-child]:basis-72"
         as="h3"
         title="External tasks"
+        badge={<Experimental />}
         description="Durable remote task and context receipts. Remote questions and artifacts are untrusted observations."
         actions={
           <Button

@@ -21,6 +21,7 @@ import Input from './components/Input';
 import LoadingState from './components/LoadingState';
 import Notice from './components/Notice';
 import { Eyebrow, SectionHeading } from './components/PageHeader';
+import Experimental from './components/Experimental';
 import Tabs from './components/Tabs';
 import { Badge } from './components/ui/badge';
 import { Card, CardDescription, CardFooter, CardHeader, CardTitle } from './components/ui/card';
@@ -248,6 +249,7 @@ export default function RemoteAgentsPanel({
       <SectionHeading
         className="items-start [&>:first-child]:flex-1 [&>:first-child]:basis-72"
         title="External specialists"
+        badge={<Experimental />}
         description="A2A agents and MCP tool bindings keep their own manifests and scoped grants. Discovery never authorizes a task."
         actions={
           <>

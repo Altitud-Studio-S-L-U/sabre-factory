@@ -13,6 +13,7 @@ import CodeBlock from './components/CodeBlock';
 import DescriptionList from './components/DescriptionList';
 import Dialog from './components/Dialog';
 import Disclosure from './components/Disclosure';
+import Experimental from './components/Experimental';
 import Field from './components/FormField';
 import Input from './components/Input';
 import Notice from './components/Notice';
@@ -261,7 +262,10 @@ export default function ReleasesPanel({
     <section className="grid min-w-0 gap-4" aria-label="Release candidates">
       <header className="flex min-w-0 flex-wrap items-start justify-between gap-3">
         <div className="grid min-w-0 gap-1">
-          <h3 className="text-base font-semibold">Release candidates</h3>
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <h3 className="text-base font-semibold">Release candidates</h3>
+            <Experimental />
+          </div>
           <p className="text-sm text-muted-foreground">
             Immutable versioned artifacts and publication bound to their checked commit.
           </p>

@@ -3,6 +3,7 @@ import { ApiError, type Api, type ConnectedRepositories, type GitHubConnectionVi
 import Button from '../../components/Button';
 import { buttonVariants } from '../../components/ui/button';
 import DescriptionList from '../../components/DescriptionList';
+import Experimental from '../../components/Experimental';
 import Dialog, { DialogActions } from '../../components/Dialog';
 import Field from '../../components/FormField';
 import Input from '../../components/Input';
@@ -183,11 +184,14 @@ export default function GitHubConnection({
               : 'One connection instead of pasted tokens: you choose on GitHub which repositories the factory may use.'}
           </CardDescription>
         </div>
-        {view && (
-          <Badge variant={connected ? 'success' : view.state === 'registered' ? 'warning' : 'neutral'}>
-            {connected ? 'Connected' : view.state === 'registered' ? 'Not installed yet' : 'Not connected'}
-          </Badge>
-        )}
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Experimental reason="It was exercised against a synthetic GitHub and has not been connected to github.com yet." />
+          {view && (
+            <Badge variant={connected ? 'success' : view.state === 'registered' ? 'warning' : 'neutral'}>
+              {connected ? 'Connected' : view.state === 'registered' ? 'Not installed yet' : 'Not connected'}
+            </Badge>
+          )}
+        </div>
       </CardHeader>
       {error && (
         <Notice tone="danger" role="alert">
