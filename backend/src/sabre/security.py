@@ -84,6 +84,9 @@ class SecretGuard:
         re.compile(r"\bAKIA[A-Z0-9]{16}\b"),
         credential_url_pattern,
     )
+    # What each pattern looks for, in the same order: the only description of a match that leaves the guard.
+    kinds = ("delegated SABRE credential", "API key", "GitHub token", "GitHub token", "Slack token", "private key header",
+             "assigned secret", "AWS access key", "URL with credentials")
 
     def __init__(self, known_secrets: Iterable[str] = ()):
         self.known_secrets = tuple(secret for secret in known_secrets if secret and len(secret) >= 4)
@@ -125,6 +128,22 @@ class SecretGuard:
             self._is_secret_match(match) for pattern in self.patterns for match in pattern.finditer(text)):
             raise DomainError("SECRET_DETECTED", "Content containing a possible credential was blocked", 422)
 
+    def locations(self, text: str) -> list[tuple[int, str]]:
+        """Line and kind of every possible credential in a text that check() refuses, never the match."""
+        found = {(text.count("\n", 0, match.start()) + 1, "registered credential")
+                 for secret in self.known_secrets for match in re.finditer(re.escape(secret), text)}
+        found |= {(text.count("\n", 0, match.start()) + 1, kind) for kind, pattern in zip(self.kinds, self.patterns, strict=True)
+                  for match in pattern.finditer(text) if self._is_secret_match(match)}
+        return sorted(found)
+
+    def _refused(self, text: str) -> list[tuple[int, str]]:
+        """check() decides; the locations only describe a refusal it already made."""
+        try:
+            self.check(text)
+        except DomainError:
+            return self.locations(text) or [(1, "possible credential")]
+        return []
+
     def redact(self, value: Any) -> Any:
         if isinstance(value, str):
             for secret in self.known_secrets:
@@ -143,13 +162,15 @@ class SecretGuard:
         if not isinstance(snapshot, dict) or not isinstance(snapshot.get("files"), list):
             raise DomainError("INVALID_SNAPSHOT", "The snapshot does not contain a valid file list", 422)
         self.check({key: value for key, value in snapshot.items() if key != "files"})
+        places: list[str] = []
         for entry in snapshot["files"]:
             if not isinstance(entry, dict) or not isinstance(entry.get("content"), str):
                 raise DomainError("INVALID_SNAPSHOT", "File content is invalid", 422)
             self.check({key: value for key, value in entry.items() if key != "content"})
             encoding = entry.get("encoding", "utf-8")
+            path = plain_path(str(entry.get("path", "")))
             if encoding == "utf-8":
-                self.check(entry["content"])
+                places += [f"{path} line {line} ({kind})" for line, kind in self._refused(entry["content"])]
                 try:
                     entry["content"].encode("utf-8")
                 except UnicodeEncodeError:
@@ -159,14 +180,20 @@ class SecretGuard:
                     raw = base64.b64decode(entry["content"], validate=True)
                 except (ValueError, binascii.Error):
                     raise DomainError("INVALID_SNAPSHOT", "The file does not contain valid base64", 422) from None
-                self.check(raw.decode("utf-8", errors="ignore"))
+                decoded = [raw.decode("utf-8", errors="ignore")]
                 for bom, codec in ((codecs.BOM_UTF32_LE, "utf-32"), (codecs.BOM_UTF32_BE, "utf-32"),
                                    (codecs.BOM_UTF16_LE, "utf-16"), (codecs.BOM_UTF16_BE, "utf-16")):
                     if raw.startswith(bom):
-                        self.check(raw.decode(codec, errors="ignore"))
+                        decoded.append(raw.decode(codec, errors="ignore"))
                         break
+                # Lines mean nothing in an encoded file: name the file and the kinds only.
+                places += [f"{path} ({kind})" for kind in sorted({kind for text in decoded for _line, kind in self._refused(text)})]
             else:
                 raise DomainError("INVALID_SNAPSHOT", "The file encoding is not allowed", 422)
+        if places:
+            shown = "; ".join(places[:SNAPSHOT_PLACES]) + (f"; and {len(places) - SNAPSHOT_PLACES} more" if len(places) > SNAPSHOT_PLACES else "")
+            raise DomainError("SECRET_DETECTED", f"Content containing a possible credential was blocked. Found at: {shown}. Rotate any real "
+                              "credential, change test data shaped like a credential, and submit the work again.", 422)
 
 
 def fingerprint(scanner: str, rule: str, path: str = "", location: str = "") -> str:
@@ -183,13 +210,21 @@ def scanner_error(scanner: str) -> SecurityFinding:
     )
 
 
+SNAPSHOT_PLACES = 8
+
+
+def plain_path(path: str) -> str:
+    """A repository path that is safe to repeat to the owner; anything else is described instead."""
+    path = path.removeprefix("/workspace/")
+    return path if re.fullmatch(r"[A-Za-z0-9._@+-][A-Za-z0-9._@+/-]{0,159}", path) else "a path with unusual characters"
+
+
 def finding_locations(findings: list[SecurityFinding], limit: int = 5) -> str:
     """Where findings are: path, line and rule, never content. Paths and rules come from the scanned repository
     and the rule set, so anything outside a plain path or identifier is described instead of repeated."""
     places = []
     for finding in findings[:limit]:
-        path = (finding.path or "").removeprefix("/workspace/")
-        place = path if re.fullmatch(r"[A-Za-z0-9._@+-][A-Za-z0-9._@+/-]{0,159}", path) else "a path with unusual characters"
+        place = plain_path(finding.path or "")
         rule = finding.reference if finding.reference and re.fullmatch(r"[A-Za-z0-9._-]{1,80}", finding.reference) else "unnamed rule"
         places.append(f"{place}{f' line {finding.line}' if finding.line else ''} ({rule})")
     more = len(findings) - len(places)
