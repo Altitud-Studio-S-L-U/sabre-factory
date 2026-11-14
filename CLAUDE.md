@@ -11,7 +11,7 @@ work order into a verified draft pull request, plus a console for the human owne
 - `web/`: React 19 + Vite + Tailwind 4 + shadcn console. `web/e2e/` Playwright journeys.
 - `infra/`: launcher scripts (`ops.mjs`, `dev.mjs`, `qa.mjs`, `bench.mjs`), Compose, Dockerfiles.
 - `bin/sabre.mjs`: the `sabre` command (`npm link` once to install it).
-- Specs in `docs/specs/`, operations in `docs/operations.md`, architecture in `docs/architecture.md`.
+- Specs in `docs/specs/`, operations in `docs/operations.md`, architecture in `docs/architecture.md`, threat model in `docs/threat-model.md`.
 
 ## Verify
 
