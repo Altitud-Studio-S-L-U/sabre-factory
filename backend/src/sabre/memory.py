@@ -28,6 +28,7 @@ from sabre.memory_contracts import (
 )
 from sabre.memory_store import lifecycle
 from sabre.models import (
+    MAX_MEMORY_CITATIONS,
     DomainError,
     MemoryCreate,
     MemoryItem,
@@ -50,20 +51,23 @@ REVIEW_LIMIT = 100
 RUN_PROPOSERS = frozenset({"analyst", "developer", "reviewer"})
 MAX_STEP_PROPOSALS = 3
 MAX_RUN_PROPOSALS = 12
+MAX_PROPOSAL_CITATIONS = 5
 PROPOSE_TOOL = "propose_memory"
 PROPOSE_DESCRIPTION = (
     "Propose one thing about this repository that a later run would otherwise have to rediscover: where a behaviour lives, "
     "a command that verifies it, a constraint that is not obvious. Give the statement, why it matters and the files that show it "
-    "(a path, optionally with #L<line>) as they are at the commit this run started from. The owner reviews every proposal before "
-    f"any run sees it. At most {MAX_STEP_PROPOSALS} per assignment. Not for task progress, plans or anything the cited files do not show."
+    f"(one to {MAX_PROPOSAL_CITATIONS} paths, optionally with #L<line>) as they are at the commit this run started from. The owner "
+    f"reviews every proposal before any run sees it. At most {MAX_STEP_PROPOSALS} per assignment. Not for task progress, plans or "
+    "anything the cited files do not show."
 )
+# The contract is deliberately loose: what the service can answer with a reason (too many citations, an
+# empty statement) is a soft refusal, not a contract error that counts against the stage's recoveries.
 PROPOSE_SCHEMA = {
     "type": "object",
     "properties": {
-        "statement": {"type": "string", "minLength": 20, "maxLength": 1000},
-        "why": {"type": "string", "minLength": 10, "maxLength": 300},
-        "citations": {"type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 1040},
-                      "minItems": 1, "maxItems": 5, "uniqueItems": True},
+        "statement": {"type": "string", "maxLength": 1000},
+        "why": {"type": "string", "maxLength": 300},
+        "citations": {"type": "array", "items": {"type": "string", "maxLength": 1040}, "maxItems": MAX_MEMORY_CITATIONS},
         "kind": {"type": "string", "enum": ["fact", "lesson"]},
     },
     "required": ["statement", "why", "citations"],
@@ -204,11 +208,15 @@ class MemoryService:
                 return refused("MEMORY_PROPOSAL_LIMIT", f"This assignment already proposed {MAX_STEP_PROPOSALS} memories. Continue with the task.")
             if await self.repository.run_proposal_count(work.id) >= MAX_RUN_PROPOSALS:
                 return refused("MEMORY_PROPOSAL_LIMIT", f"This run already proposed {MAX_RUN_PROPOSALS} memories. Continue with the task.")
+            cited = list(dict.fromkeys(citation.strip() for citation in citations if citation.strip()))
+            if not statement.strip() or not why.strip() or not 1 <= len(cited) <= MAX_PROPOSAL_CITATIONS:
+                return refused("INCOMPLETE_PROPOSAL", "A proposal needs a statement, why it matters and between one and "
+                               f"{MAX_PROPOSAL_CITATIONS} cited files that show it.")
             try:
                 # One line of statement, so the record has a title; the reason follows on its own line.
                 request = MemoryCreate(project_id=work.project_id, kind=kind, source_commit=commit, source_work_id=work.id,
                                        content=f"{' '.join(statement.split())}\nWhy it matters: {' '.join(why.split())}",
-                                       scope="project", citations=citations)
+                                       scope="project", citations=cited)
                 item = await self.propose(request, proposed_by=ProposedBy(channel="factory", role=role, work_id=work.id))
             except ValidationError:
                 return refused("INVALID_CITATION", "Write each citation as a repository-relative path, optionally followed by #L<line>.")

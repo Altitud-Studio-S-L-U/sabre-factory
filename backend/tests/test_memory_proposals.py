@@ -4,6 +4,7 @@ import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+import jsonschema
 import pytest
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, ToolMessage
@@ -11,7 +12,14 @@ from langchain_core.outputs import ChatGeneration, ChatResult
 from pydantic import PrivateAttr
 
 from sabre.agents import AgentTeam
-from sabre.memory import MAX_RUN_PROPOSALS, MAX_STEP_PROPOSALS, PROPOSE_GUIDANCE, PROPOSE_TOOL, MemoryService
+from sabre.memory import (
+    MAX_RUN_PROPOSALS,
+    MAX_STEP_PROPOSALS,
+    PROPOSE_GUIDANCE,
+    PROPOSE_SCHEMA,
+    PROPOSE_TOOL,
+    MemoryService,
+)
 from sabre.models import AgentResult, DomainError, MemoryCreate, ProposedBy
 from sabre.security import SecretGuard
 from tests.test_agents import Executor, Repository, setup
@@ -78,6 +86,16 @@ async def test_proposals_are_bounded_per_assignment_and_per_run_and_a_refusal_is
     assert (await checked.proposer(work, "developer", COMMIT)(**STATEMENT | {"citations": ["../outside.py"]}))["code"] == "INVALID_CITATION"
     missing, _ = memory(work, indexed=False)
     assert (await missing.proposer(work, "analyst", COMMIT)(**STATEMENT))["code"] == "MEMORY_PROVENANCE"
+    # Arguments the contract lets through and the service cannot use are refused with a reason, not as a contract error.
+    loose, stored = memory(work)
+    for arguments in (STATEMENT | {"statement": "  "}, STATEMENT | {"why": ""}, STATEMENT | {"citations": []},
+                      STATEMENT | {"citations": [f"src/file{number}.py" for number in range(6)]}):
+        jsonschema.Draft202012Validator(PROPOSE_SCHEMA).validate(arguments)
+        assert (await loose.proposer(work, "analyst", COMMIT)(**arguments))["code"] == "INCOMPLETE_PROPOSAL"
+    stored.create_memory.assert_not_awaited()
+    # A repeated citation is one citation.
+    await loose.proposer(work, "analyst", COMMIT)(**STATEMENT | {"citations": ["src/a.py", " src/a.py ", "src/b.py#L2"]})
+    assert stored.create_memory.await_args.args[0].citations == ["src/a.py", "src/b.py#L2"]
 
     # A fault that is not about the proposal still surfaces.
     async def broken(item, embedding):
