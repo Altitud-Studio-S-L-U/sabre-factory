@@ -44,13 +44,13 @@ The decision that matters is narrower: who runs the inner tool loop of the imple
 | G11 | The role pipeline is unmeasured | Seven specialists and several model stages, none justified by an ablation | [16](specs/16-evaluation.md) |
 | G12 | Console and plan leftovers | See "Left over from the previous plan" | Phase 0 and Phase 5 |
 | G13 | Work is sequential | One task at a time and no streaming; the console polls every five seconds | After G1 and G2: read-only parallel subagents first |
-| G14 | Memory cannot learn | A record needs a delivered run, specialists cannot propose one, an audit records nothing, the one automatic record is never recalled, and the owner's dialog prefills a commit the service refuses. A registered project shows a blank Memory page | [17](specs/17-memory-sources.md) |
+| G14 | Memory cannot learn | A record needs a delivered run, specialists cannot propose one, an audit records nothing, the one automatic record is never recalled, and the owner's dialog prefills a commit the service refuses. A registered project shows its repository map and no knowledge | [17](specs/17-memory-sources.md) |
 
 ## Plan
 
 Each phase ends on evidence, and Phase 1 is the gate: what it measures decides the size of Phases 2 and 3.
 
-**Phase 0 · Close what is open.** The owner decides the scanner policy and the open audit completes or stays blocked for a stated reason. Tools is organised by service (done alongside this document). Projects gains edit and archive (done, [13](specs/13-projects.md)). Memory imports what the repository already says, shows a coverage map and stops claiming what it cannot do ([17](specs/17-memory-sources.md)). The small defects listed below are fixed. *Exit:* one real audit with a report; no known defect in the console's main path.
+**Phase 0 · Close what is open.** The owner decides the scanner policy and the open audit completes or stays blocked for a stated reason. Tools is organised by service (done alongside this document). Projects gains edit and archive (done, [13](specs/13-projects.md)). Memory opens on a map of the repository as indexed and stops claiming what it cannot do (done); it still has to import what the repository already says ([17](specs/17-memory-sources.md)). The small defects listed below are fixed. *Exit:* one real audit with a report; no known defect in the console's main path.
 
 **Phase 1 · Prove.** Grow the suite to twenty tasks on three repositories. Add recovery ratio and prefix stability to the scripted driver and run it in CI. Run the provider driver and the baseline with the owner's authorization and budget. Deliver the first real patch as a draft pull request on a sample repository. *Exit:* a committed report with pass rate, cost and time for the factory and for the baseline.
 

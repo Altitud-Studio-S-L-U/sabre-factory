@@ -23,6 +23,7 @@ import {
   SkeletonTable,
 } from './components/Skeletons';
 import MemoryLayers from './features/memory/MemoryLayers';
+import CoverageMap from './features/memory/CoverageMap';
 import KnowledgeMap from './features/memory/KnowledgeMap';
 import MemoryInspector from './features/memory/MemoryInspector';
 import ReviewQueue from './features/memory/ReviewQueue';
@@ -48,6 +49,7 @@ const failure = (reason: unknown) =>
 const validity = (item: MemoryItem) =>
   item.invalidated_at ? 'Invalidated' : item.active ? 'Approved' : 'Needs review';
 const views = [
+  'Repository map',
   'Knowledge map',
   'Records',
   'Review queue',
@@ -92,7 +94,8 @@ export default function MemoryConsole({ api, projects, connected = true }: Memor
   const [sentContext, setSentContext] = useState<AuditView['context']>(null);
   const [contextError, setContextError] = useState('');
   const [contextLoading, setContextLoading] = useState(false);
-  const [tab, setTab] = useState<View>('Knowledge map');
+  // The repository is there before any record is: the landing view never starts blank for an indexed project.
+  const [tab, setTab] = useState<View>('Repository map');
   const [review, setReview] = useState<MemoryReview | null>(null);
   const [recalls, setRecalls] = useState<MemoryRecallPage | null>(null);
   const [focus, setFocus] = useState<string | null>(null);
@@ -576,6 +579,7 @@ export default function MemoryConsole({ api, projects, connected = true }: Memor
                 )
               ) : error ? null : (
                 <div className="grid min-w-0 gap-4 pt-1">
+                  {view === 'Repository map' && <CoverageMap index={ingestion?.latest} items={items} />}
                   {view === 'Knowledge map' && (
                     <div className="grid min-w-0 items-start gap-4 @5xl:grid-cols-[minmax(0,1fr)_22rem]">
                       <KnowledgeMap

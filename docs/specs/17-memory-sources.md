@@ -34,7 +34,7 @@ The delivery count stays in the run's evidence and is no longer written as a mem
 2. Used in the last run: what was recalled, for which specialist, from which source, and how the run ended.
 3. The review queue with the evidence beside each proposal.
 4. Records with provenance; a record's page shows its history and its links one step out. This is where the current map lives: a neighbourhood of one record, never the landing view.
-5. A coverage map of the repository by directory, drawn from the index: size, the records that cite files there, and how many are stale. It shows the project before any record exists.
+5. A coverage map of the repository by directory, drawn from the index: size, the records that cite files there, and how many are stale. It shows the project before any record exists. The map with sizes and citing records is built and is the landing view until the status line and the last-run trace exist; staleness by directory is not.
 
 The console claims nothing the service cannot do: no "hybrid retrieval" without embeddings, no Supervisor that proposes memories without a grant, and fixtures limited to what the service produces.
 

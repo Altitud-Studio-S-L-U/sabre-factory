@@ -1,4 +1,11 @@
-import type { MemoryDetail, MemoryGraph, MemoryListItem, MemoryRecallPage, MemoryReview } from '../api';
+import type {
+  IngestionReport,
+  MemoryDetail,
+  MemoryGraph,
+  MemoryListItem,
+  MemoryRecallPage,
+  MemoryReview,
+} from '../api';
 
 const commit = 'a41c9e2'.padEnd(40, '0');
 const head = '5be10d7'.padEnd(40, '0');
@@ -203,5 +210,56 @@ export function memoryRecalls(): MemoryRecallPage {
         created_at: '2026-11-11T08:00:00Z',
       },
     ],
+  };
+}
+
+/** A repository index as ingestion records it: paths, sizes and digests, no content. */
+export function repositoryIndex(): NonNullable<IngestionReport['latest']> {
+  const files: [string, number | null][] = [
+    ['src/pricing/tax/rules.py', 420],
+    ['src/pricing/tax/regions.py', 180],
+    ['src/pricing/catalog.py', 310],
+    ['src/pricing/discount.py', 240],
+    ['src/pricing/rounding.py', 120],
+    ['src/pricing/__init__.py', 12],
+    ['src/api/routes.py', 340],
+    ['src/api/server.py', 260],
+    ['src/api/schemas.py', 150],
+    ['src/cli.py', 90],
+    ['tests/test_tax.py', 330],
+    ['tests/test_discount.py', 210],
+    ['tests/test_rounding.py', 95],
+    ['tests/conftest.py', 40],
+    ['docs/pricing-rules.md', 220],
+    ['docs/architecture.md', 160],
+    ['scripts/seed.py', 70],
+    ['.github/workflows/check.yml', 55],
+    ['README.md', 85],
+    ['pyproject.toml', 60],
+    ['AGENTS.md', 45],
+    ['assets/logo.png', null],
+  ];
+  return {
+    version: 1,
+    project_id: 'synthetic-project',
+    source_commit: '5be10d7'.padEnd(40, '0'),
+    index_version: 1,
+    snapshot_digest: 'd'.repeat(64),
+    captured_at: '2026-11-10T07:40:00Z',
+    files: files.map(([path, lines]) => ({
+      path,
+      content_digest: 'e'.repeat(64),
+      indexable: lines !== null,
+      lines,
+      areas: [],
+      kind: 'source_fact',
+      validator: 'bounded_source_index_v1',
+    })),
+    total_files: files.length,
+    omitted_files: 0,
+    changes: { added: [], changed: [], deleted: [] },
+    previous_commit: null,
+    validity: 'current_at_capture',
+    untrusted: true,
   };
 }

@@ -115,6 +115,9 @@ test('five console sections keep inspection compact and modal drafts keyboard ac
   await expect(mcpDialog.getByText('Discard your unsaved changes?')).toBeVisible();
   await mcpDialog.getByRole('button', { name: 'Discard changes' }).click();
   await navigation.getByRole('link', { name: 'Memory', exact: true }).click();
+  // The landing view names what would fill it instead of showing a blank canvas.
+  await expect(page.getByRole('heading', { name: 'The repository has not been read yet' })).toBeVisible();
+  await page.getByRole('tab', { name: 'Knowledge map', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Nothing to map yet' })).toBeVisible();
   await page.getByRole('tab', { name: 'Records', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'No memories yet' })).toBeVisible();

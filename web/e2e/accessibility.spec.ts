@@ -2,6 +2,7 @@ import { createRequire } from 'node:module';
 import { test, expect, type Page } from '@playwright/test';
 import { mockFactoryApi, syntheticRun } from './fixtures';
 import { configurationHistory, runtimeSettings } from '../src/test/runtimeFixture';
+import { repositoryIndex } from '../src/test/memoryFixture';
 
 // Automated WCAG 2.1 A/AA checks with axe-core on every section, in both themes and both
 // viewports. Automated rules find a part of the problems; they do not replace a manual review.
@@ -126,6 +127,20 @@ const states: { name: string; open: (page: Page) => Promise<void> }[] = [
         .first()
         .click();
       await expect(page.getByRole('dialog', { name: 'New run', exact: true })).toBeVisible();
+    },
+  },
+  {
+    name: 'the repository map',
+    open: async (page) => {
+      await page.route('**/api/v1/projects/*/ingestion', (route) =>
+        route.fulfill({
+          json: { version: 1, project_id: 'synthetic-project', jobs: [], latest: repositoryIndex() },
+        }),
+      );
+      await page.goto('/memory');
+      await expect(page.getByRole('heading', { name: 'Repository map' })).toBeVisible();
+      await page.getByRole('button', { name: /^Open src: / }).click();
+      await expect(page.getByRole('table', { name: 'Contents of src' })).toBeVisible();
     },
   },
   {
