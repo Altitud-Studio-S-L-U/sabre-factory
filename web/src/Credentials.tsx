@@ -38,12 +38,18 @@ export default function Credentials({
   targetIds,
   targetPrefix,
   connected = true,
+  embedded = false,
+  editRequest = 0,
 }: {
   api: Api;
   onChanged: () => Promise<void>;
   targetIds?: string[];
   targetPrefix?: string;
   connected?: boolean;
+  /** Inside a connection's details: no section title, one short note about storage. */
+  embedded?: boolean;
+  /** Each new value opens the editor once metadata is loaded, on the first destination without a value. */
+  editRequest?: number;
 }) {
   const [items, setItems] = useState<SecretMetadata[]>([]);
   const [targets, setTargets] = useState<SecretTarget[]>([]);
@@ -69,6 +75,23 @@ export default function Credentials({
     setEditor(null);
     setDeactivating(null);
     setLoading(true);
+  }
+  // A request made from outside (the row's "Add token") waits for the destinations to load.
+  const [handledRequest, setHandledRequest] = useState(0);
+  if (editRequest !== handledRequest && !loading && !loadError && !busy && connected && targets.length) {
+    const target =
+      targets.find((candidate) => !items.some((item) => item.id === candidate.id && item.configured)) ||
+      targets[0];
+    setHandledRequest(editRequest);
+    setHasSecret(false);
+    setActionError('');
+    setNotice('');
+    setRefreshWarning(false);
+    setDeactivating(null);
+    setEditor({
+      id: target.id,
+      expectedVersion: items.find((item) => item.id === target.id)?.version ?? null,
+    });
   }
   // State is applied in promise callbacks, so the mount effect never sets state synchronously.
   const fetchMetadata = useCallback(() => {
@@ -198,35 +221,45 @@ export default function Credentials({
   };
   const available = !loading && !loadError && !busy && connected;
   return (
-    <section className="grid min-w-0 gap-4" aria-labelledby={titleId}>
-      <div className="grid min-w-0 gap-1.5">
-        <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
-          <h2 id={titleId} className="text-base font-semibold">
-            SABRE credentials
-          </h2>
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            disabled={loading || busy}
-            onClick={() => {
-              if (password.current) password.current.value = '';
-              setEditor(null);
-              setDeactivating(null);
-              setNotice('');
-              setRefreshWarning(false);
-              setActionError('');
-              void load();
-            }}
-          >
-            Refresh metadata
-          </Button>
+    <section
+      className="grid min-w-0 gap-4"
+      aria-labelledby={embedded ? undefined : titleId}
+      aria-label={embedded ? 'Stored credential' : undefined}
+    >
+      {(!embedded || loadError) && (
+        <div className="grid min-w-0 gap-1.5">
+          <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
+            {!embedded && (
+              <h2 id={titleId} className="text-base font-semibold">
+                SABRE credentials
+              </h2>
+            )}
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              disabled={loading || busy}
+              onClick={() => {
+                if (password.current) password.current.value = '';
+                setEditor(null);
+                setDeactivating(null);
+                setNotice('');
+                setRefreshWarning(false);
+                setActionError('');
+                void load();
+              }}
+            >
+              Refresh metadata
+            </Button>
+          </div>
+          {!embedded && (
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              Credentials are encrypted in the control database. The master key stays outside that database.
+              The control service decrypts values in memory when making calls.
+            </p>
+          )}
         </div>
-        <p className="text-xs leading-relaxed text-muted-foreground">
-          Credentials are encrypted in the control database. The master key stays outside that database. The
-          control service decrypts values in memory when making calls.
-        </p>
-      </div>
+      )}
       {loadError && (
         <Notice tone="danger" role="alert">
           {loadError} Visible metadata may be outdated.
@@ -263,7 +296,13 @@ export default function Credentials({
       )}
       {loading && <LoadingState label="Loading credential metadata…" />}
       {!loading && !loadError && items.length === 0 && (
-        <p className="rounded-lg border border-dashed border-border px-4 py-5 text-center text-sm text-muted-foreground">
+        <p
+          className={
+            embedded
+              ? 'text-sm text-muted-foreground'
+              : 'rounded-lg border border-dashed border-border px-4 py-5 text-center text-sm text-muted-foreground'
+          }
+        >
           No saved credentials yet.
         </p>
       )}
@@ -442,8 +481,9 @@ export default function Credentials({
         )}
       </Dialog>
       <p className="text-xs leading-relaxed text-muted-foreground">
-        Configure provider, model and spending limits in the instance settings. Saving a credential does not
-        validate it with the provider or start work.
+        {embedded
+          ? 'Stored encrypted and never shown again. Saving a value does not validate it with the provider or start work.'
+          : 'Configure provider, model and spending limits in the instance settings. Saving a credential does not validate it with the provider or start work.'}
       </p>
     </section>
   );

@@ -696,9 +696,10 @@ describe('Control room', () => {
     mockApi();
     const user = await enter();
     await user.click(screen.getByRole('link', { name: 'Tools' }));
-    await user.click(await screen.findByRole('tab', { name: 'Credentials' }));
-    expect(await screen.findByRole('heading', { name: 'SABRE credentials' })).toBeVisible();
-    expect(await screen.findByText('No saved credentials yet.')).toBeVisible();
+    await user.click(await screen.findByRole('button', { name: 'Details of GitHub · repositories' }));
+    const details = screen.getByRole('group', { name: 'GitHub · repositories details' });
+    expect(within(details).getByRole('region', { name: 'Stored credential' })).toBeVisible();
+    expect(await within(details).findByText('No saved credentials yet.')).toBeVisible();
     expect(writes).toEqual([]);
   });
   it('shows About without attributing authentication to runner availability', async () => {

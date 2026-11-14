@@ -172,7 +172,7 @@ it('reports field diagnostics and blocks saving invalid YAML without erasing the
   expect(screen.queryByRole('button', { name: 'Save configuration' })).not.toBeInTheDocument();
 });
 
-it('keeps model providers out of Tools and changes only the inspected adapter revision', async () => {
+it('keeps model providers out of Tools and changes only the chosen adapter revision', async () => {
   const user = userEvent.setup();
   const writes: unknown[] = [];
   const item = {
@@ -225,21 +225,26 @@ it('keeps model providers out of Tools and changes only the inspected adapter re
   const view = render(<ToolsConsole api={createApi('synthetic-csrf')} projects={[project]} />);
   await screen.findByRole('heading', { name: 'Synthetic GitHub read' });
   expect(screen.queryByText('Model provider hidden')).not.toBeInTheDocument();
-  await user.click(screen.getByRole('button', { name: 'Enable connection' }));
+  await user.click(screen.getByRole('button', { name: 'Enable Synthetic GitHub read' }));
   expect(await screen.findByRole('alert')).toHaveTextContent('The connection changed');
   // A refused change keeps the confirmed state: the connection still reads as disabled.
-  await user.click(screen.getByRole('button', { name: 'Enable connection' }));
+  await user.click(screen.getByRole('button', { name: 'Enable Synthetic GitHub read' }));
   await waitFor(() =>
     expect(writes).toEqual([
       { enabled: true, expected_revision: 3 },
       { enabled: true, expected_revision: 3 },
     ]),
   );
-  expect(await screen.findByRole('button', { name: 'Disable connection' })).toBeEnabled();
-  await user.click(screen.getByRole('button', { name: 'Built-in tools' }));
+  expect(await screen.findByRole('button', { name: 'Disable Synthetic GitHub read' })).toBeEnabled();
+  await user.click(screen.getByRole('tab', { name: /^Built-in tools/ }));
   expect(screen.getByRole('heading', { name: 'read_source' })).toBeVisible();
   view.rerender(<ToolsConsole api={createApi('synthetic-csrf')} projects={[project]} connected={false} />);
-  expect(screen.getByRole('button', { name: 'Add MCP connection' })).toBeDisabled();
+  await user.click(screen.getByRole('tab', { name: /^MCP servers/ }));
+  expect(screen.getByRole('button', { name: 'Add MCP server' })).toBeDisabled();
+  await user.click(screen.getByRole('tab', { name: 'GitHub' }));
+  // The new client reads the catalog again, so the switch may show either state; it is locked in both.
+  expect(screen.getByRole('button', { name: /^(Enable|Disable) Synthetic GitHub read$/ })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Replace token for Synthetic GitHub read' })).toBeDisabled();
 });
 
 it('shows memory provenance by project and keeps proposals separate from approved facts', async () => {
