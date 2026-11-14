@@ -9,6 +9,7 @@ from psycopg.types.json import Jsonb
 from pydantic import Field
 
 from sabre.contracts import StrictContract
+from sabre.memory_import import ImportSummary, RepositoryMemoryImport
 from sabre.models import DomainError, new_id, now
 from sabre.project_context import INDEX_VERSION, ProjectContext, encoded
 from sabre.repository import digest
@@ -47,6 +48,8 @@ class IngestionJob(StrictContract):
     finished_at: datetime | None = None
     error_code: str | None = None
     error_message: str | None = None
+    imported: ImportSummary | None = Field(default=None, description=(
+        "What reading the repository proposed to memory; null on jobs that did not read it"))
 
 
 class SourceObservation(StrictContract):
@@ -121,9 +124,10 @@ def build_index(context: ProjectContext, project_id: str, snapshot: dict, previo
 
 
 class RepositoryIngestion:
-    def __init__(self, repository, executor, context, guard, enqueue=None):
+    def __init__(self, repository, executor, context, guard, enqueue=None, memory_import: RepositoryMemoryImport | None = None):
         self.repository, self.executor, self.context, self.guard = repository, executor, context, guard
         self.enqueue = enqueue
+        self.memory_import = memory_import
 
     async def enqueue_project(self, conn, project_id):
         return await self._request(conn, project_id, IngestionRequest(version=1, idempotency_key=f"registration:v{INDEX_VERSION}"))
@@ -171,6 +175,20 @@ class RepositoryIngestion:
                 ORDER BY (j.data->>'finished_at')::timestamptz DESC,j.id DESC LIMIT 1""", (project_id, INDEX_VERSION))).fetchone()
         return RepositoryIndex.model_validate_json(encoded(row["data"])) if row else None
 
+    async def _read_statements(self, job, index, snapshot):
+        """Propose what the repository says to memory. The index stands even when this read fails."""
+        if self.memory_import is None:
+            return
+        indexed = {item.path for item in index.files if item.indexable}
+        files = {entry["path"]: entry["content"] for entry in snapshot["files"]
+                 if entry.get("encoding", "utf-8") == "utf-8" and entry["path"] in indexed}
+        try:
+            job.imported = await self.memory_import.run(job.project_id, index.source_commit, files)
+        except Exception:
+            job.error_code = "MEMORY_IMPORT_FAILED"
+            job.error_message = "The repository was indexed, but reading its statements into memory failed. Read the repository again."
+        await self._save(job)
+
     async def report(self, project_id):
         await self.repository.project(project_id)
         async with self.repository.connection() as conn:
@@ -212,6 +230,7 @@ class RepositoryIngestion:
                     await conn.execute("INSERT INTO repository_indexes(project_id,source_commit,index_version,data) VALUES(%s,%s,%s,%s) ON CONFLICT(project_id,source_commit,index_version) DO NOTHING", (job.project_id, commit, INDEX_VERSION, Jsonb(index.model_dump(mode="json"))))
                     job.source_commit, job.state, job.finished_at = commit, "completed", now()
                     await conn.execute("UPDATE repository_ingestions SET data=%s WHERE id=%s AND project_id=%s", (Jsonb(job.model_dump(mode="json")), job.id, job.project_id))
+                await self._read_statements(job, index, snapshot)
             except asyncio.CancelledError:
                 job.state, job.error_code, job.error_message = "queued", "INGESTION_INTERRUPTED", "Indexing was interrupted and can resume from its queued job"
                 await self._save(job)
@@ -246,7 +265,8 @@ async def register_ingestion_jobs(runtime):
     async def enqueue(conn, job_id, project_id):
         await ingest_repository.configure(connection=conn, lock=f"project:{project_id}").defer_async(job_id=job_id)
 
-    runtime.ingestion = RepositoryIngestion(runtime.repository, runtime.factory.executor, runtime.factory.project_context, runtime.service.guard, enqueue)
+    runtime.ingestion = RepositoryIngestion(runtime.repository, runtime.factory.executor, runtime.factory.project_context, runtime.service.guard, enqueue,
+                                            RepositoryMemoryImport(runtime.repository, runtime.service.memory))
     runtime.enqueue_ingestion = runtime.ingestion.enqueue_project
 
 

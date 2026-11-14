@@ -6,6 +6,15 @@ export const channelLabels: Record<string, string> = {
   owner_mcp: 'You · MCP',
   supervisor_chat: 'Supervisor chat',
   factory: 'Factory',
+  repository: 'Repository',
+};
+
+/** Why a record stopped; older records did not keep the reason. */
+export const endings: Record<string, string> = {
+  rejected: 'Rejected by you before approval',
+  revoked: 'Revoked by you after approval',
+  superseded: 'Superseded by a replacement',
+  withdrawn: 'Withdrawn: the repository changed before a decision',
 };
 
 export const validityReasons: Record<string, string> = {
@@ -24,6 +33,17 @@ export function proposer(value: MemoryListItem['proposed_by'] | null | undefined
   if (!value) return 'Unknown (recorded before attribution)';
   const role = value.role ? ` · ${value.role}` : '';
   return `${channelLabels[value.channel] ?? value.channel}${role}`;
+}
+
+/** Where a record is anchored: the run that produced it, or only an indexed commit. */
+export function anchor(item: Pick<MemoryListItem, 'source_work_id' | 'source_commit'>) {
+  const commit = `commit ${item.source_commit.slice(0, 8)}`;
+  return item.source_work_id ? `run ${short(item.source_work_id)} · ${commit}` : `indexed ${commit}`;
+}
+
+/** The first line of a record: the title of a repository statement, or the start of a sentence. */
+export function headline(content: string, size = 120) {
+  return content.split('\n', 1)[0].slice(0, size);
 }
 
 export function short(id: string) {

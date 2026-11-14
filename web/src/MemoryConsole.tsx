@@ -1,6 +1,4 @@
 import Button from './components/Button';
-import Input from './components/Input';
-import Textarea from './components/Textarea';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Brain } from 'lucide-react';
 import {
@@ -29,6 +27,9 @@ import MemoryInspector from './features/memory/MemoryInspector';
 import ReviewQueue from './features/memory/ReviewQueue';
 import RecallLog from './features/memory/RecallLog';
 import MemoryRecords from './features/memory/MemoryRecords';
+import MemoryStatus from './features/memory/MemoryStatus';
+import { endings } from './features/memory/shared';
+import ProposeMemoryDialog, { type IndexedCommit } from './features/memory/ProposeMemoryDialog';
 import Dialog, { DialogActions } from './components/Dialog';
 import Field from './components/FormField';
 import Select from './components/Select';
@@ -39,7 +40,7 @@ import DescriptionList from './components/DescriptionList';
 import EmptyState from './components/EmptyState';
 import Tabs from './components/Tabs';
 import { Badge } from './components/ui/badge';
-import { Card, CardDescription, CardHeader, CardTitle } from './components/ui/card';
+import { Card, CardDescription, CardTitle } from './components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './components/ui/table';
 
 const failure = (reason: unknown) =>
@@ -107,13 +108,6 @@ export default function MemoryConsole({ api, projects, connected = true }: Memor
   const [selected, setSelected] = useState<MemoryItem | null>(null);
   const [busy, setBusy] = useState(false);
   const [creating, setCreating] = useState(false);
-  const [draft, setDraft] = useState({
-    kind: 'lesson' as 'fact' | 'lesson',
-    content: '',
-    source_commit: '',
-    source_work_id: '',
-    evidence_digest: '',
-  });
   const generation = useRef(0);
   const reset = (projectId: string) => {
     setItems([]);
@@ -181,12 +175,35 @@ export default function MemoryConsole({ api, projects, connected = true }: Memor
     setRefreshKey((value) => value + 1);
     if (effectiveProjectId) void fetchKnowledge(() => requestId === generation.current);
   };
-  /** After an owner decision: keep the view, reload the records behind it. */
-  const changed = (value: string) => {
-    setNotice(value);
+  /** After an owner decision or a finished read: keep the view, reload the records behind it. */
+  const reload = useCallback(() => {
     setRefreshKey((key) => key + 1);
     const requestId = ++generation.current;
     if (effectiveProjectId) void fetchKnowledge(() => requestId === generation.current);
+  }, [effectiveProjectId, fetchKnowledge]);
+  const changed = (value: string) => {
+    setNotice(value);
+    reload();
+  };
+  const readRepository = () => {
+    if (busy || !connected || !effectiveProjectId) return;
+    setBusy(true);
+    setIndexError('');
+    void api
+      .requestIngestion(effectiveProjectId, {
+        version: 1,
+        idempotency_key: `operator:${crypto.randomUUID()}`,
+      })
+      .then((job) =>
+        setIngestion((current) => ({
+          version: 1,
+          project_id: effectiveProjectId,
+          jobs: [job, ...(current?.jobs ?? [])],
+          latest: current?.latest ?? null,
+        })),
+      )
+      .catch((reason) => setIndexError(failure(reason)))
+      .finally(() => setBusy(false));
   };
   const inspect = (memoryId: string) => {
     setFocus(memoryId);
@@ -203,6 +220,8 @@ export default function MemoryConsole({ api, projects, connected = true }: Memor
           if (active && value.project_id === effectiveProjectId) {
             setIngestion(value);
             setIndexError('');
+            // A finished read may have proposed records: show them without a manual refresh.
+            if (!value.jobs.some((job) => job.state === 'queued' || job.state === 'running')) reload();
           }
         })
         .catch((reason) => {
@@ -213,7 +232,7 @@ export default function MemoryConsole({ api, projects, connected = true }: Memor
       active = false;
       window.clearInterval(timer);
     };
-  }, [api, pendingIndex, connected, effectiveProjectId]);
+  }, [api, pendingIndex, connected, effectiveProjectId, reload]);
   const action = async (item: MemoryItem, value: 'approve' | 'invalidate') => {
     if (busy || !connected || item.project_id !== effectiveProjectId) return;
     setBusy(true);
@@ -264,8 +283,18 @@ export default function MemoryConsole({ api, projects, connected = true }: Memor
     };
   }, [api, tab, contextWorkId]);
   const sourceIndex = ingestion?.latest;
-  const latestJob = ingestion?.jobs[0];
   const sourceRecord = sourceIndex ?? context;
+  // Commits a memory can be anchored to: the ones a completed read indexed, newest first.
+  const indexedCommits: IndexedCommit[] = [];
+  for (const job of ingestion?.jobs ?? [])
+    if (
+      job.state === 'completed' &&
+      job.source_commit &&
+      !indexedCommits.some((entry) => entry.commit === job.source_commit)
+    )
+      indexedCommits.push({ commit: job.source_commit, readAt: job.finished_at });
+  if (sourceIndex && !indexedCommits.some((entry) => entry.commit === sourceIndex.source_commit))
+    indexedCommits.push({ commit: sourceIndex.source_commit, readAt: sourceIndex.captured_at });
   const rows = items.filter((item) =>
     tab === 'History'
       ? !!item.invalidated_at
@@ -351,10 +380,13 @@ export default function MemoryConsole({ api, projects, connected = true }: Memor
               </TableCell>
               <TableCell>
                 <code className="font-mono text-xs">{item.source_commit.slice(0, 12)}</code>
-                <Detail>Run {item.source_work_id}</Detail>
+                <Detail>
+                  {item.source_work_id ? `Run ${item.source_work_id}` : 'Indexed commit, no run'}
+                </Detail>
               </TableCell>
               <TableCell>
                 <Badge variant={item.active ? 'success' : 'warning'}>{validity(item)}</Badge>
+                {item.invalidated_as && <Detail>{endings[item.invalidated_as]}</Detail>}
               </TableCell>
               <TableCell>
                 <Button
@@ -398,18 +430,9 @@ export default function MemoryConsole({ api, projects, connected = true }: Memor
               Refresh
             </Button>
             <Button
-              variant="primary"
+              variant="secondary"
               disabled={!connected || !effectiveProjectId}
-              onClick={() => {
-                setDraft({
-                  kind: 'lesson',
-                  content: '',
-                  source_commit: context?.source_commit ?? '',
-                  source_work_id: context?.work_id ?? '',
-                  evidence_digest: '',
-                });
-                setCreating(true);
-              }}
+              onClick={() => setCreating(true)}
             >
               Propose memory
             </Button>
@@ -455,68 +478,19 @@ export default function MemoryConsole({ api, projects, connected = true }: Memor
         </EmptyPanel>
       ) : (
         <>
-          <Card aria-labelledby="repository-index-title">
-            <CardHeader>
-              <div className="grid min-w-0 gap-1.5">
-                <CardTitle id="repository-index-title">Repository index</CardTitle>
-                <CardDescription>
-                  {latestJob
-                    ? latestJob.state === 'completed'
-                      ? 'Source metadata captured. A new source commit requires a fresh reconciliation.'
-                      : latestJob.state === 'failed'
-                        ? 'Indexing stopped. Review the diagnostic and retry after correcting the cause.'
-                        : `Indexing ${latestJob.state}. Source admission scanning runs before any metadata is retained.`
-                    : 'No repository ingestion has been recorded.'}
-                </CardDescription>
-              </div>
-              <Button
-                variant="secondary"
-                disabled={!connected || busy || !!pendingIndex}
-                onClick={() => {
-                  if (busy || !connected) return;
-                  setBusy(true);
-                  setIndexError('');
-                  void api
-                    .requestIngestion(effectiveProjectId, {
-                      version: 1,
-                      idempotency_key: `operator:${crypto.randomUUID()}`,
-                    })
-                    .then((job) =>
-                      setIngestion((current) => ({
-                        version: 1,
-                        project_id: effectiveProjectId,
-                        jobs: [job, ...(current?.jobs ?? [])],
-                        latest: current?.latest ?? null,
-                      })),
-                    )
-                    .catch((reason) => setIndexError(failure(reason)))
-                    .finally(() => setBusy(false));
-                }}
-              >
-                {pendingIndex ? 'Indexing queued' : sourceIndex ? 'Reconcile repository' : 'Index repository'}
-              </Button>
-            </CardHeader>
-            {latestJob?.error_code && (
-              <Notice tone="warning" role="status">
-                <span>
-                  <code>{latestJob.error_code}</code> · {latestJob.error_message}
-                </span>
-              </Notice>
-            )}
-            {indexError && (
-              <Notice tone="danger" role="alert">
-                {indexError}
-              </Notice>
-            )}
-            {sourceIndex && (
-              <p className="text-xs text-muted-foreground">
-                Index v{sourceIndex.index_version} · {sourceIndex.files.length} retained file references ·{' '}
-                {sourceIndex.omitted_files} omitted · captured{' '}
-                {new Date(sourceIndex.captured_at).toLocaleString('en-US')}. Current at capture; repository
-                may have changed.
-              </p>
-            )}
-          </Card>
+          <MemoryStatus
+            ingestion={ingestion}
+            items={items}
+            review={review}
+            recalls={recalls}
+            now={loadedAt}
+            loading={loading}
+            connected={connected}
+            busy={busy}
+            error={indexError}
+            onRead={readRepository}
+            onReview={() => setTab('Review queue')}
+          />
           <StatGrid label="Knowledge summary">
             <StatTile
               label="Approved"
@@ -875,14 +849,26 @@ export default function MemoryConsole({ api, projects, connected = true }: Memor
                   projects.find((project) => project.id === selected.project_id)?.name ?? selected.project_id,
                 ],
                 ['Kind', selected.kind],
-                ['Source run', <code className="font-mono text-xs">{selected.source_work_id}</code>],
+                [
+                  'Source run',
+                  selected.source_work_id ? (
+                    <code className="font-mono text-xs">{selected.source_work_id}</code>
+                  ) : (
+                    'None: recorded against an indexed commit'
+                  ),
+                ],
                 ['Source commit', <code className="font-mono text-xs">{selected.source_commit}</code>],
                 [
                   'Evidence digest',
                   <code className="font-mono text-xs">{selected.evidence_digest || 'Not recorded'}</code>,
                 ],
                 ['Approved at', selected.approved_at || 'Not approved'],
-                ['Invalidated at', selected.invalidated_at || 'Not invalidated'],
+                [
+                  'Invalidated at',
+                  selected.invalidated_at
+                    ? `${selected.invalidated_at}${selected.invalidated_as ? ` · ${endings[selected.invalidated_as]}` : ''}`
+                    : 'Not invalidated',
+                ],
               ]}
             />
             {error && (
@@ -913,94 +899,19 @@ export default function MemoryConsole({ api, projects, connected = true }: Memor
           </div>
         )}
       </Dialog>
-      <Dialog
+      <ProposeMemoryDialog
+        api={api}
+        projectId={effectiveProjectId}
+        commits={indexedCommits}
         open={creating}
-        title="Propose project memory"
-        description="Retain a fact or lesson with explicit source provenance. Review is a separate action."
+        connected={connected}
         onClose={() => setCreating(false)}
-        busy={busy}
-        dirty={!!draft.content}
-      >
-        <form
-          className="grid gap-4"
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (busy || !connected) return;
-            setBusy(true);
-            setError('');
-            void api
-              .createMemory({
-                project_id: effectiveProjectId,
-                ...draft,
-                evidence_digest: draft.evidence_digest || null,
-              })
-              .then((value) => {
-                if (value.project_id === effectiveProjectId) setItems((current) => [...current, value]);
-                setCreating(false);
-                setNotice('Memory proposal recorded. Review its validity before use.');
-              })
-              .catch((reason) => setError(failure(reason)))
-              .finally(() => setBusy(false));
-          }}
-        >
-          <Field label="Type">
-            <Select
-              value={draft.kind}
-              onChange={(event) => setDraft({ ...draft, kind: event.target.value as 'fact' | 'lesson' })}
-            >
-              <option value="lesson">Lesson</option>
-              <option value="fact">Fact</option>
-            </Select>
-          </Field>
-          <Field label="Content">
-            <Textarea
-              required
-              rows={5}
-              maxLength={8000}
-              value={draft.content}
-              onChange={(event) => setDraft({ ...draft, content: event.target.value })}
-            />
-          </Field>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Source commit">
-              <Input
-                required
-                value={draft.source_commit}
-                maxLength={128}
-                onChange={(event) => setDraft({ ...draft, source_commit: event.target.value })}
-              />
-            </Field>
-            <Field label="Source run">
-              <Input
-                required
-                value={draft.source_work_id}
-                maxLength={128}
-                onChange={(event) => setDraft({ ...draft, source_work_id: event.target.value })}
-              />
-            </Field>
-          </div>
-          <Field
-            label="Evidence digest"
-            hint="Use the recorded digest if available; do not paste secrets or evidence payloads."
-          >
-            <Input
-              value={draft.evidence_digest}
-              maxLength={128}
-              onChange={(event) => setDraft({ ...draft, evidence_digest: event.target.value })}
-            />
-          </Field>
-          {error && (
-            <Notice tone="danger" role="alert">
-              {error}
-            </Notice>
-          )}
-          <DialogActions>
-            <Button variant="primary" disabled={busy || !connected}>
-              {busy ? 'Saving…' : 'Save proposal'}
-            </Button>
-          </DialogActions>
-        </form>
-      </Dialog>
+        onProposed={(value) => {
+          setCreating(false);
+          if (value.project_id === effectiveProjectId)
+            changed('Proposal recorded. It waits in the review queue.');
+        }}
+      />
     </div>
   );
 }

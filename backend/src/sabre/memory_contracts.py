@@ -48,7 +48,7 @@ class MemoryValidityRecord(Contract):
 
 
 class GraphNode(Contract):
-    id: str = Field(description="Typed identifier: memory:<id>, run:<work id>, commit:<sha>, file:<path> or agent:<channel>[:<role>]")
+    id: str = Field(description="Typed identifier: memory:<id>, run:<work id>, commit:<sha>, file:<path> or agent:<channel>[:<role>]. A memory with no run has no run node")
     type: Literal["memory", "run", "commit", "file", "agent"]
     label: str
     attrs: dict[str, Any]
@@ -149,7 +149,7 @@ class MemoryLink(Contract):
 
 
 class MemoryProvenance(Contract):
-    work_id: str
+    work_id: str | None = Field(description="The run the memory comes from; null when it is anchored to an indexed commit instead")
     work_objective: str | None
     work_status: str | None
     commit: str

@@ -103,7 +103,8 @@ def lifecycle(item: MemoryItem) -> Literal["active", "pending", "invalidated"]:
     return "invalidated" if item.invalidated_at is not None else "active" if item.active else "pending"
 
 
-AGENT_LABELS = {"owner_console": "Owner (console)", "owner_mcp": "Owner (MCP)", "supervisor_chat": "Supervisor chat", "factory": "Factory"}
+AGENT_LABELS = {"owner_console": "Owner (console)", "owner_mcp": "Owner (MCP)", "supervisor_chat": "Supervisor chat", "factory": "Factory",
+                "repository": "Repository"}
 
 
 def agent_node(proposed_by: ProposedBy) -> str:
@@ -198,6 +199,35 @@ class MemoryStore:
         async with self.connection() as conn:
             return await self._index_digests(conn, project_id, commit, []) is not None
 
+    async def repository_index_digest(self, project_id: str, commit: str) -> str | None:
+        """The snapshot digest of the project's repository index at ``commit``; None when it has none."""
+        async with self.connection() as conn:
+            row = await (await conn.execute("""SELECT data->>'snapshot_digest' AS digest FROM repository_indexes
+                WHERE project_id=%s AND source_commit=%s AND index_version=%s""", (project_id, commit, index_version()))).fetchone()
+        return None if row is None else row["digest"]
+
+    async def repository_memories(self, project_id: str, limit: int = 2000) -> list[dict]:
+        """Records read from the repository, newest first, each with the digest its cited file had."""
+        async with self.connection() as conn:
+            rows = await (await conn.execute("""SELECT m.data,
+                    (SELECT l.attrs->>'digest' FROM memory_links l WHERE l.source_id=m.id AND l.kind='cites' AND l.target_type='file'
+                        ORDER BY l.id LIMIT 1) AS cited_digest
+                FROM memories m WHERE m.project_id=%s AND m.data->'proposed_by'->>'channel'='repository'
+                ORDER BY (m.data->>'created_at')::timestamptz DESC,m.id DESC LIMIT %s""", (project_id, limit))).fetchall()
+        return [{"item": item_from(row["data"]), "cited_digest": row["cited_digest"]} for row in rows]
+
+    async def withdraw_memory(self, memory_id: str) -> bool:
+        async with self.connection() as conn:
+            row = await (await conn.execute("SELECT data FROM memories WHERE id=%s FOR UPDATE", (memory_id,))).fetchone()
+            if not row:
+                raise DomainError("MEMORY_NOT_FOUND", "Memory not found", 404)
+            item = item_from(row["data"])
+            if item.active or item.invalidated_at is not None:
+                return False
+            item.invalidated_at, item.invalidated_as = now(), "withdrawn"
+            await conn.execute("UPDATE memories SET data=%s WHERE id=%s", (Jsonb(json.loads(item.model_dump_json())), memory_id))
+        return True
+
     async def _insert_citations(self, conn, item: MemoryItem):
         if not item.citations:
             return
@@ -276,12 +306,13 @@ class MemoryStore:
                     older = await self._memory_target(conn, item, item.supersedes, lock=True)
                     await self._link(conn, item, "supersedes", "memory", older.id, {"recorded_at": "approval"})
                     if older.invalidated_at is None:
-                        older.active, older.invalidated_at = False, now()
+                        older.active, older.invalidated_at, older.invalidated_as = False, now(), "superseded"
                         await conn.execute("UPDATE memories SET data=%s WHERE id=%s", (Jsonb(json.loads(older.model_dump_json())), older.id))
                 for target in dict.fromkeys(related or []):
                     await self._memory_target(conn, item, target)
                     await self._link(conn, item, "related", "memory", target, {"recorded_at": "approval"})
             else:
+                item.invalidated_as = "revoked" if item.active else "rejected"
                 item.active, item.invalidated_at = False, now()
             await conn.execute("UPDATE memories SET data=%s WHERE id=%s", (Jsonb(json.loads(item.model_dump_json())), memory_id))
         return item
@@ -451,7 +482,7 @@ class MemoryStore:
                 WHERE project_id=%s AND source_id=ANY(%s) ORDER BY id LIMIT %s""", (project_id, selected, limit * 8))).fetchall()
             truncated |= len(links) == limit * 8
             runs = {row["id"]: row for row in await (await conn.execute("""SELECT id,data->>'objective' AS objective,data->>'status' AS status
-                FROM work_orders WHERE project_id=%s AND id=ANY(%s)""", (project_id, sorted({item.source_work_id for item in memories.values()})))).fetchall()}
+                FROM work_orders WHERE project_id=%s AND id=ANY(%s)""", (project_id, sorted({item.source_work_id for item in memories.values() if item.source_work_id})))).fetchall()}
         nodes: dict[str, dict] = {}
         edges: list[dict] = []
 
@@ -477,7 +508,7 @@ class MemoryStore:
             if link["target_type"] == "file":
                 add(f"file:{link['target_id']}", "file", link["target_id"], {})
         for item in ordered:
-            run = runs.get(item.source_work_id)
+            run = runs.get(item.source_work_id) if item.source_work_id else None
             if run is not None:
                 add(f"run:{run['id']}", "run", " ".join((run["objective"] or "").split())[:80], {"status": run["status"]})
             add(f"commit:{item.source_commit}", "commit", item.source_commit[:12], {"sha": item.source_commit})
@@ -489,7 +520,8 @@ class MemoryStore:
             connect(f"memory:{link['source_id']}", target, link["kind"], dict(link["attrs"]))
         for item in ordered:
             source = f"memory:{item.id}"
-            connect(source, f"run:{item.source_work_id}", "from_run")
+            if item.source_work_id:
+                connect(source, f"run:{item.source_work_id}", "from_run")
             connect(source, f"commit:{item.source_commit}", "at_commit")
             if item.proposed_by is not None:
                 connect(source, agent_node(item.proposed_by), "proposed_by")

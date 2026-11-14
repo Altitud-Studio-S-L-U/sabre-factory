@@ -3621,7 +3621,7 @@ export interface components {
         GraphNode: {
             /**
              * Id
-             * @description Typed identifier: memory:<id>, run:<work id>, commit:<sha>, file:<path> or agent:<channel>[:<role>]
+             * @description Typed identifier: memory:<id>, run:<work id>, commit:<sha>, file:<path> or agent:<channel>[:<role>]. A memory with no run has no run node
              */
             id: string;
             /**
@@ -3664,6 +3664,54 @@ export interface components {
             answer: string | null;
             /** Answered At */
             answered_at: string | null;
+        };
+        /**
+         * ImportSummary
+         * @description What one read of the repository did to the project's memory.
+         */
+        ImportSummary: {
+            /**
+             * Proposed
+             * @description Statements new to memory, now waiting for review
+             * @default 0
+             */
+            proposed: number;
+            /**
+             * Replaced
+             * @description Statements whose text changed: proposed in place of a waiting or approved record
+             * @default 0
+             */
+            replaced: number;
+            /**
+             * Unchanged
+             * @description Statements already waiting or approved with this text
+             * @default 0
+             */
+            unchanged: number;
+            /**
+             * Declined
+             * @description Statements the owner rejected or revoked with this same text; not proposed again
+             * @default 0
+             */
+            declined: number;
+            /**
+             * Withdrawn
+             * @description Waiting proposals withdrawn because the repository no longer says them
+             * @default 0
+             */
+            withdrawn: number;
+            /**
+             * Refused
+             * @description Statements the memory service refused, for example for a detected secret
+             * @default 0
+             */
+            refused: number;
+            /**
+             * Omitted
+             * @description Statements beyond the bound of one read
+             * @default 0
+             */
+            omitted: number;
         };
         /** IndexedSource */
         IndexedSource: {
@@ -3725,6 +3773,8 @@ export interface components {
             error_code: string | null;
             /** Error Message */
             error_message: string | null;
+            /** @description What reading the repository proposed to memory; null on jobs that did not read it */
+            imported: components["schemas"]["ImportSummary"] | null;
         };
         /** IngestionReport */
         IngestionReport: {
@@ -3978,8 +4028,11 @@ export interface components {
             content: string;
             /** Source Commit */
             source_commit: string;
-            /** Source Work Id */
-            source_work_id: string;
+            /**
+             * Source Work Id
+             * @description The delivered run the memory comes from. Leave it out to anchor the memory to a commit of this project that has a repository index
+             */
+            source_work_id?: string | null;
             /** Evidence Digest */
             evidence_digest?: string | null;
             /**
@@ -4049,8 +4102,11 @@ export interface components {
             content: string;
             /** Source Commit */
             source_commit: string;
-            /** Source Work Id */
-            source_work_id: string;
+            /**
+             * Source Work Id
+             * @description The delivered run the memory comes from. Leave it out to anchor the memory to a commit of this project that has a repository index
+             */
+            source_work_id: string | null;
             /** Evidence Digest */
             evidence_digest: string | null;
             /**
@@ -4085,6 +4141,11 @@ export interface components {
             approved_at: string | null;
             /** Invalidated At */
             invalidated_at: string | null;
+            /**
+             * Invalidated As
+             * @description Why it stopped: rejected before approval, revoked after it, superseded by a replacement, or withdrawn by the factory because the repository text it quoted changed before anyone decided. Absent on older records
+             */
+            invalidated_as: ("rejected" | "revoked" | "superseded" | "withdrawn") | null;
             /** @description Absent on memories recorded before attribution; show as unknown */
             proposed_by: components["schemas"]["ProposedBy"] | null;
         };
@@ -4165,8 +4226,11 @@ export interface components {
             content: string;
             /** Source Commit */
             source_commit: string;
-            /** Source Work Id */
-            source_work_id: string;
+            /**
+             * Source Work Id
+             * @description The delivered run the memory comes from. Leave it out to anchor the memory to a commit of this project that has a repository index
+             */
+            source_work_id: string | null;
             /** Evidence Digest */
             evidence_digest: string | null;
             /**
@@ -4201,6 +4265,11 @@ export interface components {
             approved_at: string | null;
             /** Invalidated At */
             invalidated_at: string | null;
+            /**
+             * Invalidated As
+             * @description Why it stopped: rejected before approval, revoked after it, superseded by a replacement, or withdrawn by the factory because the repository text it quoted changed before anyone decided. Absent on older records
+             */
+            invalidated_as: ("rejected" | "revoked" | "superseded" | "withdrawn") | null;
             /** @description Absent on memories recorded before attribution; show as unknown */
             proposed_by: components["schemas"]["ProposedBy"] | null;
             /**
@@ -4217,8 +4286,11 @@ export interface components {
         };
         /** MemoryProvenance */
         MemoryProvenance: {
-            /** Work Id */
-            work_id: string;
+            /**
+             * Work Id
+             * @description The run the memory comes from; null when it is anchored to an indexed commit instead
+             */
+            work_id: string | null;
             /** Work Objective */
             work_objective: string | null;
             /** Work Status */
@@ -4974,7 +5046,7 @@ export interface components {
              * Channel
              * @enum {string}
              */
-            channel: "owner_console" | "owner_mcp" | "supervisor_chat" | "factory";
+            channel: "owner_console" | "owner_mcp" | "supervisor_chat" | "factory" | "repository";
             /** Role */
             role: string | null;
             /** Work Id */
