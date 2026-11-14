@@ -22,11 +22,14 @@ export default function RecallLog({
   projectId,
   refreshKey,
   onInspect,
+  semantic = false,
 }: {
   api: Api;
   projectId: string;
   refreshKey: number;
   onInspect: (memoryId: string) => void;
+  /** Whether this instance ranks by meaning as well as by wording (an embedding model is configured). */
+  semantic?: boolean;
 }) {
   const [state, setState] = useState<{
     key: string;
@@ -77,8 +80,10 @@ export default function RecallLog({
   return (
     <div className="grid min-w-0 gap-3">
       <p className="text-xs text-muted-foreground">
-        Hybrid retrieval: wording and meaning ranks fused, at most 4 memories and 6 KiB per call. Every cited
-        memory is revalidated before each model call.
+        {semantic
+          ? 'Hybrid retrieval: wording and meaning ranks fused, at most 4 memories and 6 KiB per call.'
+          : 'Retrieval by wording, at most 4 memories and 6 KiB per call. Ranking by meaning needs an embedding model, and this instance has none configured.'}{' '}
+        Every cited memory is revalidated before each model call.
       </p>
       {current.error && (
         <Notice tone="danger" role="alert">

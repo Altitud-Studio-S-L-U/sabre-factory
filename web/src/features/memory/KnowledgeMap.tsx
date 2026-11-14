@@ -185,8 +185,9 @@ export default function KnowledgeMap({
       {!current && <KnowledgeMapSkeleton />}
       {graph && !graph.nodes.length && (
         <EmptyState as="h3" title="Nothing to map yet">
-          Delivered runs propose facts with their evidence. Approved memories, their runs and the files they
-          cite appear here.
+          This map draws memories with the runs, commits and files they come from. A memory is recorded only
+          when a run delivers a pull request; audits and runs that stop before delivery record nothing, so
+          there is nothing to draw yet.
         </EmptyState>
       )}
       {graph && graph.nodes.length > 0 && (

@@ -10,6 +10,8 @@ The part that does the work is unproven and expensive. No run with a real model 
 
 So it is not yet ready to show as a factory that delivers verified pull requests. It is ready when the bar below is met.
 
+The instance was reset on 2026-11-14 at the owner's request: every project, run and record from the test period was removed, so the figures above describe runs that no longer exist on it. Those runs used the Codex CLI; the default provider is now the Claude CLI.
+
 ## The bar
 
 1. **It works, with a number.** A pass rate on a fixed suite of real tasks with a real model, with cost and time per passed task and the same model without the factory as a baseline ([16](specs/16-evaluation.md)).
@@ -31,7 +33,7 @@ The decision that matters is narrower: who runs the inner tool loop of the imple
 | --- | --- | --- | --- |
 | G1 | No evidence with a real model | No delivered pull request. The bench has four scripted tasks on one fixture and nothing compares its reports | [16](specs/16-evaluation.md) |
 | G2 | Context economy | 43% of tool calls were recoveries and 5.5% of input came from cache in the real audit. A read is archived two turns after it arrives; the pressure notice edits the system prompt | [14](specs/14-context-economy.md) |
-| G3 | The open audit cannot finish | Semgrep reports a partial parse of two valid TypeScript lines and the factory treats any scanner error as an incomplete scan | Owner decision 1 |
+| G3 | An audit cannot finish when the scanner cannot parse valid code | Semgrep reported a partial parse of two valid TypeScript lines in the audited repository and the factory treats any scanner error as an incomplete scan | Owner decision 1 |
 | G4 | GitHub by pasted tokens | Three write-only token destinations. A delivery pushed with git is unsigned, so a repository that requires signed commits cannot merge it without a bypass | [12](specs/12-github-connection.md) |
 | G5 | Three screens create a project | Editing and archiving are built; the Projects dialog, the repository browser in Tools and the create flow still each register a project | The single Add project of [13](specs/13-projects.md), with [12](specs/12-github-connection.md) |
 | G6 | Telemetry is partial | Tracing is off by default, uses private attribute names and drops cache counts. Cost ignores cache prices and records CLI calls as zero. No metrics, no logs, nothing across runs | [15](specs/15-observability.md) |
@@ -42,16 +44,17 @@ The decision that matters is narrower: who runs the inner tool loop of the imple
 | G11 | The role pipeline is unmeasured | Seven specialists and several model stages, none justified by an ablation | [16](specs/16-evaluation.md) |
 | G12 | Console and plan leftovers | See "Left over from the previous plan" | Phase 0 and Phase 5 |
 | G13 | Work is sequential | One task at a time and no streaming; the console polls every five seconds | After G1 and G2: read-only parallel subagents first |
+| G14 | Memory cannot learn | A record needs a delivered run, specialists cannot propose one, an audit records nothing, the one automatic record is never recalled, and the owner's dialog prefills a commit the service refuses. A registered project shows a blank Memory page | [17](specs/17-memory-sources.md) |
 
 ## Plan
 
 Each phase ends on evidence, and Phase 1 is the gate: what it measures decides the size of Phases 2 and 3.
 
-**Phase 0 · Close what is open.** The owner decides the scanner policy and the open audit completes or stays blocked for a stated reason. Tools is organised by service (done alongside this document). Projects gains edit and archive (done, [13](specs/13-projects.md)). The small defects listed below are fixed. *Exit:* one real audit with a report; no known defect in the console's main path.
+**Phase 0 · Close what is open.** The owner decides the scanner policy and the open audit completes or stays blocked for a stated reason. Tools is organised by service (done alongside this document). Projects gains edit and archive (done, [13](specs/13-projects.md)). Memory imports what the repository already says, shows a coverage map and stops claiming what it cannot do ([17](specs/17-memory-sources.md)). The small defects listed below are fixed. *Exit:* one real audit with a report; no known defect in the console's main path.
 
 **Phase 1 · Prove.** Grow the suite to twenty tasks on three repositories. Add recovery ratio and prefix stability to the scripted driver and run it in CI. Run the provider driver and the baseline with the owner's authorization and budget. Deliver the first real patch as a draft pull request on a sample repository. *Exit:* a committed report with pass rate, cost and time for the factory and for the baseline.
 
-**Phase 2 · Economy.** Archive in batches under pressure, keep the prefix stable, account for cache tokens, classify and retry provider failures. Rerun the suite. Build the worker-session experiment and decide with the numbers. *Exit:* recoveries under 10% of tool calls, the cache share reported, and a written decision on the worker.
+**Phase 2 · Economy.** Archive in batches under pressure, keep the prefix stable, account for cache tokens, classify and retry provider failures. Rerun the suite. Let specialists propose records and measure runs with memory on and off ([17](specs/17-memory-sources.md)). Build the worker-session experiment and decide with the numbers. *Exit:* recoveries under 10% of tool calls, the cache share reported, and a written decision on the worker.
 
 **Phase 3 · Effortless path.** GitHub connection with per-operation tokens, signed delivery commits through the API, Add project from the connection. *Exit:* live evidence on github.com for a personal account and an organization; no token is pasted anywhere in the path.
 
@@ -61,7 +64,7 @@ Each phase ends on evidence, and Phase 1 is the gate: what it measures decides t
 
 ## Decisions for the owner
 
-1. **Scanner partial parse.** Record a warning-level partial parse as a visible coverage finding and let the audit complete, or keep failing closed. It blocks the open audit; nothing changes until this is decided.
+1. **Scanner partial parse.** Record a warning-level partial parse as a visible coverage finding and let the audit complete, or keep failing closed. The audit it stopped was removed with the reset, and the next audit of that repository will stop the same way; nothing changes until this is decided.
 2. **Real-model evaluation.** Authorization and budget for provider runs, and an API key for them: the baseline and the cache measurements need an API provider, and the public path needs one anyway (G9).
 3. **Sample repositories** for the suite and for the public demonstration.
 4. **Unproven surfaces** (A2A, releases, browser checks, the create flow, Slack): ship as experimental or hide in the first public version.

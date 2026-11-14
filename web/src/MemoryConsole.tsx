@@ -629,6 +629,7 @@ export default function MemoryConsole({ api, projects, connected = true }: Memor
                       projectId={effectiveProjectId}
                       refreshKey={refreshKey}
                       onInspect={inspect}
+                      semantic={!!report?.semantic_search}
                     />
                   )}
                   {view === 'Records' && (

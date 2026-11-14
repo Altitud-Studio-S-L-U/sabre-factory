@@ -168,6 +168,21 @@ it('lists what each station recalled with its ranks and marks refused calls', as
   expect(within(table).getByText('Recalled · 3 candidates')).toBeVisible();
   await user.click(within(table).getByRole('button', { name: 'm09' }));
   expect(onInspect).toHaveBeenCalledWith('m09');
+  // Without an embedding model the log does not claim ranking by meaning.
+  expect(screen.getByText(/Retrieval by wording/)).toBeVisible();
+  expect(screen.queryByText(/Hybrid retrieval/)).not.toBeInTheDocument();
+});
+
+it('names hybrid retrieval only when the instance ranks by meaning', async () => {
+  stub({ '/projects/synthetic-project/memory/recalls': memoryRecalls() });
+  render(
+    <MemoryRouter>
+      <RecallLog api={api()} projectId="synthetic-project" refreshKey={0} onInspect={vi.fn()} semantic />
+    </MemoryRouter>,
+  );
+  await screen.findByRole('table', { name: 'Recall log' });
+  expect(screen.getByText(/Hybrid retrieval: wording and meaning ranks fused/)).toBeVisible();
+  expect(screen.queryByText(/Retrieval by wording/)).not.toBeInTheDocument();
 });
 
 it('lists every memory with search, kind and state filters, a cursor and the inspector beside it', async () => {
