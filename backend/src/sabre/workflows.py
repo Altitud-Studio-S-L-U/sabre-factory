@@ -21,6 +21,7 @@ from sabre.budget_diagnostics import dispatch_denial
 from sabre.error_boundaries import guarded_call
 from sabre.events import ExecutionEvent
 from sabre.execution_observer import current_execution
+from sabre.logs import log
 from sabre.memory import PROPOSE_TOOL, RUN_PROPOSERS
 from sabre.memory_lessons import append_repair, lesson_proposer, repair_entry, repair_lesson
 from sabre.models import (
@@ -296,6 +297,8 @@ def observe_stage(name, handler, guard, repository=None):
         correlation = new_id()
         started = time.perf_counter()
         async def record(status, error=None):
+            log(f"stage.{status}", work_id=order.get("id"), phase=name, error_code=error,
+                duration_ms=None if status == "started" else int((time.perf_counter()-started)*1000))
             if repository is not None and hasattr(repository, "record_execution_event"):
                 await repository.record_execution_event(ExecutionEvent(id=new_id(), work_id=order["id"],
                     plan_revision=order.get("plan_revision", 1), phase=name, correlation_id=correlation,
