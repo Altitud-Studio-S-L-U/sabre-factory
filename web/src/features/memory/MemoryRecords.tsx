@@ -164,7 +164,7 @@ export default function MemoryRecords({
           <EmptyState as="h3" title={filtered ? 'No memories match' : 'No memories yet'}>
             {filtered
               ? 'Change the search or the filters. Only this project’s records are searched.'
-              : 'Delivered runs record a fact, repaired runs propose a lesson, and you or the Supervisor can propose more. Nothing guides a run before you approve it.'}
+              : 'A memory is recorded only when a run delivers a pull request: the run records a fact, and a run that needed repairs proposes a lesson for your review. Audits and runs that stop before delivery record nothing, so a new project starts empty.'}
           </EmptyState>
         ) : (
           <>
