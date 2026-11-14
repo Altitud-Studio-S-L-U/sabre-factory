@@ -20,6 +20,7 @@ export function runFigures(overrides: Partial<RunFigures> = {}): RunFigures {
     cache_read_tokens: null,
     cache_write_tokens: null,
     api_cost_usd: null,
+    reported_cost_usd: null,
     active_seconds: 0,
     median_tokens_per_completed_run: null,
     median_active_seconds_per_completed_run: null,
@@ -162,4 +163,10 @@ export function unmeasuredRunMetrics(): RunMetrics {
       { day: '2026-11-13', started: 2, completed: 0, stopped: 1, cancelled: 0, measured_tokens: 237_000 },
     ],
   });
+}
+
+/** The same CLI-only window, where the session reported what its calls cost at API rates. */
+export function reportedRunMetrics(): RunMetrics {
+  const metrics = unmeasuredRunMetrics();
+  return { ...metrics, totals: { ...metrics.totals, reported_cost_usd: 1.7532 } };
 }

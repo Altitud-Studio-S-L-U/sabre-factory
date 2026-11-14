@@ -199,3 +199,22 @@ it('says so when the window is empty, truncated or could not be read', async () 
   expect(await screen.findByRole('alert')).toHaveTextContent('The figures could not be read');
   expect(screen.getByRole('button', { name: 'Refresh' })).toBeEnabled();
 });
+
+it('shows a cost a CLI session reported under its own name, never as a charge', async () => {
+  const { reportedRunMetrics } = await import('./runMetricsFixture');
+  show(reportedRunMetrics());
+  const summary = await screen.findByRole('region', { name: 'Summary' });
+  // Nothing was charged per token, so there is no API cost tile to mistake it for.
+  expect(within(summary).queryByText('API cost')).not.toBeInTheDocument();
+  expect(tile('Cost reported by CLI sessions')).toHaveTextContent(
+    '$1.75At API rates, as the session reported it; a subscription is not charged per token',
+  );
+  expect(tile('Cost reported by CLI sessions').querySelector('[data-unknown]')).toBeNull();
+});
+
+it('adds what CLI sessions reported beside a cost that was charged', async () => {
+  const metrics = runMetrics();
+  show({ ...metrics, totals: { ...metrics.totals, reported_cost_usd: 0.5 } });
+  await screen.findByRole('region', { name: 'Summary' });
+  expect(tile('API cost')).toHaveTextContent('$3.42CLI sessions reported $0.50 more at API rates');
+});

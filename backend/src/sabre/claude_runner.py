@@ -6,6 +6,7 @@ import json
 import os
 import stat
 import tempfile
+from math import isfinite
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -62,6 +63,14 @@ def execution_failure(result: dict) -> DomainError:
     return DomainError("CLAUDE_EXECUTION_FAILED", "Claude reported an invocation failure", 503)
 
 
+def reported_cost(result: dict) -> float | None:
+    """The cost the CLI reports for this call at API rates. It is optional: a result without one is still valid."""
+    cost = result.get("total_cost_usd")
+    if isinstance(cost, bool) or not isinstance(cost, int | float) or not isfinite(cost) or not 0 <= cost <= 100_000:
+        return None
+    return float(cost)
+
+
 def parse_result(raw: bytes, *, exit_code: int = 0) -> ClaudeInvocationResponse:
     try:
         result = json.loads(raw)
@@ -93,7 +102,8 @@ def parse_result(raw: bytes, *, exit_code: int = 0) -> ClaudeInvocationResponse:
         if any(type(value) is not int or not 0 <= value <= 1_000_000_000 for value in counts):
             raise ValueError
         return ClaudeInvocationResponse(result=envelope, input_tokens=counts[0] + counts[2] + counts[3],
-            output_tokens=counts[1], cached_input_tokens=counts[2], cache_creation_input_tokens=counts[3])
+            output_tokens=counts[1], cached_input_tokens=counts[2], cache_creation_input_tokens=counts[3],
+            reported_cost_usd=reported_cost(result))
     except (ValueError, TypeError, KeyError, ValidationError, RecursionError):
         raise DomainError("CLAUDE_USAGE_INVALID", "Claude did not return valid usage counters", 503) from None
 

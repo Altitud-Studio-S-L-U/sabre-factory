@@ -7,6 +7,7 @@ the input price, which is what the ledger did for every token before these price
 """
 
 from dataclasses import dataclass
+from math import isfinite
 
 
 @dataclass(frozen=True)
@@ -42,6 +43,17 @@ WRITE_LIFETIME_KEYS = ("ephemeral_5m_input_tokens", "ephemeral_1h_input_tokens")
 def cache_write_tokens(usage: dict) -> int:
     """Input tokens written to the provider's cache, counted once whichever way the integration reports them."""
     return sum(cache_tokens(usage, key) for key in WRITE_LIFETIME_KEYS) or cache_tokens(usage, "cache_creation")
+
+
+def reported_cost_usd(messages) -> float | None:
+    """What the provider itself said these responses cost; None when none of them said."""
+    reported = []
+    for message in messages:
+        metadata = getattr(message, "response_metadata", None)
+        value = metadata.get("reported_cost_usd") if isinstance(metadata, dict) else None
+        if isinstance(value, int | float) and not isinstance(value, bool) and isfinite(value) and 0 <= value <= 100_000:
+            reported.append(float(value))
+    return sum(reported) if reported else None
 
 
 def call_cost_usd(rates: Rates, *, input_tokens: int, output_tokens: int, cache_read_tokens: int = 0, cache_write_tokens: int = 0) -> float:

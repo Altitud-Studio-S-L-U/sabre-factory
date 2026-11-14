@@ -524,6 +524,8 @@ export default function RunProcessConsole({
                   : !liveUsage?.snapshot && usage
                     ? 'Ledger includes pending reservations. '
                     : ''}
+                {liveUsage?.snapshot?.reported_cost_usd != null &&
+                  `The CLI session reported $${liveUsage.snapshot.reported_cost_usd.toFixed(4)} at API rates. `}
                 Subscription fees and unknown remote costs excluded
               </>
             }

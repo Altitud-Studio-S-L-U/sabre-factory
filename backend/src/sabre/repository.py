@@ -64,6 +64,8 @@ class UsageBreakdown(TypedDict):
     usage: UsageSummary
     measured_api_cost_usd: float | None
     reserved_api_cost_usd: float
+    # What providers themselves reported their calls cost; None when none reported one.
+    reported_cost_usd: float | None
 
 
 class KnowledgeInventory(TypedDict):
@@ -779,9 +781,9 @@ class Repository(MemoryStore):
         split = breakdown or {}
         async with self.connection() as conn:
             await conn.execute("""UPDATE model_usage SET actual_tokens=%s,actual_usd=%s,input_tokens=%s,output_tokens=%s,
-                cache_read_tokens=%s,cache_write_tokens=%s,settled_at=clock_timestamp() WHERE id=%s""",
+                cache_read_tokens=%s,cache_write_tokens=%s,reported_usd=%s,settled_at=clock_timestamp() WHERE id=%s""",
                 (tokens, usd, split.get("input_tokens"), split.get("output_tokens"), split.get("cache_read_tokens"),
-                 split.get("cache_write_tokens"), usage_id))
+                 split.get("cache_write_tokens"), split.get("reported_usd"), usage_id))
 
     async def fail_usage(self, usage_id: str, failure_class: str):
         """Say why a call that never settled failed. Its reservation stays: a lost response is not a free request."""
@@ -816,7 +818,8 @@ class Repository(MemoryStore):
                     coalesce(sum(reserved_tokens) FILTER(WHERE actual_tokens IS NULL),0) unknown_reserved_tokens,
                     coalesce(sum(coalesce(actual_usd,reserved_usd)),0) cost_usd,
                     sum(actual_usd) measured_api_cost_usd,
-                    coalesce(sum(reserved_usd) FILTER(WHERE actual_usd IS NULL),0) reserved_api_cost_usd
+                    coalesce(sum(reserved_usd) FILTER(WHERE actual_usd IS NULL),0) reserved_api_cost_usd,
+                    sum(reported_usd) reported_cost_usd
                 FROM model_usage WHERE work_id=%s
             """, (work_id,))).fetchone()
             usage = UsageSummary(calls=int(row["calls"]), settled_calls=int(row["settled_calls"]),
@@ -825,7 +828,8 @@ class Repository(MemoryStore):
                 cost_usd=float(row["cost_usd"]))
             return UsageBreakdown(usage=usage,
                 measured_api_cost_usd=float(row["measured_api_cost_usd"]) if row["measured_api_cost_usd"] is not None else None,
-                reserved_api_cost_usd=float(row["reserved_api_cost_usd"]))
+                reserved_api_cost_usd=float(row["reserved_api_cost_usd"]),
+                reported_cost_usd=float(row["reported_cost_usd"]) if row["reported_cost_usd"] is not None else None)
 
     async def audit_calls(self, work_id: str, limit: int = 500) -> tuple[list[dict], bool]:
         """Per-call measurements in reservation order; unknown values stay NULL."""

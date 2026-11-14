@@ -23,7 +23,14 @@ from sabre.agent_context import ContextPolicy, memory_references, project_tool_c
 from sabre.audit import public_id
 from sabre.context_archive import READ_CONTEXT_PAGE, ContextArchive
 from sabre.context_receipts import ContextReceipt
-from sabre.costs import Rates, cache_tokens, cache_write_tokens, call_cost_usd, reserved_cost_usd
+from sabre.costs import (
+    Rates,
+    cache_tokens,
+    cache_write_tokens,
+    call_cost_usd,
+    reported_cost_usd,
+    reserved_cost_usd,
+)
 from sabre.error_boundaries import guarded_call
 from sabre.events import ExecutionEvent
 from sabre.execution_observer import current_execution, observe
@@ -328,10 +335,13 @@ class GuardedCalls(AgentMiddleware):
             cached = sum(cache_read_tokens(u) for u in usages)
             written = sum(cache_write_tokens(u) for u in usages)
             actual = call_cost_usd(rates, input_tokens=inputs, output_tokens=outputs, cache_read_tokens=cached, cache_write_tokens=written)
+            # What the provider said the call cost is kept as reported, apart from what the factory charged.
+            reported = reported_cost_usd(response.result)
             await self.repository.settle_usage(usage_id, inputs + outputs, actual, breakdown={
-                "input_tokens": inputs, "output_tokens": outputs, "cache_read_tokens": cached, "cache_write_tokens": written})
+                "input_tokens": inputs, "output_tokens": outputs, "cache_read_tokens": cached, "cache_write_tokens": written,
+                **({"reported_usd": reported} if reported is not None else {})})
             observation.set(input_tokens=inputs, output_tokens=outputs, cache_read_tokens=cached, cache_write_tokens=written,
-                            tokens=inputs + outputs, cost_usd=actual)
+                            tokens=inputs + outputs, cost_usd=actual, reported_usd=reported)
             if cli and self.work.effective_budget_policy is not None and hasattr(self.repository, "check_dispatch_budget"):
                 await self.repository.check_dispatch_budget(self.work)
             if cli and self.work.effective_budget_policy is None and not self.work.budget.progress_limits and inputs + outputs > input_bound + output_bound:
