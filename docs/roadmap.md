@@ -44,7 +44,7 @@ The decision that matters is narrower: who runs the inner tool loop of the imple
 | G11 | The role pipeline is unmeasured | Seven specialists and several model stages, none justified by an ablation | [16](specs/16-evaluation.md) |
 | G12 | Console and plan leftovers | See "Left over from the previous plan" | Phase 0 and Phase 5 |
 | G13 | Work is sequential | One task at a time and no streaming; the console polls every five seconds | After G1 and G2: read-only parallel subagents first |
-| G14 | Memory learns only from the repository and the owner | Reading a repository now proposes what its instruction files and manifests say, and the owner can record knowledge against an indexed commit. Specialists still cannot propose a record, an audit or a stopped run leaves nothing, the one automatic record is never recalled, and nothing measures whether recall helps | [17](specs/17-memory-sources.md) |
+| G14 | Memory fills, and nothing shows that it helps | Reading a repository proposes what its instruction files and manifests say, the owner can record knowledge against an indexed commit, and a run's specialists can propose records whether or not it delivers. No real run has used the tool yet, the one automatic record is never recalled, and nothing measures whether recall helps | [17](specs/17-memory-sources.md) |
 
 ## Plan
 
@@ -54,7 +54,7 @@ Each phase ends on evidence, and Phase 1 is the gate: what it measures decides t
 
 **Phase 1 · Prove.** Grow the suite to twenty tasks on three repositories. Add recovery ratio and prefix stability to the scripted driver and run it in CI. Run the provider driver and the baseline with the owner's authorization and budget. Deliver the first real patch as a draft pull request on a sample repository. *Exit:* a committed report with pass rate, cost and time for the factory and for the baseline.
 
-**Phase 2 · Economy.** Archive in batches under pressure, keep the prefix stable, account for cache tokens, classify and retry provider failures. Rerun the suite. Let specialists propose records and measure runs with memory on and off ([17](specs/17-memory-sources.md)). Build the worker-session experiment and decide with the numbers. *Exit:* recoveries under 10% of tool calls, the cache share reported, and a written decision on the worker.
+**Phase 2 · Economy.** Archive in batches under pressure, keep the prefix stable, account for cache tokens, classify and retry provider failures. Rerun the suite. Measure runs with memory on and off, now that specialists can propose records ([17](specs/17-memory-sources.md)). Build the worker-session experiment and decide with the numbers. *Exit:* recoveries under 10% of tool calls, the cache share reported, and a written decision on the worker.
 
 **Phase 3 · Effortless path.** GitHub connection with per-operation tokens, signed delivery commits through the API, Add project from the connection. *Exit:* live evidence on github.com for a personal account and an organization; no token is pasted anywhere in the path.
 
