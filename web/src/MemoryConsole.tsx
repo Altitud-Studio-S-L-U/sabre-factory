@@ -423,7 +423,7 @@ export default function MemoryConsole({ api, projects, connected = true }: Memor
         icon={<Brain />}
         iconTone="memory"
         title="Memory"
-        description="What the factory knows about each project, where every fact came from and when an agent recalled it. Nothing becomes memory without evidence or your approval."
+        description="What the factory knows about each project, where every record came from and when an agent recalled it. Nothing guides a run until you approve it."
         actions={
           <>
             <Button variant="secondary" disabled={loading || busy || !effectiveProjectId} onClick={refresh}>
