@@ -28,7 +28,13 @@ Evaluations are stored in `memory_validity(project_id, memory_id, commit, state,
 Edges to the source run, the source commit and the proposing entry point derive from memory fields. `GET /api/v1/projects/{project_id}/memory/graph` returns a bounded neighbourhood (`depth` 1 or 2, at most 300 nodes) and marks truncation.
 
 ### Attribution
-`proposed_by {channel: owner_console | owner_mcp | supervisor_chat | factory, role?, work_id?}` is set by the server from the entry point and rejected in request bodies. Memories recorded earlier have no proposer and read as unknown.
+`proposed_by {channel: owner_console | owner_mcp | supervisor_chat | factory | repository, role?, work_id?}` is set by the server from the entry point and rejected in request bodies. Memories recorded earlier have no proposer and read as unknown.
+
+### Provenance
+A memory names either a delivered run of its project (`source_work_id` with that delivery's commit) or, with no run, a commit of its project that has a repository index; the index's snapshot digest is then its evidence, and a supplied digest must equal it. Anything else is refused with `MEMORY_PROVENANCE`. Reading the repository and the owner's own proposals use the second form ([17](17-memory-sources.md)).
+
+### Endings
+An invalidated memory keeps why it ended in `invalidated_as`: `rejected` before approval, `revoked` after it, `superseded` by an approved replacement, or `withdrawn` by the factory when the repository text a waiting proposal quoted changed first. Older records have no reason.
 
 ### Overlap detection
 Each proposal that does not activate itself is compared with the newest 500 active or pending memories of its project, excluding factory delivery facts; factory repair lessons are compared. Lexical similarity is the mean of the Jaccard similarity of normalized word sets and of word 2-shingles (lower-cased words of two or more characters, minus a small English stop-word list). With embeddings on both sides, cosine similarity is also considered. A pair overlaps when lexical similarity is at least 0.4 or cosine similarity at least 0.92; at most ten links are stored with the score, both measures and up to twelve terms unique to each side. Overlap is not a conflict verdict: the owner decides, and can record `supersedes` or `related` on approval.

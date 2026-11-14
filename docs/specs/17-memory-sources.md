@@ -3,7 +3,15 @@
 ## Outcome
 A project's memory is useful from the day the project is registered. The console shows what the factory knows about the repository, where each item came from, what the last run used and what needs a decision. Nothing reaches trusted memory unreviewed. This amends [07](07-memory.md); its provenance, validity, links, overlap detection and recall log stay.
 
-## State it starts from
+## Built so far
+- *Repository source.* Every completed read of the repository (registration, a run's intake, or the owner's Read the repository) proposes its statements. Instruction files are `AGENTS.md` and `CLAUDE.md` anywhere, a contribution guide at the root, `.github/` or `docs/`, and `.github/copilot-instructions.md`; each is quoted by its headings of the first two levels, a section over 4,000 characters is cut at blank lines, and a statement cites its heading line. Manifests are `package.json` (scripts; stack), `pyproject.toml`, `Cargo.toml`, `go.mod` and `Makefile` targets, without dependency versions. One read takes the 12 files of each kind nearest the root and at most 40 statements, and reports what it left out.
+- The first line of a statement is its title (`AGENTS.md › Verify`), which is how a later read finds the earlier record: same text is left alone, a text the owner rejected or revoked is not proposed again, a changed text replaces a waiting proposal or supersedes an approved record on approval, and a waiting proposal whose statement is gone is withdrawn. The job reports the counts (`imported`); a failed read leaves the index and says so on the job.
+- *Owner source.* A proposal with no run is accepted against any indexed commit of the project, and the dialog offers those commits.
+- *Console.* The status card, the review of repository statements with what they replace, and the coverage map.
+
+Still to build: the run source, indexes at delivery and base commits, dropping the delivery count, the review of records no run recalls, the last-run trace, staleness on the map, and the measurement.
+
+## State it started from
 - Every record must cite a run that delivered a pull request. An audit never does, so an audit that completes records nothing, and neither does a run that stops. Specialists can read memory and cannot propose it.
 - The one automatic record states how many checks passed at the pull-request commit. It is scoped to that commit, no later run starts from it, so it is never recalled, and it is not knowledge.
 - The owner's Propose dialog prefills the base commit of the latest run, which the service refuses. A citation must exist in an index at the record's commit, and only the default branch is indexed, so file citations, staleness and carry-forward are unreachable for a delivered run.
