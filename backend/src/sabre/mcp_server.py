@@ -280,22 +280,22 @@ def build_mcp(service):
 
     @server.tool(structured_output=True)
     async def sabre_increase_token_budget(work_id: str, change: TokenBudgetIncrease) -> OwnerConfirmation:
-        """Ask the owner to increase only max_tokens on paused or blocked work. Nothing changes until the owner confirms it in the SABRE console. Revision and previous limit must still match then. Usage, reservations and other limits remain unchanged; resume separately."""
+        """Ask the owner to increase only max_tokens on paused or blocked work that has no budget policy (effective_budget_policy is null); a run with a policy is refused here with VERSIONED_BUDGET_REQUIRED and takes sabre_amend_budget. Nothing changes until the owner confirms it in the SABRE console. Revision and previous limit must still match then. Usage, reservations and other limits remain unchanged; resume separately."""
         return await service().owner_confirmations().request("budget.tokens", work_id, change)
 
     @server.tool(structured_output=True)
     async def sabre_increase_call_budget(work_id: str, change: CallBudgetIncrease) -> OwnerConfirmation:
-        """Ask the owner to increase only max_calls on paused or blocked work. Nothing changes until the owner confirms it in the SABRE console. Revision and previous limit must still match then. Usage, reservations and other limits remain unchanged; resume separately."""
+        """Ask the owner to increase only max_calls on paused or blocked work that has no budget policy (effective_budget_policy is null); a run with a policy is refused here with VERSIONED_BUDGET_REQUIRED and takes sabre_amend_budget. Nothing changes until the owner confirms it in the SABRE console. Revision and previous limit must still match then. Usage, reservations and other limits remain unchanged; resume separately."""
         return await service().owner_confirmations().request("budget.calls", work_id, change)
 
     @server.tool(structured_output=True)
     async def sabre_use_cli_progress_limits(work_id: str, change: CliProgressLimitsChange) -> OwnerConfirmation:
-        """Ask the owner to replace cumulative quotas with CLI progress controls. Nothing changes until the owner confirms it in the SABRE console. Preserves usage, requires the current plan and full budget, and does not resume the work."""
+        """Ask the owner to replace cumulative quotas with CLI progress controls on work that has no budget policy; a run with a policy is refused here with VERSIONED_BUDGET_REQUIRED. Nothing changes until the owner confirms it in the SABRE console. Preserves usage, requires the current plan and full budget, and does not resume the work."""
         return await service().owner_confirmations().request("budget.cli_progress", work_id, change)
 
     @server.tool(structured_output=True)
     async def sabre_amend_budget(work_id: str, request: BudgetAmendment) -> OwnerConfirmation:
-        """Ask the owner to change one metric of the run's budget policy. Nothing changes until the owner confirms it in the SABRE console; the policy revision must still match then."""
+        """Ask the owner to change one metric (tokens, invocations, active_seconds or repairs) of the run's budget policy; expected_revision is the run's budget_revision, and resume continues the run once applied. This is the tool for every run launched with a policy, which includes every run started from the console. Nothing changes until the owner confirms it in the SABRE console; the policy revision must still match then."""
         return await service().owner_confirmations().request("budget.amend", work_id, request)
 
     @server.tool(structured_output=True)
