@@ -4,7 +4,7 @@ import type { IconName } from './Icon';
  * Console sections. The backend serves these paths as the SPA entry on direct load from
  * backend/src/sabre/console_routes.json; test/consoleRoutes.test.ts keeps both lists identical.
  */
-export type View = 'work' | 'projects' | 'security' | 'memory' | 'agents' | 'tools' | 'config';
+export type View = 'work' | 'projects' | 'security' | 'insights' | 'memory' | 'agents' | 'tools' | 'config';
 
 export interface NavigationItem {
   id: View;
@@ -29,14 +29,16 @@ export const redirects: { from: string; to: string; search?: string }[] = [
 ];
 
 /**
- * Pages of the Runs area: the projects runs work on and the findings their security reviews
- * recorded. They keep their own addresses and the sidebar shows Runs while they are open.
+ * Pages of the Runs area: the projects runs work on, the findings their security reviews
+ * recorded and the figures across runs. They keep their own addresses and the sidebar shows
+ * Runs while they are open.
  */
 export const workAreas: NavigationItem[] = [
   { id: 'projects', path: '/projects', label: 'Projects', icon: 'projects' },
   { id: 'security', path: '/security', label: 'Security findings', icon: 'security' },
+  { id: 'insights', path: '/insights', label: 'Insights', icon: 'insights' },
 ];
 
 /** The sidebar entry that owns a view. */
 export const sectionOf = (view: View | undefined): View | undefined =>
-  view === 'projects' || view === 'security' ? 'work' : view;
+  workAreas.some((item) => item.id === view) ? 'work' : view;

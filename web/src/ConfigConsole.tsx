@@ -16,7 +16,7 @@ import {
   type Project,
   type SecretMetadata,
 } from './api';
-import { providers, SelectionFields } from './ModelConfiguration';
+import { CachePriceFields, providers, SelectionFields } from './ModelConfiguration';
 import Credentials from './Credentials';
 import PairedBrowsers from './PairedBrowsers';
 import About from './About';
@@ -506,6 +506,8 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
                                 destination: providers[provider].destination,
                                 input_usd_per_million: 0,
                                 output_usd_per_million: 0,
+                                cache_read_usd_per_million: null,
+                                cache_write_usd_per_million: null,
                               });
                             }}
                           >
@@ -661,6 +663,7 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
                                   }
                                 />
                               </Field>
+                              <CachePriceFields value={selection} onChange={changeDefault} />
                             </div>
                           )}
                         </Disclosure>

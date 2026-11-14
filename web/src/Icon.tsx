@@ -27,6 +27,7 @@ import {
   Command,
   Sun,
   Moon,
+  ChartColumn,
 } from 'lucide-react';
 const icons = {
   work: PanelsTopLeft,
@@ -56,6 +57,7 @@ const icons = {
   command: Command,
   sun: Sun,
   moon: Moon,
+  insights: ChartColumn,
 } as const;
 export type IconName = keyof typeof icons;
 export default function Icon({

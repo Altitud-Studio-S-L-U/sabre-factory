@@ -3,6 +3,7 @@ import { configuration } from '../src/test/modelConfigurationFixture';
 import { factoryConfiguration } from '../src/test/factoryConfigurationFixture';
 import { agentCatalog } from '../src/test/agentCatalogFixture';
 import { runUsageSnapshot } from '../src/test/runUsageFixture';
+import { runMetrics } from '../src/test/runMetricsFixture';
 import type { ProcessTopology, WorkOrder } from '../src/api';
 import topologies from './topology.json' with { type: 'json' };
 
@@ -124,6 +125,10 @@ export async function mockFactoryApi(page: Page) {
     }
     if (path.endsWith('/configuration')) json = factoryConfiguration();
     if (path.endsWith('/releases')) json = { version: 1, items: [], truncated: false };
+    if (path.endsWith('/metrics/runs'))
+      json = runMetrics({
+        window_days: Number(new URL(route.request().url()).searchParams.get('days') ?? 30),
+      });
     if (path.endsWith('/confirmations')) json = { version: 1, pending: 0, items: [] };
     if (path.endsWith('/a2a-tasks')) json = [];
     if (path.endsWith('/agents/activity'))

@@ -50,6 +50,8 @@ export type SystemInfo = components['schemas']['SystemInfo'];
 export type AuditView = components['schemas']['AuditView'];
 export type OperatorToolTracePage = components['schemas']['OperatorToolTracePage'];
 export type RunUsageSnapshot = components['schemas']['RunUsageSnapshot'];
+export type RunMetrics = components['schemas']['RunMetrics'];
+export type RunFigures = components['schemas']['Figures'];
 export type ProjectKnowledgeReport = components['schemas']['ProjectKnowledgeReport'];
 export type IntegrationInfo = components['schemas']['IntegrationInfo'];
 export type IntegrationStateChange = components['schemas']['IntegrationStateChange'];
@@ -564,6 +566,8 @@ export function createApi(csrfToken: string, onUnauthorized?: (message: string) 
     configurationHistory: (limit = 20) =>
       request<ConfigurationHistory>(`/configuration/history?limit=${limit}`),
     agentActivity: (days = 7) => request<AgentActivity>(`/agents/activity?days=${days}`),
+    runMetrics: (days: number, mode?: string, projectId?: string) =>
+      request<RunMetrics>(`/metrics/runs${searchQuery({ days, mode, project_id: projectId })}`),
     security: (projectId?: string) =>
       request<SecurityFinding[]>(
         `/security${projectId ? `?project_id=${encodeURIComponent(projectId)}` : ''}`,

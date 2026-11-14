@@ -27,6 +27,7 @@ const sections = [
   { name: 'config about', path: '/config?section=about', ready: 'Graph synthetic' },
   { name: 'projects', path: '/projects', ready: 'Example project' },
   { name: 'security', path: '/security', ready: 'Independent review' },
+  { name: 'insights', path: '/insights', ready: 'Runs by outcome' },
 ];
 
 type Violation = { id: string; impact: string; help: string; nodes: { target: string; summary: string }[] };

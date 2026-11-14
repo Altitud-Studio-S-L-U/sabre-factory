@@ -24,12 +24,15 @@ export default function StatTile({
   value,
   note,
   tone = 'default',
+  wrapNote = false,
   className,
 }: {
   label: ReactNode;
   value: ReactNode;
   note?: ReactNode;
   tone?: StatTone;
+  /** Let the note wrap instead of cutting it, for a note that explains the value. */
+  wrapNote?: boolean;
   className?: string;
 }) {
   return (
@@ -44,7 +47,7 @@ export default function StatTile({
       <span className={cn('text-[1.375rem] leading-tight font-semibold tabular-nums', valueTones[tone])}>
         {value}
       </span>
-      {note && <span className="truncate text-xs text-muted-foreground">{note}</span>}
+      {note && <span className={cn('text-xs text-muted-foreground', !wrapNote && 'truncate')}>{note}</span>}
     </div>
   );
 }

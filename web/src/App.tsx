@@ -44,6 +44,7 @@ import RunsTable, { runPath } from './features/runs/RunsTable';
 import CreateRunWizard from './features/runs/CreateRunWizard';
 import ProjectsView from './features/projects/ProjectsView';
 import SecurityView from './features/security/SecurityView';
+import InsightsView from './features/insights/InsightsView';
 import WorkAreaNav from './features/runs/WorkAreaNav';
 import { ErrorNotice, message, statusLabels, usesOnlyCliModels } from './features/runs/shared';
 
@@ -551,6 +552,8 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
               )}
               {view === 'security' && <WorkAreaNav current="security" />}
               {view === 'security' && <SecurityView api={api} projects={projects} orders={liveOrders} />}
+              {view === 'insights' && <WorkAreaNav current="insights" />}
+              {view === 'insights' && <InsightsView api={api} projects={allProjects} />}
               {view === 'memory' && <MemoryConsole api={api} projects={projects} connected={!error} />}
               {view === 'agents' && (
                 <AgentsPage
