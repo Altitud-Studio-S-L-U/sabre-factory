@@ -180,3 +180,38 @@ async def test_busy_runner_session_is_unknown_and_metadata_projection_is_bounded
     saved = await service.change_model_configuration(change())
     assert saved.revision == 1 and len(saved.runners) == 2
     assert all(item.authenticated is None and item.busy for item in saved.runners)
+
+
+def test_cache_prices_are_optional_and_an_unset_price_leaves_the_stored_selection_as_it_was():
+    plain = choice("openai", name="fixture", input_usd_per_million=3, output_usd_per_million=15)
+    assert set(plain.model_dump(mode="json")) == {"provider", "name", "destination", "input_usd_per_million",
+                                                  "output_usd_per_million", "max_output_tokens"}
+    priced = plain.model_copy(update={"cache_read_usd_per_million": 0.3, "cache_write_usd_per_million": 3.75})
+    stored = priced.model_dump(mode="json")
+    assert (stored["cache_read_usd_per_million"], stored["cache_write_usd_per_million"]) == (0.3, 3.75)
+    assert ModelSelection.model_validate(stored) == priced and ModelSelection.model_validate(plain.model_dump(mode="json")) == plain
+    for invalid in (-1, float("inf"), 1000001):
+        with pytest.raises(ValidationError):
+            choice("openai", name="fixture", cache_read_usd_per_million=invalid)
+
+
+def test_cache_prices_travel_between_the_selection_and_the_settings_and_are_not_inherited_by_an_override():
+    from sabre.model_configuration import selection, selection_updates
+    from sabre.settings import RoleModelSettings
+
+    priced = choice("openai", name="fixture", input_usd_per_million=3, output_usd_per_million=15,
+                    cache_read_usd_per_million=0.3, cache_write_usd_per_million=3.75)
+    updates = selection_updates(priced)
+    assert (updates["model_cache_read_usd_per_million"], updates["model_cache_write_usd_per_million"]) == (0.3, 3.75)
+    cfg = config(model_provider="openai", model_name="fixture").model_copy(update=updates)
+    assert selection(cfg) == priced
+    # A role with its own selection has that selection's prices, on another provider or on the same one.
+    for provider in ("anthropic", "openai"):
+        own = RoleModelSettings(model_provider=provider, model_name="other", model_input_usd_per_million=1, model_output_usd_per_million=5)
+        other = cfg.model_copy(update={"role_models": {"qa": own}})
+        qa = other.for_role("qa")
+        assert (qa.model_input_usd_per_million, qa.model_cache_read_usd_per_million, qa.model_cache_write_usd_per_million) == (1, None, None)
+        assert other.for_role("developer").model_cache_read_usd_per_million == 0.3
+    # An override that only bounds the output keeps the model, and with it the model's prices.
+    bounded = cfg.model_copy(update={"role_models": {"qa": RoleModelSettings(model_max_output_tokens=1024)}})
+    assert (bounded.for_role("qa").model_cache_read_usd_per_million, bounded.for_role("qa").model_max_output_tokens) == (0.3, 1024)

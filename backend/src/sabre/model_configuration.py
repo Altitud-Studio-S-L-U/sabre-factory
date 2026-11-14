@@ -74,6 +74,8 @@ def selection(config) -> ModelSelection:
         destination=config.model_base_url if config.model_provider == "local" else DESTINATIONS[config.model_provider],
         input_usd_per_million=config.model_input_usd_per_million,
         output_usd_per_million=config.model_output_usd_per_million,
+        cache_read_usd_per_million=getattr(config, "model_cache_read_usd_per_million", None),
+        cache_write_usd_per_million=getattr(config, "model_cache_write_usd_per_million", None),
         max_output_tokens=config.model_max_output_tokens)
 
 
@@ -82,6 +84,8 @@ def selection_updates(choice: ModelSelection) -> dict:
         "model_base_url": choice.destination if choice.provider == "local" else None,
         "model_input_usd_per_million": choice.input_usd_per_million,
         "model_output_usd_per_million": choice.output_usd_per_million,
+        "model_cache_read_usd_per_million": choice.cache_read_usd_per_million,
+        "model_cache_write_usd_per_million": choice.cache_write_usd_per_million,
         "model_max_output_tokens": choice.max_output_tokens}
 
 

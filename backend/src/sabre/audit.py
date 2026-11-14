@@ -85,6 +85,9 @@ class AuditCall(Contract):
     input_tokens: int | None = Field(default=None, ge=0)
     output_tokens: int | None = Field(default=None, ge=0)
     cache_read_tokens: int | None = Field(default=None, ge=0)
+    cache_write_tokens: int | None = Field(default=None, ge=0)
+    # Why a call that never settled failed; None for a settled call and for one whose outcome is unknown.
+    failure_class: Literal["rate_limit", "overloaded", "timeout", "authentication", "invalid_request", "other"] | None = None
     sent_bytes: int | None = Field(default=None, ge=0)
     original_bytes: int | None = Field(default=None, ge=0)
     call_ms: int | None = Field(default=None, ge=0)

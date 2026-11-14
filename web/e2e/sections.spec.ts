@@ -216,6 +216,7 @@ test('earlier pages open inside the five sections', async ({ page }) => {
   for (const [path, label] of [
     ['/projects', 'Projects'],
     ['/security', 'Security findings'],
+    ['/insights', 'Insights'],
   ]) {
     await page.goto(path);
     const area = page.getByRole('navigation', { name: 'Runs area' });

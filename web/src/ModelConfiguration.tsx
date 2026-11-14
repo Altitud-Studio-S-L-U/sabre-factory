@@ -56,6 +56,8 @@ export function SelectionFields({
                 name: '',
                 input_usd_per_million: 0,
                 output_usd_per_million: 0,
+                cache_read_usd_per_million: null,
+                cache_write_usd_per_million: null,
               });
             }}
           >
@@ -140,10 +142,50 @@ export function SelectionFields({
                 }
               />
             </Field>
+            <CachePriceFields value={value} onChange={onChange} />
           </>
         )}
       </div>
     </div>
+  );
+}
+
+/** Optional prices of cached input. Left empty, cached tokens are charged at the input price. */
+export function CachePriceFields({
+  value,
+  onChange,
+}: {
+  value: ModelSelection;
+  onChange: (value: ModelSelection) => void;
+}) {
+  const price = (text: string) => (text.trim() === '' ? null : Number(text));
+  return (
+    <>
+      <Field
+        label="USD per million cached input tokens"
+        hint="Input read from the provider's cache. Empty: charged at the input price."
+      >
+        <Input
+          type="number"
+          min={0}
+          step="any"
+          value={value.cache_read_usd_per_million ?? ''}
+          onChange={(event) => onChange({ ...value, cache_read_usd_per_million: price(event.target.value) })}
+        />
+      </Field>
+      <Field
+        label="USD per million tokens written to the cache"
+        hint="Input the provider stores for later calls. Empty: charged at the input price."
+      >
+        <Input
+          type="number"
+          min={0}
+          step="any"
+          value={value.cache_write_usd_per_million ?? ''}
+          onChange={(event) => onChange({ ...value, cache_write_usd_per_million: price(event.target.value) })}
+        />
+      </Field>
+    </>
   );
 }
 

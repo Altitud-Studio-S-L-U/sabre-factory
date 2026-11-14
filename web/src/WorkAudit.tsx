@@ -6,6 +6,7 @@ import Notice from './components/Notice';
 import { SectionHeading } from './components/PageHeader';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './components/ui/table';
 import CrewAvatar from './features/crew/CrewAvatar';
+import { failureLabel } from './features/insights/insights';
 
 const roles: Record<string, string> = {
   supervisor: 'Supervisor',
@@ -225,18 +226,28 @@ export default function WorkAudit({
             <Disclosure summary={`View ${count(data.calls.length)} model calls`}>
               <p className={note}>
                 Reserved tokens are held before each call; measured tokens are what the provider reported.
-                Cached input is part of input.
+                Cached input, read or written, is part of input. A call that never settled keeps its
+                reservation and shows why it failed when the factory recorded it.
               </p>
               <Table className="tabular-nums">
                 <TableHeader>
                   <TableRow>
-                    {['#', 'Role', 'Reserved', 'Input', 'Cached', 'Output', 'Sent', 'Duration'].map(
-                      (heading) => (
-                        <TableHead key={heading} scope="col">
-                          {heading}
-                        </TableHead>
-                      ),
-                    )}
+                    {[
+                      '#',
+                      'Role',
+                      'Reserved',
+                      'Input',
+                      'Cached',
+                      'Written to cache',
+                      'Output',
+                      'Sent',
+                      'Duration',
+                      'Result',
+                    ].map((heading) => (
+                      <TableHead key={heading} scope="col">
+                        {heading}
+                      </TableHead>
+                    ))}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -247,9 +258,17 @@ export default function WorkAudit({
                       <TableCell>{count(call.reserved_tokens)}</TableCell>
                       <TableCell>{known(call.input_tokens)}</TableCell>
                       <TableCell>{known(call.cache_read_tokens)}</TableCell>
+                      <TableCell>{known(call.cache_write_tokens)}</TableCell>
                       <TableCell>{known(call.output_tokens)}</TableCell>
                       <TableCell>{formatBytes(call.sent_bytes)}</TableCell>
                       <TableCell>{formatMs(call.call_ms)}</TableCell>
+                      <TableCell>
+                        {call.failure_class
+                          ? `Failed: ${failureLabel(call.failure_class).toLowerCase()}`
+                          : call.measured_tokens === null
+                            ? 'No outcome recorded'
+                            : 'Settled'}
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>

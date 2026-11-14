@@ -20,6 +20,7 @@ Host tooling versions are declared in `web/package.json` and the lockfile; runti
 - `SABRE_MODEL_NAME`, optional `SABRE_MODEL_BASE_URL` for a local endpoint. Hosted providers use official destinations.
 - `SABRE_ROLE_MODELS`: public JSON overrides for `supervisor`, `analyst`, `architect`, `developer`, `qa`, `reviewer` and `security`, using model names, providers, prices and capabilities. Secret values are forbidden. Unspecified roles inherit the same destination's default credential; an explicit empty `secret_ref` disables inheritance. Any nonempty reference must exactly match its derived destination identifier. A provider change is explicit configuration, never automatic failover.
 - `SABRE_MODEL_INPUT_USD_PER_MILLION`, `SABRE_MODEL_OUTPUT_USD_PER_MILLION`, `SABRE_MONTHLY_BUDGET_USD`: mandatory paid-model accounting configuration.
+- `SABRE_MODEL_CACHE_READ_USD_PER_MILLION`, `SABRE_MODEL_CACHE_WRITE_USD_PER_MILLION`: optional prices of cached input, also editable per model in Config and Agents. Providers count cached tokens inside the input tokens; with these set, tokens read from the cache and tokens written to it are charged at their own price and only the rest as input. Unset, cached tokens are charged at the input price. One write price covers every cache lifetime.
 - `SABRE_EMBEDDING_MODEL` and `SABRE_EMBEDDING_USD_PER_MILLION`: optional hybrid lexical/vector retrieval with OpenAI or the configured local provider; output dimension is 1536. Other provider credentials are not sent to an embedding endpoint.
 - `SABRE_SLACK_OWNER_ID`: optional private Slack integration owner.
 - `SABRE_OTLP_ENDPOINT`: optional local diagnostics endpoint.
@@ -208,7 +209,13 @@ The bench therefore measures the harness, not model quality. A bench pass is not
 
 ## Per-call telemetry
 
-Each model call records its reservation, the provider-reported input, output and cached-input tokens, the sent and original context bytes and the time from reservation to settlement. Agent and tool boundaries record their measured duration, and tool completions record the size of the result handed back to the model, never its content. The run's Activity view shows tool time and a per-call table; the audit API (`GET /api/v1/work/{id}/audit`) returns the same fields as `calls` and `tool_timings`. Calls and runs recorded before this measurement report these values as unknown.
+Each model call records its reservation, the provider-reported input and output tokens, the input tokens read from the provider's cache and those written to it, the sent and original context bytes and the time from reservation to settlement. A call that never settled keeps its reservation and records why it failed (rate limit, overloaded, timeout, authentication, invalid request or other) when the factory saw the failure. Agent and tool boundaries record their measured duration, and tool completions record the size of the result handed back to the model, never its content. The run's Activity view shows tool time and a per-call table; the audit API (`GET /api/v1/work/{id}/audit`) returns the same fields as `calls` and `tool_timings`. Calls and runs recorded before this measurement report these values as unknown.
+
+## Figures across runs
+
+Runs → Insights reads `GET /api/v1/metrics/runs?days=30` (optionally `mode=create|patch|maintain|audit` and `project_id=`). The window is whole UTC days, today included, up to 365. Nothing is stored for it: each answer is a sum over the usage ledger and the event log, so it always agrees with what each run's audit shows. It reports runs by outcome (completed, stopped, cancelled, waiting, active), model calls settled and not with the failures by class, measured tokens and their split by kind, the cost charged through API prices, active time, the medians per completed run, the share of input read from cache, and the recovery ratio (tool calls that paged back archived text, over all tool calls), in total, by flow, by specialist and by day. Internal security-watch work orders are not runs and are left out.
+
+A figure that nothing measured is `null` and reads Unknown in the console, never zero: calls through a CLI session have no price per token, a call that never settled has no token count, a provider that reported no split has no cache share, and a window with no completed run has no median. At most the newest 5,000 runs of a window are counted; `truncated` says when that bound was reached.
 
 ## Annotated evaluation
 

@@ -15,7 +15,8 @@ from sabre.models import DomainError
 SPAN_NAMES = {"factory.work", "workflow.stage", "agent.role", "tool.call", "model.call"}
 IDENTIFIERS = {"work_id", "role", "phase", "tool", "model_provider", "model_name"}
 FAILURE_CLASSES = {"rate_limit", "overloaded", "timeout", "authentication", "invalid_request", "other"}
-NUMBERS = {"attempt", "provider_attempts", "tokens", "input_tokens", "output_tokens", "cost_usd", "reserved_tokens", "reserved_usd",
+NUMBERS = {"attempt", "provider_attempts", "tokens", "input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens",
+           "cost_usd", "reserved_tokens", "reserved_usd",
            "context_original_bytes", "context_sent_bytes", "context_dedup_results", "context_compacted_results",
            "context_request_original_bytes", "context_request_sent_bytes"}
 ERROR_TYPES = {"DomainError", "ValueError", "TypeError", "RuntimeError", "TimeoutError", "CancelledError",
@@ -57,17 +58,25 @@ class SpanRecorder:
     def __init__(self, current=None):
         self.current = current
         self.failed = False
+        self.dropped: set[str] = set()
 
     def set(self, **attributes):
         for key, value in attributes.items():
+            if value is None or value == "":
+                # Nothing to record: an attribute without a value was not dropped.
+                continue
             allowed = key in IDENTIFIERS and isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9_/:.-]{1,200}", value) is not None
             allowed = allowed or key in NUMBERS and isinstance(value, int | float) and 0 <= value <= 10**15 and isfinite(value)
             allowed = allowed or key == "result" and isinstance(value, str) and value in {"success", "error", "interrupted"}
             allowed = allowed or key == "invocation_kind" and isinstance(value, str) and value in {"cli_invocation", "provider_call"}
             allowed = allowed or key == "failure_class" and isinstance(value, str) and value in FAILURE_CLASSES
+            allowed = allowed or key == "context_pressure_notice" and value is True
             allowed = allowed or key == "error_type" and isinstance(value, str) and value in ERROR_TYPES | {"Exception"}
-            allowed = allowed or key == "error_code" and isinstance(value, str) and re.fullmatch(r"[A-Z][A-Z_]{1,79}", value) is not None
-            if allowed and self.current is not None:
+            allowed = allowed or key == "error_code" and isinstance(value, str) and re.fullmatch(r"[A-Z][A-Z0-9_]{1,79}", value) is not None
+            if not allowed:
+                # Nothing is recorded, and nothing is lost silently: a test fails on any name left here.
+                self.dropped.add(key)
+            elif self.current is not None:
                 with suppress(Exception):
                     self.current.set_attribute(f"sabre.{key}", value)
 

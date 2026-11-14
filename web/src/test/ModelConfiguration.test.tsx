@@ -70,6 +70,33 @@ describe('models per specialty', () => {
     });
     expect(writes[0].roles.qa).toBeNull();
   });
+  it('offers cache prices for an API model only and sends an emptied price as unset', async () => {
+    const { writes } = setup(false, 'agents');
+    const user = userEvent.setup();
+    const selector = await screen.findByLabelText('Runtime specialists');
+    await user.click(within(selector).getByRole('button', { name: /Development/ }));
+    await user.click(screen.getByRole('checkbox', { name: 'Inherit the default model' }));
+    const role = screen.getByText('Development', { selector: 'summary strong' }).closest('details')!;
+    // A CLI session has no price per token, so it has no cache price either.
+    expect(within(role).queryByLabelText('USD per million cached input tokens')).not.toBeInTheDocument();
+    await user.selectOptions(within(role).getByLabelText('Provider'), 'anthropic');
+    await user.type(within(role).getByLabelText('Model'), 'synthetic-implementation-model');
+    const read = within(role).getByLabelText('USD per million cached input tokens');
+    const written = within(role).getByLabelText('USD per million tokens written to the cache');
+    expect(read).toHaveValue(null);
+    expect(read).toHaveAccessibleDescription(/Empty: charged at the input price/);
+    await user.type(read, '0.3');
+    await user.type(written, '3.75');
+    await user.clear(written);
+    await user.click(screen.getByRole('checkbox', { name: /I authorize sending/ }));
+    await user.click(screen.getByRole('button', { name: 'Save models' }));
+    await screen.findByText(/Configuration saved/);
+    expect(writes[0].roles.developer).toMatchObject({
+      provider: 'anthropic',
+      cache_read_usd_per_million: 0.3,
+      cache_write_usd_per_million: null,
+    });
+  });
   it('distinguishes the connection from the selection and requires approving the destinations before the CAS change', async () => {
     const { writes, onChanged } = setup();
     const user = await configureReviewer();

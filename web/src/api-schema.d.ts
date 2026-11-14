@@ -1556,6 +1556,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/metrics/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Run Metrics */
+        get: operations["run_metrics_api_v1_metrics_runs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/confirmations": {
         parameters: {
             query?: never;
@@ -2150,6 +2167,10 @@ export interface components {
             output_tokens: number | null;
             /** Cache Read Tokens */
             cache_read_tokens: number | null;
+            /** Cache Write Tokens */
+            cache_write_tokens: number | null;
+            /** Failure Class */
+            failure_class: ("rate_limit" | "overloaded" | "timeout" | "authentication" | "invalid_request" | "other") | null;
             /** Sent Bytes */
             sent_bytes: number | null;
             /** Original Bytes */
@@ -3090,6 +3111,40 @@ export interface components {
             /** Default Branch */
             default_branch: string | null;
         };
+        /** DayFigures */
+        DayFigures: {
+            /**
+             * Day
+             * Format: date
+             * @description The UTC day the runs were created
+             */
+            day: string;
+            /**
+             * Started
+             * @default 0
+             */
+            started: number;
+            /**
+             * Completed
+             * @default 0
+             */
+            completed: number;
+            /**
+             * Stopped
+             * @default 0
+             */
+            stopped: number;
+            /**
+             * Cancelled
+             * @default 0
+             */
+            cancelled: number;
+            /**
+             * Measured Tokens
+             * @default 0
+             */
+            measured_tokens: number;
+        };
         /** DeliveryEvidence */
         DeliveryEvidence: {
             /** Commit */
@@ -3305,6 +3360,121 @@ export interface components {
             external_tools_truncated: boolean;
             /** Actions */
             actions: components["schemas"]["FactoryNavigationAction"][];
+        };
+        /** Figures */
+        Figures: {
+            /**
+             * Runs
+             * @default 0
+             */
+            runs: number;
+            /**
+             * Completed
+             * @default 0
+             */
+            completed: number;
+            /**
+             * Cancelled
+             * @default 0
+             */
+            cancelled: number;
+            /**
+             * Stopped
+             * @description Blocked, failed or paused
+             * @default 0
+             */
+            stopped: number;
+            /**
+             * Waiting
+             * @description Waiting for the owner's answer
+             * @default 0
+             */
+            waiting: number;
+            /**
+             * Active
+             * @description Queued or running
+             * @default 0
+             */
+            active: number;
+            /**
+             * Calls
+             * @default 0
+             */
+            calls: number;
+            /**
+             * Settled Calls
+             * @default 0
+             */
+            settled_calls: number;
+            /**
+             * Unsettled Calls
+             * @description Calls whose outcome is unknown: their tokens are not counted as measured
+             * @default 0
+             */
+            unsettled_calls: number;
+            /**
+             * Failed Calls
+             * @description Unsettled calls by failure class
+             */
+            failed_calls: {
+                [key: string]: number;
+            };
+            /**
+             * Cli Calls
+             * @description Settled calls made through a CLI session, which has no price per token
+             * @default 0
+             */
+            cli_calls: number;
+            /**
+             * Measured Tokens
+             * @default 0
+             */
+            measured_tokens: number;
+            /**
+             * Unknown Reserved Tokens
+             * @default 0
+             */
+            unknown_reserved_tokens: number;
+            /**
+             * Input Tokens
+             * @description None when no settled call reported the split
+             */
+            input_tokens: number | null;
+            /** Output Tokens */
+            output_tokens: number | null;
+            /** Cache Read Tokens */
+            cache_read_tokens: number | null;
+            /** Cache Write Tokens */
+            cache_write_tokens: number | null;
+            /**
+             * Api Cost Usd
+             * @description Charged through API prices; None when no settled call had one
+             */
+            api_cost_usd: number | null;
+            /**
+             * Active Seconds
+             * @default 0
+             */
+            active_seconds: number;
+            /** Median Tokens Per Completed Run */
+            median_tokens_per_completed_run: number | null;
+            /** Median Active Seconds Per Completed Run */
+            median_active_seconds_per_completed_run: number | null;
+            /**
+             * Cache Read Share
+             * @description Cached input over all input, where the split was reported
+             */
+            cache_read_share: number | null;
+            /**
+             * Tool Calls
+             * @default 0
+             */
+            tool_calls: number;
+            /**
+             * Recovery Ratio
+             * @description Tool calls that paged back text already read, over all tool calls
+             */
+            recovery_ratio: number | null;
         };
         /** FlowConfiguration */
         "FlowConfiguration-Input": {
@@ -4474,6 +4644,123 @@ export interface components {
             /** Absolute */
             absolute: number | null;
         };
+        /** ModeFigures */
+        ModeFigures: {
+            /**
+             * Runs
+             * @default 0
+             */
+            runs: number;
+            /**
+             * Completed
+             * @default 0
+             */
+            completed: number;
+            /**
+             * Cancelled
+             * @default 0
+             */
+            cancelled: number;
+            /**
+             * Stopped
+             * @description Blocked, failed or paused
+             * @default 0
+             */
+            stopped: number;
+            /**
+             * Waiting
+             * @description Waiting for the owner's answer
+             * @default 0
+             */
+            waiting: number;
+            /**
+             * Active
+             * @description Queued or running
+             * @default 0
+             */
+            active: number;
+            /**
+             * Calls
+             * @default 0
+             */
+            calls: number;
+            /**
+             * Settled Calls
+             * @default 0
+             */
+            settled_calls: number;
+            /**
+             * Unsettled Calls
+             * @description Calls whose outcome is unknown: their tokens are not counted as measured
+             * @default 0
+             */
+            unsettled_calls: number;
+            /**
+             * Failed Calls
+             * @description Unsettled calls by failure class
+             */
+            failed_calls: {
+                [key: string]: number;
+            };
+            /**
+             * Cli Calls
+             * @description Settled calls made through a CLI session, which has no price per token
+             * @default 0
+             */
+            cli_calls: number;
+            /**
+             * Measured Tokens
+             * @default 0
+             */
+            measured_tokens: number;
+            /**
+             * Unknown Reserved Tokens
+             * @default 0
+             */
+            unknown_reserved_tokens: number;
+            /**
+             * Input Tokens
+             * @description None when no settled call reported the split
+             */
+            input_tokens: number | null;
+            /** Output Tokens */
+            output_tokens: number | null;
+            /** Cache Read Tokens */
+            cache_read_tokens: number | null;
+            /** Cache Write Tokens */
+            cache_write_tokens: number | null;
+            /**
+             * Api Cost Usd
+             * @description Charged through API prices; None when no settled call had one
+             */
+            api_cost_usd: number | null;
+            /**
+             * Active Seconds
+             * @default 0
+             */
+            active_seconds: number;
+            /** Median Tokens Per Completed Run */
+            median_tokens_per_completed_run: number | null;
+            /** Median Active Seconds Per Completed Run */
+            median_active_seconds_per_completed_run: number | null;
+            /**
+             * Cache Read Share
+             * @description Cached input over all input, where the split was reported
+             */
+            cache_read_share: number | null;
+            /**
+             * Tool Calls
+             * @default 0
+             */
+            tool_calls: number;
+            /**
+             * Recovery Ratio
+             * @description Tool calls that paged back text already read, over all tool calls
+             */
+            recovery_ratio: number | null;
+            /** Mode */
+            mode: string;
+        };
         /** ModelConfiguration */
         ModelConfiguration: {
             /** Revision */
@@ -4544,6 +4831,10 @@ export interface components {
              * @default 0
              */
             output_usd_per_million: number;
+            /** Cache Read Usd Per Million */
+            cache_read_usd_per_million?: number | null;
+            /** Cache Write Usd Per Million */
+            cache_write_usd_per_million?: number | null;
             /**
              * Max Output Tokens
              * @default 4096
@@ -4574,6 +4865,10 @@ export interface components {
              * @default 0
              */
             output_usd_per_million: number;
+            /** Cache Read Usd Per Million */
+            cache_read_usd_per_million?: number | null;
+            /** Cache Write Usd Per Million */
+            cache_write_usd_per_million?: number | null;
             /**
              * Max Output Tokens
              * @default 4096
@@ -5598,6 +5893,41 @@ export interface components {
             /** Current */
             current: boolean;
         };
+        /** RunMetrics */
+        RunMetrics: {
+            /**
+             * Version
+             * @default 1
+             * @constant
+             */
+            version: 1;
+            /**
+             * Window Days
+             * @description Whole UTC days the window covers, today included
+             */
+            window_days: number;
+            /** Mode */
+            mode: string | null;
+            /** Project Id */
+            project_id: string | null;
+            /**
+             * Generated At
+             * Format: date-time
+             */
+            generated_at: string;
+            /**
+             * Truncated
+             * @description True when the window holds more than 5000 runs and the oldest were left out
+             */
+            truncated: boolean;
+            totals: components["schemas"]["Figures"];
+            /** By Mode */
+            by_mode: components["schemas"]["ModeFigures"][];
+            /** By Specialist */
+            by_specialist: components["schemas"]["SpecialistFigures"][];
+            /** By Day */
+            by_day: components["schemas"]["DayFigures"][];
+        };
         /** RunUsageSnapshot */
         RunUsageSnapshot: {
             /**
@@ -5819,6 +6149,24 @@ export interface components {
             basis: string;
             /** Path */
             path: string;
+        };
+        /** SpecialistFigures */
+        SpecialistFigures: {
+            /**
+             * Role
+             * @description None for calls recorded without a specialist
+             */
+            role: string | null;
+            /** Calls */
+            calls: number;
+            /** Measured Tokens */
+            measured_tokens: number;
+            /** Input Tokens */
+            input_tokens: number | null;
+            /** Output Tokens */
+            output_tokens: number | null;
+            /** Cache Read Tokens */
+            cache_read_tokens: number | null;
         };
         /** StaleReview */
         StaleReview: {
@@ -9386,6 +9734,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ConfigurationHistory"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    run_metrics_api_v1_metrics_runs_get: {
+        parameters: {
+            query?: {
+                days?: number;
+                mode?: ("create" | "patch" | "maintain" | "audit") | null;
+                project_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunMetrics"];
                 };
             };
             /** @description Validation Error */

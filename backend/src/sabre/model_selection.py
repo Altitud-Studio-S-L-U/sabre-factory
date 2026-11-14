@@ -20,6 +20,12 @@ class ModelSelection(Contract):
     destination: str = Field(min_length=1, max_length=2048)
     input_usd_per_million: float = Field(default=0, ge=0, le=1000000, allow_inf_nan=False)
     output_usd_per_million: float = Field(default=0, ge=0, le=1000000, allow_inf_nan=False)
+    # Prices of cached input. Left out, cached tokens are charged at the input price. They are
+    # omitted from the serialized selection while unset, so earlier selections keep their form.
+    cache_read_usd_per_million: float | None = Field(default=None, ge=0, le=1000000, allow_inf_nan=False,
+                                                     exclude_if=lambda value: value is None)
+    cache_write_usd_per_million: float | None = Field(default=None, ge=0, le=1000000, allow_inf_nan=False,
+                                                      exclude_if=lambda value: value is None)
     max_output_tokens: int = Field(default=4096, ge=128, le=32768, strict=True)
 
     @model_validator(mode="after")

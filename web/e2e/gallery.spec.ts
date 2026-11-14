@@ -39,6 +39,7 @@ const sections = [
   { name: 'projects', path: '/projects', ready: 'Example project' },
   { name: 'projects-archived', path: '/projects', ready: 'Example project' },
   { name: 'security', path: '/security', ready: 'Independent review' },
+  { name: 'insights', path: '/insights', ready: 'Runs by outcome' },
 ];
 
 test.describe('gallery', () => {

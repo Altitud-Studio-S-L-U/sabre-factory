@@ -241,6 +241,8 @@ describe('recorded activity and context', () => {
           input_tokens: 3000,
           output_tokens: 5,
           cache_read_tokens: 2048,
+          cache_write_tokens: 512,
+          failure_class: null,
           sent_bytes: 8100,
           original_bytes: 12000,
           call_ms: 4200,
@@ -255,6 +257,8 @@ describe('recorded activity and context', () => {
           input_tokens: null,
           output_tokens: null,
           cache_read_tokens: null,
+          cache_write_tokens: null,
+          failure_class: 'rate_limit',
           sent_bytes: 8200,
           original_bytes: 8200,
           call_ms: null,
@@ -303,7 +307,8 @@ describe('recorded activity and context', () => {
     const cells = within(calls)
       .getAllByRole('row')
       .map((row) => row.textContent);
-    expect(cells[1]).toBe('1Verification9,0003,0002,04857.9 KB4.2 s');
-    expect(cells[2]).toBe('2Verification9,000unknownunknownunknown8.0 KBunknown');
+    expect(cells[1]).toBe('1Verification9,0003,0002,04851257.9 KB4.2 sSettled');
+    // A call that never settled keeps every measurement unknown and names why it failed.
+    expect(cells[2]).toBe('2Verification9,000unknownunknownunknownunknown8.0 KBunknownFailed: rate limit');
   });
 });

@@ -115,7 +115,7 @@ async def test_settlement_records_the_provider_token_split_and_tool_result_size(
     model = CachingModel()
     team = AgentTeam(config, repo, executor, SecretGuard(), model_factory=lambda: model)
     await team.run("developer", work, project, "Implement the task")
-    assert repo.breakdowns == [{"input_tokens": 10, "output_tokens": 20, "cache_read_tokens": 6}] * 2
+    assert repo.breakdowns == [{"input_tokens": 10, "output_tokens": 20, "cache_read_tokens": 6, "cache_write_tokens": 0}] * 2
     writes = [event for event in repo.events if event.kind == "tool" and event.state == "completed"]
     assert [(event.name, event.output_bytes) for event in writes] == [("write_file", len('{"written":true}'))]
     started = [event for event in repo.events if event.state == "started"]
