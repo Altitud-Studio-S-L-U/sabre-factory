@@ -19,8 +19,7 @@ async function launchApi() {
 }
 
 async function ensurePublishNetwork() {
-  const names = new Set((await docker(['network', 'ls', '--format', '{{.Name}}'])).toString().trim().split('
-'));
+  const names = new Set((await docker(['network', 'ls', '--format', '{{.Name}}'])).toString().trim().split('\n'));
   if (names.has(publish)) await assertOwned('network', publish);
   else await docker(['network', 'create', '--label', 'sabre.owner=factory', '--label', 'sabre.kind=browser-qa', publish]);
 }
