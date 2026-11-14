@@ -22,7 +22,7 @@ class ContextReference(Contract):
     tool: Literal["read_file", "read_files", "read_file_range", "search_source", "list_files", "execute", "write_file", "read_context"]
     response_digest: Digest
     original_bytes: ByteCount
-    reason: Literal["old_read", "duplicate", "old_output", "old_argument", "old_page"]
+    reason: Literal["old_read", "duplicate", "old_output", "old_argument", "old_page", "old_turn"]
 
 
 class ContextReceipt(Contract):
