@@ -4,6 +4,7 @@ import asyncio
 import json
 import math
 import re
+import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, replace
 from typing import Any, Literal
@@ -23,17 +24,20 @@ from sabre.audit import public_id
 from sabre.context_archive import READ_CONTEXT_PAGE, ContextArchive
 from sabre.context_receipts import ContextReceipt
 from sabre.error_boundaries import guarded_call
-from sabre.execution_observer import observe
+from sabre.events import ExecutionEvent
+from sabre.execution_observer import current_execution, observe
 from sabre.flows import phase_binding
 from sabre.memory import PROPOSE_DESCRIPTION, PROPOSE_GUIDANCE, PROPOSE_SCHEMA, PROPOSE_TOOL
 from sabre.model_configuration import selection_updates
 from sabre.model_providers import chat_model
-from sabre.models import AgentResult, DomainError, WorkOrder
+from sabre.models import AgentResult, DomainError, WorkOrder, new_id, now
 from sabre.phase_results import RESULT_SCHEMAS, AnalysisResult, PhaseResult, ReviewResult
+from sabre.provider_failures import LABELS as FAILURE_LABELS
+from sabre.provider_failures import call_with_retries
 from sabre.repository import digest
 from sabre.skills import SKILLS
 from sabre.specialists import DESIGN_REVIEW
-from sabre.telemetry import span
+from sabre.telemetry import span, trace_identifiers
 from sabre.tools import MCPToolAdapter, ToolDefinition, ToolPolicy
 from sabre.tools import workspace_tools as catalog_workspace_tools
 from sabre.work_notes import NOTE_DESCRIPTION, NOTE_SCHEMA, NOTE_TOOL, WorkNotes
@@ -133,6 +137,8 @@ class GuardedCalls(AgentMiddleware):
         self.context_archive, self.child_id = context_archive, child_id
         self.memory_validator = memory_validator
         self.recovered_tool_errors = 0
+        # Waiting between provider retries; a test replaces it.
+        self.sleep = asyncio.sleep
 
     async def awrap_tool_call(self, request, handler):
         try:
@@ -175,6 +181,25 @@ class GuardedCalls(AgentMiddleware):
     async def awrap_model_call(self, request, handler):
         with span("model.call", role=self.role, work_id=self.work.id) as observation:
             return await guarded_call(self._call, self.guard, "MODEL_PROVIDER_FAILED", request, handler, observation)
+
+    async def _before_retry(self):
+        """A retry is still a dispatch: the credential must be current and the owner may have stopped the run."""
+        if self.credential_check:
+            await self.credential_check()
+        control = await self.repository.control(self.work.id)
+        if control:
+            raise DomainError("PAUSE_REQUESTED" if control == "pause" else "CANCEL_REQUESTED", "Pause requested" if control == "pause" else "Cancellation requested")
+
+    async def _record_failed_call(self, failure: str, code: str, duration_ms: int, provider):
+        """One event per failed model call: its class and code, never the provider's text."""
+        recorder = getattr(self.repository, "record_execution_event", None)
+        revision, phase = getattr(self.work, "plan_revision", None), getattr(self.work, "phase", None)
+        if recorder is None or type(revision) is not int or not isinstance(phase, str):
+            return
+        await recorder(ExecutionEvent(id=new_id(), work_id=self.work.id, plan_revision=revision, phase=phase,
+            correlation_id=new_id(), parent_id=current_execution.get(), agent_id=public_id(self.child_id) if self.child_id else None,
+            kind="model", state="failed", name=FAILURE_LABELS[failure], timestamp=now(), duration_ms=duration_ms,
+            error_code=code, provider=provider, model=getattr(self.settings, "model_name", None), **trace_identifiers()))
 
     async def _call(self, request, handler, observation):
         if self.credential_check:
@@ -270,7 +295,18 @@ class GuardedCalls(AgentMiddleware):
         observation.set(reserved_tokens=input_bound + output_bound, reserved_usd=reserve, invocation_kind="cli_invocation" if cli else "provider_call",
                         model_provider=provider, model_name=getattr(self.settings, "model_name", None))
         # Unknown outcomes retain the reservation: a lost response does not imply a free request.
-        response = await handler(request)
+        # A rate limit, an overload or a timeout is tried again inside this same reservation.
+        started = [time.perf_counter()]
+
+        async def attempt():
+            started[0] = time.perf_counter()
+            return await handler(request)
+
+        async def failed(failure: str, code: str, number: int, final: bool):
+            observation.set(failure_class=failure, provider_attempts=number)
+            await self._record_failed_call(failure, code, int((time.perf_counter() - started[0]) * 1000), provider)
+
+        response = await call_with_retries(attempt, on_failure=failed, before_retry=self._before_retry, sleep=self.sleep)
         if self.credential_check:
             await self.credential_check()
         self.guard.check([m.model_dump(mode="json") for m in response.result])

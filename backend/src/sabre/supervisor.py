@@ -1,5 +1,6 @@
 """Shared conversational control agent; channel adapters establish caller identity."""
 
+import asyncio
 import json
 import math
 import re
@@ -34,6 +35,7 @@ from sabre.models import (
     WorkOrderCreate,
 )
 from sabre.operator_contracts import OperatorContext
+from sabre.provider_failures import call_with_retries
 from sabre.repository import digest, payload
 from sabre.run_state import open_questions, stop_reason
 from sabre.skills import SKILLS
@@ -78,6 +80,8 @@ class ChatGuard(AgentMiddleware):
         self.credential_check = credential_check
         self.surface = surface
         self.input_limit = input_limit
+        # Waiting between provider retries; a test replaces it.
+        self.sleep = asyncio.sleep
 
     async def awrap_model_call(self, request, handler):
         with span("model.call", role="supervisor") as observation:
@@ -126,7 +130,8 @@ class ChatGuard(AgentMiddleware):
         cost = (input_bound * input_rate + output_bound * output_rate) / 1_000_000
         usage_id = await self.repository.reserve_chat_usage(f"{self.surface}:{self.event_id}", input_bound + output_bound, cost, self.config.monthly_budget_usd, self.config.chat_budget_usd)
         observation.set(reserved_tokens=input_bound + output_bound, reserved_usd=cost, invocation_kind="cli_invocation" if cli else "provider_call")
-        response = await handler(request)
+        # A rate limit, an overload or a timeout is tried again inside the same reservation.
+        response = await call_with_retries(lambda: handler(request), before_retry=self.credential_check, sleep=self.sleep)
         if self.credential_check:
             await self.credential_check()
         self.guard.check([item.model_dump(mode="json") for item in response.result])

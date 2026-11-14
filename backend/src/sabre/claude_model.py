@@ -45,6 +45,8 @@ RUNNER_ERRORS = {
     "CLAUDE_NATIVE_TOOL_DENIED": (503, "Claude requested an unauthorized native tool"),
     "CLAUDE_TURN_LIMIT": (503, "Claude exhausted the internal limit without producing a structured result"),
     "CLAUDE_EXECUTION_FAILED": (503, "Claude reported an invocation failure"),
+    "CLAUDE_RATE_LIMITED": (503, "Claude reported a rate or usage limit"),
+    "CLAUDE_OVERLOADED": (503, "Claude reported that the service is overloaded"),
     "CLAUDE_STRUCTURED_OUTPUT_MISSING": (503, "Claude finished without the required structured result"),
     "CLAUDE_STRUCTURED_OUTPUT_INVALID": (503, "The structured Claude result violates the contract"),
     "CLAUDE_USAGE_INVALID": (503, "Claude did not return valid usage counters"),

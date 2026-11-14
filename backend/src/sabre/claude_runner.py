@@ -46,6 +46,22 @@ async def capture_process(args, **kwargs):
             error.message.replace("Codex", "Claude"), error.status_code) from None
 
 
+def execution_failure(result: dict) -> DomainError:
+    """Name a rate or usage limit, or an overload, when the CLI's own result says so.
+
+    The CLI does not retry (CLAUDE_CODE_MAX_RETRIES is 0), so these reach the factory, which decides
+    whether to call again. The text is only searched for a few markers and never leaves this function.
+    """
+    status = result.get("api_error_status")
+    text = result.get("result")
+    text = text[:4000].casefold() if isinstance(text, str) else ""
+    if status == 429 or any(marker in text for marker in ("rate limit", "rate_limit", "usage limit", "429")):
+        return DomainError("CLAUDE_RATE_LIMITED", "Claude reported a rate or usage limit", 503)
+    if (type(status) is int and 500 <= status <= 599) or any(marker in text for marker in ("overloaded", "529", "internal server error")):
+        return DomainError("CLAUDE_OVERLOADED", "Claude reported that the service is overloaded", 503)
+    return DomainError("CLAUDE_EXECUTION_FAILED", "Claude reported an invocation failure", 503)
+
+
 def parse_result(raw: bytes, *, exit_code: int = 0) -> ClaudeInvocationResponse:
     try:
         result = json.loads(raw)
@@ -60,7 +76,7 @@ def parse_result(raw: bytes, *, exit_code: int = 0) -> ClaudeInvocationResponse:
     if result.get("subtype") == "error_max_turns":
         raise DomainError("CLAUDE_TURN_LIMIT", "Claude exhausted the internal limit without producing a structured result", 503)
     if result.get("is_error") is True:
-        raise DomainError("CLAUDE_EXECUTION_FAILED", "Claude reported an invocation failure", 503)
+        raise execution_failure(result)
     if exit_code:
         raise DomainError("CLAUDE_PROCESS_FAILED", "The Claude process ended without a valid result", 503)
     if result.get("subtype") != "success" or result.get("is_error") is not False:
