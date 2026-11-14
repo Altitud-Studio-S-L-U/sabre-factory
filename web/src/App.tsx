@@ -192,8 +192,17 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
   const newWorkProjectId = routeState?.projectId ?? '';
   const [draftState, setDraftState] = useState({ busy: false, dirty: false });
   const [detail, setDetail] = useState<{ id: string; order?: WorkOrder; error?: string } | null>(null);
-  const [projects, setProjects] = useState<Project[]>([]);
+  // Every project, archived ones included: runs still name them. Pickers and sections get the active ones.
+  const [allProjects, setProjects] = useState<Project[]>([]);
+  const projects = useMemo(() => allProjects.filter((project) => !project.archived_at), [allProjects]);
   const [orders, setOrders] = useState<WorkOrder[]>([]);
+  // Runs of an archived project stop asking for attention; the run list decides for itself what to show.
+  const liveOrders = useMemo(() => {
+    const archived = new Set(
+      allProjects.filter((project) => project.archived_at).map((project) => project.id),
+    );
+    return archived.size ? orders.filter((order) => !archived.has(order.project_id)) : orders;
+  }, [orders, allProjects]);
   const [confirmations, setConfirmations] = useState<OwnerConfirmation[]>([]);
   const [status, setStatus] = useState<Record<string, unknown>>({});
   const cliMode = usesOnlyCliModels(status);
@@ -253,7 +262,7 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
       .confirmations()
       .then((page) => setConfirmations(Array.isArray(page.items) ? page.items : []))
       .catch(() => undefined);
-    return Promise.all([api.projects(), api.work(), api.status()])
+    return Promise.all([api.projects(true), api.work(), api.status()])
       .then(([nextProjects, nextOrders, nextStatus]) => {
         setProjects(nextProjects);
         setOrders(nextOrders);
@@ -448,7 +457,7 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
                         key={selected.id}
                         api={api}
                         order={selected}
-                        project={projects.find((project) => project.id === selected.project_id)}
+                        project={allProjects.find((project) => project.id === selected.project_id)}
                         cliMode={cliMode}
                         onChanged={reload}
                       />
@@ -459,7 +468,7 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
                       <RunsTable
                         api={api}
                         orders={orders}
-                        projects={projects}
+                        projects={allProjects}
                         connected={!error}
                         onNew={() => setForm('work')}
                         onChanged={reload}
@@ -523,7 +532,7 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
               {view === 'projects' && (
                 <ProjectsView
                   api={api}
-                  projects={projects}
+                  projects={allProjects}
                   orders={orders}
                   connected={!error}
                   open={form === 'project'}
@@ -541,13 +550,13 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
                 />
               )}
               {view === 'security' && <WorkAreaNav current="security" />}
-              {view === 'security' && <SecurityView api={api} projects={projects} orders={orders} />}
+              {view === 'security' && <SecurityView api={api} projects={projects} orders={liveOrders} />}
               {view === 'memory' && <MemoryConsole api={api} projects={projects} connected={!error} />}
               {view === 'agents' && (
                 <AgentsPage
                   api={api}
                   projects={projects}
-                  orders={orders}
+                  orders={liveOrders}
                   connected={!error}
                   now={updated?.getTime() ?? 0}
                 />
@@ -576,7 +585,7 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
       </AppShell>
       <SupervisorConsole
         api={api}
-        orders={orders}
+        orders={liveOrders}
         selectedId={selectedId}
         disconnected={Boolean(error)}
         headerSlot={headerActions}

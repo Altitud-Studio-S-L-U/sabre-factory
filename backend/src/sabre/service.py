@@ -10,12 +10,15 @@ from sabre.models import (
     DomainError,
     Project,
     ProjectCreate,
+    ProjectStateChange,
+    ProjectUpdate,
     ScopeChange,
     SecurityExceptionCreate,
     Status,
     TokenBudgetIncrease,
     WorkOrder,
     WorkOrderCreate,
+    now,
 )
 from sabre.publisher import github_repository
 
@@ -33,10 +36,28 @@ class FactoryService:
         self.guard.check(request.model_dump())
         repository = github_repository(request.repository)
         request = request.model_copy(update={"repository": f"https://github.com/{repository}"})
-        if any(p.repository.casefold() == request.repository.casefold() for p in await self.repository.projects()):
-            raise DomainError("PROJECT_EXISTS", "This repository is already registered")
+        existing = next((p for p in await self.repository.projects(archived=True) if p.repository.casefold() == request.repository.casefold()), None)
+        if existing is not None:
+            raise DomainError("PROJECT_EXISTS", "This repository is registered and archived; restore it instead" if existing.archived_at
+                              else "This repository is already registered")
         return await self.repository.create_project(Project(**request.model_dump()),
                                                     enqueue=getattr(self.queue, "enqueue_ingestion", None))
+
+    async def update_project(self, project_id: str, request: ProjectUpdate) -> Project:
+        self.guard.check(request.model_dump())
+        values = {**request.model_dump(exclude={"expected_revision"}), "browser_preview": request.browser_preview}
+        # Stages read the project as they go, so an edit waits for the run to stop at a pause point.
+        async with self.repository.project_lock(project_id, execution_slot=False) as acquired:
+            if not acquired:
+                raise DomainError("PROJECT_BUSY", "Wait for the run to reach its pause point before editing the project")
+            return await self.repository.change_project(project_id, request.expected_revision, "update", lambda project: values)
+
+    async def archive_project(self, project_id: str, request: ProjectStateChange) -> Project:
+        return await self.repository.change_project(project_id, request.expected_revision, "archive",
+                                                    lambda project: {"archived_at": project.archived_at or now()})
+
+    async def restore_project(self, project_id: str, request: ProjectStateChange) -> Project:
+        return await self.repository.change_project(project_id, request.expected_revision, "restore", lambda project: {"archived_at": None})
 
     async def enqueue(self, conn, work_id):
         row = await (await conn.execute("SELECT project_id FROM work_orders WHERE id=%s", (work_id,))).fetchone()
@@ -51,7 +72,9 @@ class FactoryService:
                 return prior
         if request.budget.progress_limits and not getattr(self.queue, "model_configuration", None):
             await self._cli_progress_selection()
-        await self.repository.project(request.project_id)
+        project = await self.repository.project(request.project_id)
+        if isinstance(project, Project) and project.archived_at:
+            raise DomainError("PROJECT_ARCHIVED", "This project is archived; restore it before launching a run", 409)
         work = WorkOrder(**request.model_dump())
         work.admission_request_digest = digest(request.model_dump(mode="json"))
         if getattr(self.queue, 'model_configuration', None):
@@ -131,6 +154,9 @@ class FactoryService:
         if work.status in {Status.COMPLETED, Status.CANCELLED}:
             raise DomainError("WORK_TERMINAL", "The work order has already finished")
         if command == "resume":
+            project = await self.repository.project(work.project_id)
+            if isinstance(project, Project) and project.archived_at:
+                raise DomainError("PROJECT_ARCHIVED", "This project is archived; restore it before resuming a run", 409)
             async with self.repository.project_lock(work.project_id, execution_slot=False) as acquired:
                 if not acquired:
                     raise DomainError("PROJECT_BUSY", "Wait for the run to reach its pause point")

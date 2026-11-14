@@ -5,6 +5,7 @@ export type DeliveryStatus = components['schemas']['DeliveryStatus'];
 export type Project =
   paths['/api/v1/projects']['get']['responses'][200]['content']['application/json'][number];
 export type ProjectCreate = components['schemas']['ProjectCreate'];
+export type ProjectUpdate = components['schemas']['ProjectUpdate'];
 export type WorkOrder = paths['/api/v1/work']['get']['responses'][200]['content']['application/json'][number];
 export type WorkOrderCreate = components['schemas']['WorkOrderCreate'];
 export type HumanQuestion = NonNullable<WorkOrder['questions']>[number];
@@ -288,9 +289,22 @@ export function createApi(csrfToken: string, onUnauthorized?: (message: string) 
     deliveries: () => request<DeliveryStatus[]>('/notifications'),
     retryDelivery: (id: string) =>
       request<DeliveryStatus[]>(`/notifications/${encodeURIComponent(id)}/retry`, { method: 'POST' }),
-    projects: () => request<Project[]>('/projects'),
+    /** Active projects; with `archived`, every project. */
+    projects: (archived = false) => request<Project[]>(archived ? '/projects?include=archived' : '/projects'),
     createProject: (value: ProjectCreate) =>
       request<Project>('/projects', { method: 'POST', body: JSON.stringify(value) }),
+    updateProject: (id: string, value: ProjectUpdate) =>
+      request<Project>(`/projects/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(value) }),
+    archiveProject: (id: string, expected_revision: number) =>
+      request<Project>(`/projects/${encodeURIComponent(id)}/archive`, {
+        method: 'POST',
+        body: JSON.stringify({ expected_revision }),
+      }),
+    restoreProject: (id: string, expected_revision: number) =>
+      request<Project>(`/projects/${encodeURIComponent(id)}/restore`, {
+        method: 'POST',
+        body: JSON.stringify({ expected_revision }),
+      }),
     work: () => request<WorkOrder[]>('/work'),
     getWork: (id: string) => request<WorkOrder>(`/work/${encodeURIComponent(id)}`),
     usage: (id: string, signal?: AbortSignal) =>

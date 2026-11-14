@@ -200,7 +200,13 @@ export default function RunsTable({
   const [filter, setFilter] = useState<Filter>('all');
   const projectName = (order: WorkOrder) =>
     projects.find((project) => project.id === order.project_id)?.name ?? 'Project';
-  const scoped = orders.filter((order) => !projectId || order.project_id === projectId);
+  // Runs of an archived project leave the list; choosing that project in the filter brings them back.
+  const archived = useMemo(
+    () => new Set(projects.filter((project) => project.archived_at).map((project) => project.id)),
+    [projects],
+  );
+  const listed = useMemo(() => orders.filter((order) => !archived.has(order.project_id)), [orders, archived]);
+  const scoped = projectId ? orders.filter((order) => order.project_id === projectId) : listed;
   const visible = scoped.filter(
     (order) =>
       matches(order, filter) &&
@@ -210,18 +216,18 @@ export default function RunsTable({
           .includes(query.toLocaleLowerCase())),
   );
   const stats = useMemo(() => {
-    const week = orders.filter((order) => now - new Date(order.updated_at).getTime() <= 7 * DAY);
+    const week = listed.filter((order) => now - new Date(order.updated_at).getTime() <= 7 * DAY);
     return {
-      active: orders.filter((order) => ACTIVE_STATUSES.includes(order.status)).length,
-      questions: orders.reduce((sum, order) => sum + pendingQuestions(order).length, 0),
-      attention: orders.filter((order) => ATTENTION_STATUSES.includes(order.status)).length,
+      active: listed.filter((order) => ACTIVE_STATUSES.includes(order.status)).length,
+      questions: listed.reduce((sum, order) => sum + pendingQuestions(order).length, 0),
+      attention: listed.filter((order) => ATTENTION_STATUSES.includes(order.status)).length,
       delivered: week.filter((order) => order.status === 'completed').length,
       openPrs: week.filter((order) => order.status === 'completed' && externalUrl(order.evidence?.pr_url))
         .length,
       tokens: week.reduce((sum, order) => sum + order.tokens_used, 0),
       weekRuns: week.length,
     };
-  }, [orders, now]);
+  }, [listed, now]);
   const filters = [
     { value: 'all' as const, label: 'All', count: scoped.length },
     { value: 'active' as const, label: 'Active', count: scoped.filter((o) => matches(o, 'active')).length },
@@ -315,11 +321,14 @@ export default function RunsTable({
                   className="min-h-9"
                 >
                   <option value="">All projects</option>
-                  {projects.map((project) => (
-                    <option key={project.id} value={project.id}>
-                      {project.name}
-                    </option>
-                  ))}
+                  {[...projects]
+                    .sort((a, b) => Number(!!a.archived_at) - Number(!!b.archived_at))
+                    .map((project) => (
+                      <option key={project.id} value={project.id}>
+                        {project.name}
+                        {project.archived_at ? ' (archived)' : ''}
+                      </option>
+                    ))}
                 </Select>
               </label>
             </div>

@@ -158,7 +158,12 @@ class Runtime:
                 # A watch run scans and reports only; it never enters the development graph.
                 async def no_enqueue(conn, work_id):
                     return None
-                work = await self.repository.admit(work, no_enqueue)
+                try:
+                    work = await self.repository.admit(work, no_enqueue)
+                except DomainError as error:
+                    if error.code == "PROJECT_ARCHIVED":
+                        continue
+                    raise
                 try:
                     await self.credentials.refresh()
                     async with self.repository.project_lock(project.id) as acquired:

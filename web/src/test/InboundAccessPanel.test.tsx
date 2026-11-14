@@ -15,6 +15,8 @@ const project: Project = {
   approved_baseline: [],
   browser_preview: null,
   created_at: '2026-11-11T12:00:00Z',
+  revision: 0,
+  archived_at: null,
 };
 const secret = 'sabre_d_synthetic-one-time-test-secret';
 const expires = '2099-11-11T13:00:00Z';

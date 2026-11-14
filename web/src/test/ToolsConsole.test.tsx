@@ -15,6 +15,8 @@ const project = {
   approved_baseline: [],
   browser_preview: null,
   created_at: '2026-11-11T12:00:00Z',
+  revision: 0,
+  archived_at: null,
 } satisfies Project;
 
 const read: IntegrationInfo = {

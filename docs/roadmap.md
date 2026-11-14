@@ -33,7 +33,7 @@ The decision that matters is narrower: who runs the inner tool loop of the imple
 | G2 | Context economy | 43% of tool calls were recoveries and 5.5% of input came from cache in the real audit. A read is archived two turns after it arrives; the pressure notice edits the system prompt | [14](specs/14-context-economy.md) |
 | G3 | The open audit cannot finish | Semgrep reports a partial parse of two valid TypeScript lines and the factory treats any scanner error as an incomplete scan | Owner decision 1 |
 | G4 | GitHub by pasted tokens | Three write-only token destinations. A delivery pushed with git is unsigned, so a repository that requires signed commits cannot merge it without a bypass | [12](specs/12-github-connection.md) |
-| G5 | Projects cannot be edited or retired | No update, archive or delete endpoint; three screens create a project | [13](specs/13-projects.md) |
+| G5 | Three screens create a project | Editing and archiving are built; the Projects dialog, the repository browser in Tools and the create flow still each register a project | The single Add project of [13](specs/13-projects.md), with [12](specs/12-github-connection.md) |
 | G6 | Telemetry is partial | Tracing is off by default, uses private attribute names and drops cache counts. Cost ignores cache prices and records CLI calls as zero. No metrics, no logs, nothing across runs | [15](specs/15-observability.md) |
 | G7 | Provider failures stop the run | No retry or backoff, no fallback model, every failure reads as `MODEL_PROVIDER_FAILED`, and a failed call leaves no record | [14](specs/14-context-economy.md) |
 | G8 | No CI evidence and one verified platform | GitHub Actions is disabled for the repository, so no commit since 2026-11-11 has a CI result. Only Windows has been exercised | Phase 5 |
@@ -47,7 +47,7 @@ The decision that matters is narrower: who runs the inner tool loop of the imple
 
 Each phase ends on evidence, and Phase 1 is the gate: what it measures decides the size of Phases 2 and 3.
 
-**Phase 0 · Close what is open.** The owner decides the scanner policy and the open audit completes or stays blocked for a stated reason. Tools is organised by service (done alongside this document). Projects gains edit and archive ([13](specs/13-projects.md)). The small defects listed below are fixed. *Exit:* one real audit with a report; no known defect in the console's main path.
+**Phase 0 · Close what is open.** The owner decides the scanner policy and the open audit completes or stays blocked for a stated reason. Tools is organised by service (done alongside this document). Projects gains edit and archive (done, [13](specs/13-projects.md)). The small defects listed below are fixed. *Exit:* one real audit with a report; no known defect in the console's main path.
 
 **Phase 1 · Prove.** Grow the suite to twenty tasks on three repositories. Add recovery ratio and prefix stability to the scripted driver and run it in CI. Run the provider driver and the baseline with the owner's authorization and budget. Deliver the first real patch as a draft pull request on a sample repository. *Exit:* a committed report with pass rate, cost and time for the factory and for the baseline.
 
@@ -73,7 +73,6 @@ Each phase ends on evidence, and Phase 1 is the gate: what it measures decides t
 | Item | State | Disposition |
 | --- | --- | --- |
 | The run list omits a pending pause or cancel that the detail shows | Not done | Fix in Phase 0 |
-| The Supervisor's "connect a provider" link opens Config › General instead of Models | Defect | Fix in Phase 0 |
 | Supervisor chat reserves bytes as tokens | Not done | Fix in Phase 0 |
 | Text at 11 px in the timeline ruler, the segmented control, the production line and the memory layers | Breaks the 12 px floor | Fix in Phase 0 |
 | Two React hooks lint rules only warn | Partial | Raise to errors in Phase 0 |
