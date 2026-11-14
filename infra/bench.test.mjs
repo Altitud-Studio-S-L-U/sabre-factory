@@ -35,7 +35,8 @@ function run(changes = {}) {
     calls: { total: 10, by_role: { developer: 4, analyst: 2, qa: 1, reviewer: 2, supervisor: 1 } },
     tokens: { estimated_total: 20000, estimated_input: 18000, estimated_output: 2000, reserved_total: 140000,
       estimated_by_role: { developer: 9000, analyst: 4000, qa: 2000, reviewer: 4000, supervisor: 1000 } },
-    context: { sent_bytes_total: 200000, sent_bytes_max: 26000, original_bytes_total: 200000 },
+    context: { sent_bytes_total: 200000, sent_bytes_max: 26000, original_bytes_total: 200000, recoveries: 0,
+      prefix: { turns: 5, batch_turns: 1, min_share: 0.41, min_share_without_batch: 0.9999, stable_turns: 4 } },
     tools: { calls: { read_file: 3, list_files: 1, write_file: 1, execute: 1 }, failed: 0, output_bytes: 2400, total_ms: 280 },
     work_notes: { scopes: 0, notes: 0 }, stages: ['intake', 'analyze', 'plan', 'implement', 'checks', 'review', 'commit', 'deliver', 'remember'],
     order: ['agent:analyst', 'gate', 'agent:qa'],
@@ -59,8 +60,31 @@ test('the mechanics of a run leave out timing and do not depend on the order too
   // Harness metrics the evaluation spec asks every driver for.
   assert.equal(first.tasks['patch-rounding'].tokens_per_call, 2000);
   assert.equal(first.tasks['patch-rounding'].recovery_ratio, 0);
-  assert.deepEqual(first.summary, { tasks: 2, passed: 2, calls: 20, estimated_tokens: 40000, tokens_per_call: 2000, recovery_ratio: 0,
-    token_share_by_role: { analyst: 0.2, developer: 0.45, qa: 0.1, reviewer: 0.2, supervisor: 0.05 } });
+  assert.deepEqual(first.summary, { tasks: 2, passed: 2, calls: 20, estimated_tokens: 40000, tokens_per_call: 2000, tool_failures: 0,
+    recovery_ratio: 0, rewritten_turn_share: 0.2, token_share_by_role: { analyst: 0.2, developer: 0.45, qa: 0.1, reviewer: 0.2, supervisor: 0.05 } });
+  // The recovery ratio is the share of tool calls spent on seeing again what was already read, not the failures.
+  const recovering = mechanics(run({ 'audit-pricing': { tools: { calls: { read_file: 6, read_context: 2 }, failed: 1, output_bytes: 2400 },
+    context: { sent_bytes_total: 200000, sent_bytes_max: 26000, recoveries: 2, prefix: { turns: 5, batch_turns: 1, min_share_without_batch: 0.9999 } } } }));
+  assert.equal(recovering.tasks['audit-pricing'].recovery_ratio, 0.25);
+  assert.equal(recovering.summary.recovery_ratio, ratioOf(2, 8 + 6));
+  assert.equal(recovering.summary.tool_failures, 1);
+});
+
+const ratioOf = (part, whole) => Math.round((part / whole) * 10000) / 10000;
+
+test('more recoveries, more rewritten turns or a less stable prefix are regressions', () => {
+  const baseline = mechanics(run());
+  const context = (values) => ({ sent_bytes_total: 200000, sent_bytes_max: 26000, recoveries: 0,
+    prefix: { turns: 5, batch_turns: 1, min_share_without_batch: 0.9999 }, ...values });
+  const after = (values) => compare(baseline, mechanics(run({ 'patch-rounding': { context: context(values) } })));
+  assert.deepEqual(after({ recoveries: 2 }).regressions, ['patch-rounding: recoveries 0 -> 2']);
+  assert.deepEqual(after({ prefix: { turns: 5, batch_turns: 3, min_share_without_batch: 0.9999 } }).regressions, ['patch-rounding: prefix batch turns 1 -> 3']);
+  assert.deepEqual(after({ prefix: { turns: 5, batch_turns: 1, min_share_without_batch: 0.6 } }).regressions,
+    ['patch-rounding: prefix kept on turns without a batch 0.9999 -> 0.6']);
+  // Fewer rewrites and a share within the tolerance are changes, not regressions.
+  const better = after({ prefix: { turns: 5, batch_turns: 0, min_share_without_batch: 0.9901 } });
+  assert.deepEqual(better.regressions, []);
+  assert.deepEqual(better.changes, ['patch-rounding: prefix batch turns 1 -> 0', 'patch-rounding: prefix kept on turns without a batch 0.9999 -> 0.9901']);
 });
 
 test('an unchanged run compares clean and each kind of regression is named', () => {
@@ -89,7 +113,8 @@ test('a difference that is not worse is a change that asks for a new baseline', 
     estimated_by_role: { developer: 9200, analyst: 4000, qa: 2000, reviewer: 4000, supervisor: 1000 } } } })));
   assert.deepEqual(within, { regressions: [], changes: ['patch-rounding: estimated tokens 20000 -> 20200 (+1.0%)'] });
   const cheaper = compare(baseline, mechanics(run({ 'patch-rounding': { calls: { total: 9, by_role: { developer: 3, analyst: 2, qa: 1, reviewer: 2, supervisor: 1 } },
-    context: { sent_bytes_total: 150000, sent_bytes_max: 26000 } } })));
+    context: { sent_bytes_total: 150000, sent_bytes_max: 26000, recoveries: 0,
+      prefix: { turns: 5, batch_turns: 1, min_share_without_batch: 0.9999 } } } })));
   assert.deepEqual(cheaper.regressions, []);
   assert.deepEqual(cheaper.changes, ['patch-rounding: calls 10 -> 9', 'patch-rounding: sent bytes 200000 -> 150000 (-25.0%)', 'patch-rounding: calls by role changed']);
   const added = mechanics(run());

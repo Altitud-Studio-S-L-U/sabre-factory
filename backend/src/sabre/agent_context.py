@@ -1,4 +1,10 @@
-"""Transient suppression of old reads, command output and write content; durable messages are never edited."""
+"""Transient suppression of old reads, command output and write content; durable messages are never edited.
+
+With water marks set, a result stays in the model-facing request until the request crosses the high
+mark; the oldest eligible results then leave in one batch, down to the low mark. Between batches the
+request only grows at its end, which is what a provider's prompt cache needs. The plan is replayed
+from the durable messages on every call, so it needs no state and survives a resumed step.
+"""
 
 import hashlib
 import json
@@ -30,6 +36,10 @@ class ContextPolicy:
     keep_model_turns: int = 4
     archive_unique: bool = False
     archive_min_bytes: int = 2048
+    # Request sizes, in bytes, between which the recoverable archive works in batches. None archives
+    # every eligible result as soon as it leaves the protected turns.
+    high_water_bytes: int | None = None
+    low_water_bytes: int | None = None
 
     @classmethod
     def from_settings(cls, settings):
@@ -195,18 +205,107 @@ def output_summary(content: str) -> dict:
     return summary
 
 
-def archive_arguments(result: ContextProjection, messages: list[AnyMessage], protected_start: int, minimum: int) -> None:
+def result_placeholder(call: ToolCall, message: ToolMessage, content_digest: str, raw: bytes) -> str:
+    # Only text results are archived: successful_reads never yields another kind.
+    text = message.content if isinstance(message.content, str) else ""
+    return json.dumps({"sabre_context_reference": 2, "historical": True, "currentness": "not_revalidated",
+        "tool": call["name"], "tool_call_id": message.tool_call_id, "response_digest": content_digest,
+        "original_bytes": len(raw), "original_chars": len(text), "content_omitted": True,
+        "recover_with": "read_context(tool_call_id,response_digest,offset,limit)",
+        **(output_summary(text) if call["name"] in OUTPUT_TOOLS else {})}, separators=(",", ":"))
+
+
+def argument_placeholder(call: ToolCall, field_name: str, value: str, content_digest: str, raw: bytes) -> str:
+    return json.dumps({"sabre_context_reference": 2, "historical": True, "currentness": "not_revalidated",
+        "tool": call["name"], "argument": field_name, "tool_call_id": call["id"], "response_digest": content_digest,
+        "original_bytes": len(raw), "original_chars": len(value), "content_omitted": True,
+        "recover_with": "read_context(tool_call_id,response_digest,offset,limit)",
+        "note": "Argument of an earlier completed call, omitted from this view. Never write this reference as file content."},
+        separators=(",", ":"))
+
+
+def page_placeholder(page: dict, recent: bool) -> str:
+    return json.dumps({"sabre_context_reference": 2, "historical": True, "currentness": "not_revalidated",
+        "tool": "read_context", **page, "content_omitted": True,
+        "recover_with": "read_context(tool_call_id,response_digest,offset,limit)",
+        "note": ("Dropped because this request exceeded its input limit: recover fewer pages per turn." if recent
+                 else "An earlier recovery page that left this view. Work from your notes; recover it again only if you must.")},
+        separators=(",", ":"))
+
+
+def message_bytes(message: AnyMessage) -> int:
+    """The size of one message as the request carries it, with its separator."""
+    return len(json.dumps(message.model_dump(mode="json"), ensure_ascii=False, separators=(",", ":")).encode()) + 1
+
+
+def batch_plan(messages: list[AnyMessage], policy: ContextPolicy, overhead_bytes: int) -> set[tuple[str, str]]:
+    """What has left the view so far, as (kind, tool call id), replaying every request of this conversation.
+
+    Each model turn in the history was produced by a request that saw the messages before it. For each of
+    those requests in order, and for the one being built: when the request is over the high mark, the oldest
+    results outside its protected turns leave until it is at the low mark or nothing eligible is left. A
+    request that saw the same history makes the same choices, so between two batches no earlier message of
+    the view changes.
+    """
+    high, low = policy.high_water_bytes, policy.low_water_bytes
+    if high is None or low is None:
+        return set()
+    minimum = min(policy.min_result_bytes, policy.archive_min_bytes)
+    candidates: list[tuple[int, int, tuple[str, str], int]] = []  # position, visible from, key, bytes saved
+    for index, message, call in successful_reads(messages, ARCHIVED_RESULT_TOOLS):
+        raw = message.content.encode()
+        if len(raw) < minimum:
+            continue
+        placeholder = result_placeholder(call, message, hashlib.sha256(raw).hexdigest(), raw)
+        saved = message_bytes(message) - message_bytes(message.model_copy(update={"content": placeholder}))
+        if saved > 0:
+            candidates.append((index, index, ("result", message.tool_call_id), saved))
+    replied = {message.tool_call_id: index for index, message in enumerate(messages) if isinstance(message, ToolMessage)}
     for index, call, field_name, value in answered_arguments(messages):
         raw = value.encode()
-        if index >= protected_start or len(raw) < minimum:
+        if len(raw) < minimum:
+            continue
+        placeholder = argument_placeholder(call, field_name, value, hashlib.sha256(raw).hexdigest(), raw)
+        saved = message_bytes(messages[index]) - message_bytes(_replace_argument(messages[index], call["id"], field_name, placeholder))
+        if saved > 0:
+            # An argument can leave only once its call has an answer in the request.
+            candidates.append((index, replied[call["id"]], ("argument", call["id"]), saved))
+    for index, message, _call in successful_reads(messages, RECOVERY_TOOLS):
+        page = recovery_page(message.content)
+        if page is None or len(message.content.encode()) < minimum:
+            continue
+        saved = message_bytes(message) - message_bytes(message.model_copy(update={"content": page_placeholder(page, False)}))
+        if saved > 0:
+            candidates.append((index, index, ("page", message.tool_call_id), saved))
+    candidates.sort()
+    sizes = [message_bytes(message) for message in messages]
+    turns = [index for index, message in enumerate(messages) if isinstance(message, AIMessage)]
+    archived: dict[tuple[str, str], int] = {}
+    for point in [*turns, len(messages)]:
+        earlier = [index for index in turns if index < point]
+        if len(earlier) <= policy.keep_model_turns:
+            continue
+        protected_start = point if policy.keep_model_turns == 0 else earlier[-policy.keep_model_turns]
+        view = overhead_bytes + sum(sizes[:point]) - sum(archived.values())
+        if view <= high:
+            continue
+        for position, visible, key, saved in candidates:
+            if view <= low:
+                break
+            if position < protected_start and visible < point and key not in archived:
+                archived[key] = saved
+                view -= saved
+    return set(archived)
+
+
+def archive_arguments(result: ContextProjection, messages: list[AnyMessage], protected_start: int, minimum: int,
+                      allowed: set[tuple[str, str]] | None = None) -> None:
+    for index, call, field_name, value in answered_arguments(messages):
+        raw = value.encode()
+        if index >= protected_start or len(raw) < minimum or (allowed is not None and ("argument", call["id"]) not in allowed):
             continue
         content_digest = hashlib.sha256(raw).hexdigest()
-        placeholder = json.dumps({"sabre_context_reference": 2, "historical": True, "currentness": "not_revalidated",
-            "tool": call["name"], "argument": field_name, "tool_call_id": call["id"], "response_digest": content_digest,
-            "original_bytes": len(raw), "original_chars": len(value), "content_omitted": True,
-            "recover_with": "read_context(tool_call_id,response_digest,offset,limit)",
-            "note": "Argument of an earlier completed call, omitted from this view. Never write this reference as file content."},
-            separators=(",", ":"))
+        placeholder = argument_placeholder(call, field_name, value, content_digest, raw)
         if len(placeholder.encode()) >= len(raw):
             continue
         result.messages[index] = _replace_argument(result.messages[index], call["id"], field_name, placeholder)
@@ -233,7 +332,8 @@ def recovery_page(content: str) -> dict | None:
             "chars": len(page["content"]), "eof": page.get("eof") is True}
 
 
-def archive_pages(result: ContextProjection, messages: list[AnyMessage], protected_start: int, minimum: int, shed_bytes: int) -> None:
+def archive_pages(result: ContextProjection, messages: list[AnyMessage], protected_start: int, minimum: int, shed_bytes: int,
+                  allowed: set[tuple[str, str]] | None = None) -> None:
     """Replace older recovery pages by their coordinates. Nothing is stored: the original they copy is already archived.
 
     Pages inside the protected window stay, because the agent has just asked for them. When the
@@ -246,14 +346,9 @@ def archive_pages(result: ContextProjection, messages: list[AnyMessage], protect
         recent = index >= protected_start
         if recent and (shed_bytes <= 0 or position == len(pages) - 1):
             continue
-        if not recent and len(raw) < minimum:
+        if not recent and (len(raw) < minimum or (allowed is not None and ("page", message.tool_call_id) not in allowed)):
             continue
-        placeholder = json.dumps({"sabre_context_reference": 2, "historical": True, "currentness": "not_revalidated",
-            "tool": "read_context", **page, "content_omitted": True,
-            "recover_with": "read_context(tool_call_id,response_digest,offset,limit)",
-            "note": ("Dropped because this request exceeded its input limit: recover fewer pages per turn." if recent
-                     else "An earlier recovery page that left this view. Work from your notes; recover it again only if you must.")},
-            separators=(",", ":"))
+        placeholder = page_placeholder(page, recent)
         saved = len(raw) - len(placeholder.encode())
         if saved <= 0:
             continue
@@ -333,7 +428,7 @@ def drop_old_turns(result: ContextProjection, messages: list[AnyMessage], before
 
 
 def project_tool_context(messages: list[AnyMessage], policy: ContextPolicy, *, archive_recent: bool = False,
-                         shed_page_bytes: int = 0, drop_turn_bytes: int = 0) -> ContextProjection:
+                         shed_page_bytes: int = 0, drop_turn_bytes: int = 0, overhead_bytes: int = 0) -> ContextProjection:
     """Plan a model-only view without performing I/O or changing message objects.
 
     Legacy dedup retains a complete later copy. The recoverable archive mode can
@@ -348,6 +443,10 @@ def project_tool_context(messages: list[AnyMessage], policy: ContextPolicy, *, a
     oldest pages still held when the request is over its limit. drop_turn_bytes
     is the last resort: the oldest read-only turns leave the view, which is the
     only step that removes messages instead of replacing their content.
+
+    With the policy's water marks set, the archive works in batches (see batch_plan);
+    overhead_bytes is what the request carries besides its messages. The last
+    resorts ignore the marks: they answer a request that is over its limit.
     """
     size = serialized_size(messages)
     result = ContextProjection(list(messages), size, size)
@@ -359,6 +458,8 @@ def project_tool_context(messages: list[AnyMessage], policy: ContextPolicy, *, a
         return result
     recent_start = len(messages) if policy.keep_model_turns == 0 else turns[-policy.keep_model_turns] if len(turns) > policy.keep_model_turns else 0
     protected_start = len(messages) if archive_recent else recent_start
+    batch = (batch_plan(messages, policy, overhead_bytes)
+             if policy.archive_unique and not archive_recent and policy.high_water_bytes is not None and policy.low_water_bytes is not None else None)
     newest: dict[tuple[str, str, str], tuple[str, int]] = {}
     archived_tools = ARCHIVED_RESULT_TOOLS if policy.archive_unique else READ_TOOLS
     minimum = 0 if archive_recent else min(policy.min_result_bytes, policy.archive_min_bytes) if policy.archive_unique else policy.min_result_bytes
@@ -377,12 +478,10 @@ def project_tool_context(messages: list[AnyMessage], policy: ContextPolicy, *, a
         duplicate = retained is not None and retained[0] != message.tool_call_id and messages[retained[1]].content == message.content
         if not policy.archive_unique and not duplicate:
             continue
+        if batch is not None and ("result", message.tool_call_id) not in batch:
+            continue
         if policy.archive_unique:
-            placeholder = json.dumps({"sabre_context_reference": 2, "historical": True, "currentness": "not_revalidated",
-                "tool": call["name"], "tool_call_id": message.tool_call_id, "response_digest": content_digest,
-                "original_bytes": len(raw), "original_chars": len(message.content), "content_omitted": True,
-                "recover_with": "read_context(tool_call_id,response_digest,offset,limit)",
-                **(output_summary(message.content) if call["name"] in OUTPUT_TOOLS else {})}, separators=(",", ":"))
+            placeholder = result_placeholder(call, message, content_digest, raw)
         else:
             if retained is None:
                 continue
@@ -400,8 +499,8 @@ def project_tool_context(messages: list[AnyMessage], policy: ContextPolicy, *, a
             response_digest=content_digest, original_bytes=len(raw),
             reason="duplicate" if duplicate else "old_output" if call["name"] in OUTPUT_TOOLS else "old_read"))
     if policy.archive_unique:
-        archive_arguments(result, messages, protected_start, minimum)
-        archive_pages(result, messages, recent_start, min(policy.min_result_bytes, policy.archive_min_bytes), shed_page_bytes)
+        archive_arguments(result, messages, protected_start, minimum, batch)
+        archive_pages(result, messages, recent_start, min(policy.min_result_bytes, policy.archive_min_bytes), shed_page_bytes, batch)
         if drop_turn_bytes > 0:
             drop_old_turns(result, messages, recent_start, drop_turn_bytes)
     result.sent_bytes = serialized_size(result.messages)

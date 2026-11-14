@@ -65,7 +65,12 @@ export function mechanics(report) {
       tokens_per_call: task.calls.total ? Math.round(task.tokens.estimated_total / task.calls.total) : null,
       sent_bytes: task.context.sent_bytes_total, sent_bytes_max: task.context.sent_bytes_max,
       tool_calls: byKey(task.tools.calls), tool_failures: task.tools.failed, tool_output_bytes: task.tools.output_bytes,
-      recovery_ratio: ratio(task.tools.failed, toolCalls),
+      // Calls made only to see again what the agent had already read, and their share of all tool calls.
+      recoveries: task.context.recoveries ?? 0, recovery_ratio: ratio(task.context.recoveries ?? 0, toolCalls),
+      // Turns that have a previous request, how many of them rewrote an earlier message (a compaction batch),
+      // and the smallest share of the previous request kept on the turns that did not.
+      prefix_turns: task.context.prefix?.turns ?? 0, prefix_batch_turns: task.context.prefix?.batch_turns ?? 0,
+      prefix_min_share_without_batch: task.context.prefix?.min_share_without_batch ?? null,
       work_notes: task.work_notes?.notes ?? 0, stages: task.stages, probes: byKey(task.probes),
     }];
   })));
@@ -79,7 +84,8 @@ export function mechanics(report) {
     summary: {
       tasks: all.length, passed: all.filter((task) => task.verdict === 'pass').length, calls: sum('calls'),
       estimated_tokens: sum('estimated_tokens'), tokens_per_call: sum('calls') ? Math.round(sum('estimated_tokens') / sum('calls')) : null,
-      recovery_ratio: ratio(sum('tool_failures'), toolCalls),
+      tool_failures: sum('tool_failures'), recovery_ratio: ratio(sum('recoveries'), toolCalls),
+      rewritten_turn_share: ratio(sum('prefix_batch_turns'), sum('prefix_turns')),
       token_share_by_role: byKey(Object.fromEntries(Object.entries(roles).map(([role, tokens]) => [role, ratio(tokens, sum('estimated_tokens'))]))),
     },
   };
@@ -117,9 +123,14 @@ export function compare(baseline, current, { tolerance = TOLERANCE } = {}) {
       if (was === true && now !== true) regressions.push(`${name}: probe ${probe} was on, now ${now}`);
       else if (was !== now) changes.push(`${name}: probe ${probe} ${was} -> ${now}`);
     }
-    for (const key of ['calls', 'tool_failures']) {
-      if (after[key] > before[key]) regressions.push(`${name}: ${key.replace('_', ' ')} ${before[key]} -> ${after[key]}`);
-      else if (after[key] < before[key]) changes.push(`${name}: ${key.replace('_', ' ')} ${before[key]} -> ${after[key]}`);
+    for (const key of ['calls', 'tool_failures', 'recoveries', 'prefix_batch_turns']) {
+      if (after[key] > before[key]) regressions.push(`${name}: ${key.replaceAll('_', ' ')} ${before[key]} -> ${after[key]}`);
+      else if (after[key] < before[key]) changes.push(`${name}: ${key.replaceAll('_', ' ')} ${before[key]} -> ${after[key]}`);
+    }
+    const kept = [before.prefix_min_share_without_batch, after.prefix_min_share_without_batch];
+    if (kept[0] !== kept[1]) {
+      const line = `${name}: prefix kept on turns without a batch ${kept[0]} -> ${kept[1]}`;
+      (kept[0] !== null && (kept[1] === null || kept[1] < kept[0] - tolerance) ? regressions : changes).push(line);
     }
     for (const key of COSTS) {
       if (after[key] === before[key]) continue;

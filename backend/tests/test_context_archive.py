@@ -180,6 +180,9 @@ async def test_pending_recovery_rebuilds_scope_before_tools_and_preserves_origin
 
     monkeypatch.setattr(ContextArchive, "read", interrupted_read)
     work, project, config = setup()
+    # This request is far below its input limit, where nothing would leave the view. The recovery path
+    # under test needs an archived read, so the marks are set to archive as soon as a result may leave.
+    config.context_archive_high_water = config.context_archive_low_water = 0
     repository, executor, model, saver = Repository(), ReadExecutor(), Model(), InMemorySaver()
     store = ArtifactStore(tmp_path, SecretGuard())
     invalidated = False
@@ -528,11 +531,13 @@ async def test_a_long_conversation_is_not_stopped_by_the_residue_of_its_own_call
     assert everything.sent_bytes > config.context_input_max_bytes
     await middleware.awrap_model_call(request, handler)
     sent = handler.await_args.args[0]
-    assert len(sent.messages) < len(messages) and sent.messages[0] is messages[0] and sent.messages[-1] is messages[-1]
+    assert len(sent.messages) < len(messages) and sent.messages[0] is messages[0] and sent.messages[-2] is messages[-1]
     assert {"ai-10", "ai-20", "ai-30", "ai-40"} <= {m.id for m in sent.messages}
-    # The agent is told that it is running out of room, while it still has room to conclude.
-    assert sent.system_message.content.startswith(system.content)
-    assert sent.system_message.content.endswith(CONTEXT_PRESSURE_NOTICE.format(percent=98).split("%", 1)[1])
+    # The agent is told that it is running out of room, while it still has room to conclude. The notice is
+    # the last message of the request; the instructions before the conversation are untouched.
+    assert sent.system_message == system
+    notice = json.loads(sent.messages[-1].content)["platform_notice"]
+    assert notice.endswith(CONTEXT_PRESSURE_NOTICE.format(percent=98).split("%", 1)[1])
     assert len(repository.reservations) == 1
 
 
@@ -545,11 +550,16 @@ async def test_the_agent_is_told_when_its_conversation_is_close_to_its_input_lim
     repository, handler = Repository(), AsyncMock(return_value=SimpleNamespace(result=[]))
     await GuardedCalls(repository, config, work, SecretGuard()).awrap_model_call(request, handler)
     sent = handler.await_args.args[0]
+    # The instructions never change: what varies per call travels after the conversation.
+    assert sent.system_message == system
     if told:
-        assert sent.system_message.content.startswith(system.content) and "Do not start new exploration" in sent.system_message.content
-        assert "% of its input limit" in sent.system_message.content and sent.messages == request.messages
+        assert sent.messages[:-1] == request.messages and isinstance(sent.messages[-1], HumanMessage)
+        notice = json.loads(sent.messages[-1].content)["platform_notice"]
+        assert "Do not start new exploration" in notice and "% of its input limit" in notice
+        # The durable conversation is not edited: the notice belongs to this request only.
+        assert len(request.messages) == 1
     else:
-        assert sent.system_message == system
+        assert sent.messages == request.messages
 
 
 def test_reused_tool_id_cannot_hide_old_memory_from_validation():

@@ -6,6 +6,14 @@ A run spends its tokens on new work. The request a model receives only grows bet
 ## Evidence that motivates it
 The first real audit to reach its report used 533,093 tokens in 20 model calls. Of 61 tool calls, 26 (43%) recovered text the agent had already read, because a read is archived two turns after it arrives even when the request is far below its limit. Of 495,777 input tokens, 27,136 (5.5%) were read from cache: every call is a new CLI process that receives the whole history as one prompt, the projection rewrites earlier messages on each turn, and the pressure notice edits the system prompt. For comparison, one vendor reports 98% of its production input read from cache for an append-only harness (its own figure, not independently verified). The gap is cost and latency paid on every call.
 
+## Built so far
+- *Batches.* The recoverable archive works between a high mark (60% of the input ceiling) and a low mark (40%), both configuration. The plan is replayed from the durable messages on every call, so it keeps no state. Last resorts are unchanged.
+- *Stable prefix.* The pressure notice is the last message of its request; the system prompt never changes within an invocation.
+- *Measured by every bench run:* the recovery ratio and, for each turn with a previous request, whether it rewrote an earlier message and how much of the previous request it kept.
+- *What the scripted bench shows.* An audit of six modules that fits its window: recoveries from 20% of tool calls to none, 21% fewer estimated tokens, and no request rewrites an earlier message (before, two of five did). An audit of sixteen modules that must compact: unchanged at 14% recoveries and 1% more tokens, because two protected turns of full-file reads and 20 KiB of instructions and tool definitions already sit at the high mark. The marks help where a conversation fits and do not hurt where it does not; a real model has not confirmed either figure.
+
+Still to build: provider cache breakpoints and cache accounting, CLI session reuse, failure classes with retries and fallback, effort per role, the worker-session experiment and progressive skills.
+
 ## Interfaces and behavior
 **Archive under pressure, in batches.** A result stays in the model-facing request until the measured request crosses a high-water mark (initially 60% of `context_input_max_bytes`). The oldest eligible results are then archived in one batch down to a low-water mark (initially 40%). Between batches the request is append-only: no earlier message changes. `keep_model_turns` still protects the most recent turns, the escalation chain of last resorts is unchanged, and receipts record each batch. Both marks are configuration with documented defaults.
 

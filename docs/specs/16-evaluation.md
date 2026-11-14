@@ -9,9 +9,10 @@ The bench has four tasks on one Python fixture and drives the real graph with a 
 ## Built so far
 - *Regression.* `sabre bench compare` sets a run of the scripted driver against the baseline committed in `backend/bench/reports/baseline.json` and fails on a regression (a task that no longer passes, a probe that turned off, more model calls or tool failures, a cost up by more than 2%); `--strict` also fails on any other difference. `sabre bench baseline` records the baseline, which names the digest of the suite it measured.
 - *Determinism.* Apart from timing, two runs of the same commit report the same mechanics; a test holds that.
-- *Harness metrics.* The scripted driver reports the recovery ratio, tokens per model call and the share of tokens by specialist.
+- *Harness metrics.* The scripted driver reports the recovery ratio (tool calls spent on seeing again what was already read), prefix stability between consecutive requests, tokens per model call and the share of tokens by specialist.
+- *Suite.* Six tasks on two Python repositories: three patches and an audit on `pricing`, and two audits on `ledger`, one that fits its context window and one that has to compact. A task may carry its own token limit: the sixteen-module audit does not fit the 100,000 tokens a work order gets by default.
 
-Still to build: the suite beyond four Python tasks, the provider and baseline drivers, trials and intervals, prefix stability, ablations, the comparison in CI (Actions is off), and labelled real runs.
+Still to build: the suite beyond six Python tasks, the provider and baseline drivers, trials and intervals, ablations, the comparison in CI (Actions is off), and labelled real runs.
 
 ## Interfaces and behavior
 **Suite.** Between 20 and 50 tasks taken from real work orders and real failures, over at least three repositories and both supported stacks, in audit, patch and maintain modes. A task pins its snapshot, states the objective and acceptance as an owner would, and carries deterministic graders the agent never sees. Some tasks seed a defect that review or the security stage should flag, because passing tests is not the same as being mergeable. Fixtures are synthetic or licensed for redistribution.

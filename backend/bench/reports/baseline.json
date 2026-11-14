@@ -3,6 +3,109 @@
   "driver": "reference_policy",
   "token_basis": "estimated_utf8_bytes_div_4",
   "tasks": {
+    "audit-ledger": {
+      "mode": "audit",
+      "verdict": "pass",
+      "status": "completed",
+      "calls": 7,
+      "calls_by_role": {
+        "analyst": 4,
+        "qa": 1,
+        "reviewer": 2
+      },
+      "estimated_tokens": 30319,
+      "estimated_input_tokens": 29883,
+      "estimated_tokens_by_role": {
+        "analyst": 22034,
+        "qa": 2444,
+        "reviewer": 5841
+      },
+      "reserved_tokens": 119247,
+      "tokens_per_call": 4331,
+      "sent_bytes": 190593,
+      "sent_bytes_max": 46951,
+      "tool_calls": {
+        "list_files": 1,
+        "read_file": 7
+      },
+      "tool_failures": 0,
+      "tool_output_bytes": 25974,
+      "recoveries": 0,
+      "recovery_ratio": 0,
+      "prefix_turns": 4,
+      "prefix_batch_turns": 0,
+      "prefix_min_share_without_batch": 0.9999,
+      "work_notes": 0,
+      "stages": [
+        "intake",
+        "analyze",
+        "clarify",
+        "checks",
+        "scope_guard",
+        "review",
+        "security_check",
+        "audit_report"
+      ],
+      "probes": {
+        "deterministic_gates_before_model_qa": true,
+        "developer_receives_task_acceptance": null,
+        "developer_receives_task_scope": null,
+        "qa_receives_gate_results": true,
+        "repair_receives_work_notes": null
+      }
+    },
+    "audit-ledger-full": {
+      "mode": "audit",
+      "verdict": "pass",
+      "status": "completed",
+      "calls": 13,
+      "calls_by_role": {
+        "analyst": 10,
+        "qa": 1,
+        "reviewer": 2
+      },
+      "estimated_tokens": 97492,
+      "estimated_input_tokens": 96608,
+      "estimated_tokens_by_role": {
+        "analyst": 89208,
+        "qa": 2443,
+        "reviewer": 5841
+      },
+      "reserved_tokens": 285779,
+      "tokens_per_call": 7499,
+      "sent_bytes": 514753,
+      "sent_bytes_max": 56937,
+      "tool_calls": {
+        "list_files": 1,
+        "read_context": 3,
+        "read_file": 17
+      },
+      "tool_failures": 0,
+      "tool_output_bytes": 92776,
+      "recoveries": 3,
+      "recovery_ratio": 0.1429,
+      "prefix_turns": 10,
+      "prefix_batch_turns": 6,
+      "prefix_min_share_without_batch": 0.9999,
+      "work_notes": 0,
+      "stages": [
+        "intake",
+        "analyze",
+        "clarify",
+        "checks",
+        "scope_guard",
+        "review",
+        "security_check",
+        "audit_report"
+      ],
+      "probes": {
+        "deterministic_gates_before_model_qa": true,
+        "developer_receives_task_acceptance": null,
+        "developer_receives_task_scope": null,
+        "qa_receives_gate_results": true,
+        "repair_receives_work_notes": null
+      }
+    },
     "audit-pricing": {
       "mode": "audit",
       "verdict": "pass",
@@ -30,7 +133,11 @@
       },
       "tool_failures": 0,
       "tool_output_bytes": 2085,
+      "recoveries": 0,
       "recovery_ratio": 0,
+      "prefix_turns": 2,
+      "prefix_batch_turns": 0,
+      "prefix_min_share_without_batch": 0.9998,
       "work_notes": 0,
       "stages": [
         "intake",
@@ -83,7 +190,11 @@
       },
       "tool_failures": 0,
       "tool_output_bytes": 2335,
+      "recoveries": 0,
       "recovery_ratio": 0,
+      "prefix_turns": 5,
+      "prefix_batch_turns": 0,
+      "prefix_min_share_without_batch": 0.9999,
       "work_notes": 0,
       "stages": [
         "intake",
@@ -142,7 +253,11 @@
       },
       "tool_failures": 0,
       "tool_output_bytes": 5165,
+      "recoveries": 0,
       "recovery_ratio": 0,
+      "prefix_turns": 9,
+      "prefix_batch_turns": 0,
+      "prefix_min_share_without_batch": 0.9999,
       "work_notes": 1,
       "stages": [
         "intake",
@@ -201,7 +316,11 @@
       },
       "tool_failures": 0,
       "tool_output_bytes": 2840,
+      "recoveries": 0,
       "recovery_ratio": 0,
+      "prefix_turns": 5,
+      "prefix_batch_turns": 0,
+      "prefix_min_share_without_batch": 0.9999,
       "work_notes": 0,
       "stages": [
         "intake",
@@ -228,19 +347,21 @@
     }
   },
   "summary": {
-    "tasks": 4,
-    "passed": 4,
-    "calls": 40,
-    "estimated_tokens": 87950,
-    "tokens_per_call": 2199,
-    "recovery_ratio": 0,
+    "tasks": 6,
+    "passed": 6,
+    "calls": 60,
+    "estimated_tokens": 215761,
+    "tokens_per_call": 3596,
+    "tool_failures": 0,
+    "recovery_ratio": 0.0526,
+    "rewritten_turn_share": 0.1714,
     "token_share_by_role": {
-      "analyst": 0.1864,
-      "developer": 0.4831,
-      "qa": 0.0804,
-      "reviewer": 0.1778,
-      "supervisor": 0.0724
+      "analyst": 0.5916,
+      "developer": 0.1969,
+      "qa": 0.0554,
+      "reviewer": 0.1266,
+      "supervisor": 0.0295
     }
   },
-  "suite_digest": "144ddce9e1367c7411ceed7ce6536cb836a8cc58c2a13bd05964c3df9ef9eeb8"
+  "suite_digest": "e340fc868da4a4df2b2a17f9c932e8b365e65983310a69aa628db43005ef215b"
 }

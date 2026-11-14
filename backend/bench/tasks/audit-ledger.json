@@ -1,0 +1,43 @@
+{
+  "id": "audit-ledger",
+  "repo": "ledger",
+  "mode": "audit",
+  "objective": "Audit how the ledger rounds money, converts currencies and checks permissions, without changing it.",
+  "acceptance": [
+    "Report rounding, conversion and permission risks with the affected paths"
+  ],
+  "gate_commands": [
+    [
+      "python",
+      "-m",
+      "unittest"
+    ]
+  ],
+  "grader": {
+    "kind": "audit",
+    "mentions": [
+      "rounding.py",
+      "fx.py",
+      "permissions.py",
+      "half to even",
+      "clerk"
+    ]
+  },
+  "reference": {
+    "inspect": [
+      "ledger/rounding.py",
+      "ledger/fx.py",
+      "ledger/permissions.py",
+      "ledger/journal.py",
+      "ledger/accounts.py",
+      "ledger/tax.py"
+    ],
+    "read_batch": 2,
+    "revisit": [
+      "ledger/rounding.py",
+      "ledger/fx.py",
+      "ledger/permissions.py"
+    ],
+    "findings": "ledger/rounding.py: scale() multiplies by a binary float and rounds half to even, so tax and discounts computed with it are not rounded half up. ledger/fx.py: convert() rounds twice through scale(), assumes two decimal places for every currency and accepts a rate of zero. ledger/permissions.py: allowed() gives an unknown role the clerk's permissions, so a misspelt role may post entries."
+  }
+}
