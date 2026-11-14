@@ -571,6 +571,19 @@ class Repository(MemoryStore):
             row = await (await conn.execute("SELECT control FROM work_orders WHERE id=%s", (work_id,))).fetchone()
             return row["control"] if row else None
 
+    async def idle_controls(self, project_id: str, running_id: str) -> list[tuple[str, str]]:
+        """Pause and cancel requests still waiting on a project's resting runs, other than the one being driven.
+
+        A request that arrives while another run of the project holds its lock is only recorded, and a resting
+        run has no queued job that would apply it later."""
+        async with self.connection() as conn:
+            rows = await (await conn.execute(
+                "SELECT id,control FROM work_orders WHERE project_id=%s AND id<>%s AND "
+                "((control='cancel' AND data->>'status' IN ('blocked','failed','waiting_input','paused')) OR "
+                "(control='pause' AND data->>'status' IN ('blocked','failed','waiting_input'))) ORDER BY updated_at,id",
+                (project_id, running_id))).fetchall()
+        return [(row["id"], row["control"]) for row in rows]
+
     async def answer(self, work_id: str, answer: dict, enqueue):
         async with self.connection() as conn:
             row = await (await conn.execute("SELECT data,accepted_answer FROM work_orders WHERE id=%s FOR UPDATE", (work_id,))).fetchone()
