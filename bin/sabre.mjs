@@ -14,7 +14,7 @@ try {
     console.log('SABRE Factory\n\nsabre <command>   (or node bin/sabre.mjs <command>; run npm link once to install sabre)\n\n'
       + 'Factory: doctor, init, migrate-credentials, config, build, prepare, prepare-codex, prepare-claude, up [--no-open], open, down, status, logs, backup, verify, restore, slack, telemetry, codex-login, claude-login, stop claude-runner\n'
       + 'Runs: runs, run, watch, ask, answer, pause, resume, cancel (sabre runs help)\n'
-      + 'Harness: bench, mcp, mcp-stdio\n\nup opens the panel already signed in; open pairs another browser.');
+      + 'Harness: bench [baseline|compare], mcp, mcp-stdio\n\nup opens the panel already signed in; open pairs another browser.');
   } else {
     const report = await doctor();
     if (command === 'doctor') console.log(JSON.stringify(report, null, 2));

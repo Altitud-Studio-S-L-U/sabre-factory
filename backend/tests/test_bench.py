@@ -47,6 +47,9 @@ async def test_reference_policy_completes_every_task_through_the_real_factory_an
         assert applicable is False or (result["probes"]["developer_receives_task_acceptance"] and result["probes"]["developer_receives_task_scope"])
         assert result["budget_feasibility"]["fits"]
         assert result["calls"]["by_role"]["qa"] == 1
+        # Every estimated token belongs to a specialist, so the share by role adds up.
+        assert set(result["tokens"]["estimated_by_role"]) == set(result["calls"]["by_role"])
+        assert sum(result["tokens"]["estimated_by_role"].values()) == result["tokens"]["estimated_total"]
     audit = next(result for result in report["tasks"] if result["mode"] == "audit")
     assert audit["grade"]["source_unchanged"] and "developer" not in audit["calls"]["by_role"]
     patch = next(result for result in report["tasks"] if result["task"] == "patch-rounding")
@@ -54,6 +57,17 @@ async def test_reference_policy_completes_every_task_through_the_real_factory_an
     repair = next(result for result in report["tasks"] if result["task"] == "patch-discount-repair")
     assert repair["calls"]["by_role"]["developer"] > patch["calls"]["by_role"]["developer"]
     assert repair["tools"]["calls"]["record_note"] == 1 and repair["stages"].count("implement") == 2
+
+
+async def test_the_reference_policy_measures_the_same_twice_apart_from_timing():
+    def mechanics(result):
+        # Maps compare by key: tools of one turn finish in either order. Timing is the only field left out.
+        return {key: value for key, value in result.items() if key != "wall_ms"} | {
+            "tools": {key: value for key, value in result["tools"].items() if key != "total_ms"}}
+
+    first = await run_suite(selected=["patch-discount-repair", "audit-pricing"])
+    second = await run_suite(selected=["patch-discount-repair", "audit-pricing"])
+    assert [mechanics(result) for result in first["tasks"]] == [mechanics(result) for result in second["tasks"]]
 
 
 async def test_repair_attempt_without_its_note_repeats_the_dead_end(monkeypatch):
