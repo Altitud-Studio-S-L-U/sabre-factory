@@ -4,6 +4,8 @@ import json
 import re
 from datetime import datetime
 
+from pydantic import ValidationError
+
 from sabre.memory_contracts import (
     MemoryApproval,
     MemoryCarryForward,
@@ -42,6 +44,40 @@ MAX_CONTEXT_ITEMS = 4
 MAX_READ_CHARS = 2048
 MAX_RECALL_TERMS = 32
 REVIEW_LIMIT = 100
+
+# What a run's own specialists may propose while they work. A proposal waits for the owner like any
+# other; the bounds keep one run from flooding the review queue.
+RUN_PROPOSERS = frozenset({"analyst", "developer", "reviewer"})
+MAX_STEP_PROPOSALS = 3
+MAX_RUN_PROPOSALS = 12
+PROPOSE_TOOL = "propose_memory"
+PROPOSE_DESCRIPTION = (
+    "Propose one thing about this repository that a later run would otherwise have to rediscover: where a behaviour lives, "
+    "a command that verifies it, a constraint that is not obvious. Give the statement, why it matters and the files that show it "
+    "(a path, optionally with #L<line>) as they are at the commit this run started from. The owner reviews every proposal before "
+    f"any run sees it. At most {MAX_STEP_PROPOSALS} per assignment. Not for task progress, plans or anything the cited files do not show."
+)
+PROPOSE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "statement": {"type": "string", "minLength": 20, "maxLength": 1000},
+        "why": {"type": "string", "minLength": 10, "maxLength": 300},
+        "citations": {"type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 1040},
+                      "minItems": 1, "maxItems": 5, "uniqueItems": True},
+        "kind": {"type": "string", "enum": ["fact", "lesson"]},
+    },
+    "required": ["statement", "why", "citations"],
+    "additionalProperties": False,
+}
+PROPOSE_GUIDANCE = ("When you establish something about this repository that a later run would otherwise rediscover, propose it once "
+                    "with propose_memory when that tool is listed. A refused proposal needs no retry: continue with the task.")
+# Refusals a specialist can read and move on from. Anything else is a fault of the factory, not of the proposal.
+PROPOSAL_REFUSALS = {
+    "MEMORY_CITATION_UNKNOWN": "A cited file or line does not exist at the commit this run started from. Cite files as they were before any change of this run.",
+    "MEMORY_INDEX_MISSING": "The commit this run started from has no repository index, so citations cannot be checked. Continue with the task.",
+    "MEMORY_PROVENANCE": "The commit this run started from has no repository index, so the proposal cannot be anchored. Continue with the task.",
+    "MEMORY_LINK_INVALID": "The proposal refers to a memory outside this project.",
+}
 
 
 def validity_at(item: MemoryItem, commit: str | None, record: dict | None) -> MemoryValidityAt:
@@ -130,20 +166,60 @@ class MemoryService:
             request = request.model_copy(update={"evidence_digest": indexed})
         else:
             work = await self.repository.work(request.source_work_id)
-            if work.project_id != request.project_id or not work.evidence or work.evidence.commit != request.source_commit:
+            if work.project_id != request.project_id:
                 raise DomainError("MEMORY_PROVENANCE", "Provenance does not match a project delivery")
-            # Recovery may queue a published order before replaying its final memory write.
-            delivered = work.status == "completed" or bool(work.evidence.branch and work.evidence.pr_url)
-            # Only the mechanically derived delivery fact activates itself, and it stays commit-scoped.
-            verifiable = (request.kind == "fact" and delivered and request.content == verified_fact(work)
-                          and request.evidence_digest == work.evidence.snapshot_digest and request.scope == "commit"
-                          and not request.citations and request.supersedes is None)
+            if work.evidence and work.evidence.commit == request.source_commit:
+                # Recovery may queue a published order before replaying its final memory write.
+                delivered = work.status == "completed" or bool(work.evidence.branch and work.evidence.pr_url)
+                # Only the mechanically derived delivery fact activates itself, and it stays commit-scoped.
+                verifiable = (request.kind == "fact" and delivered and request.content == verified_fact(work)
+                              and request.evidence_digest == work.evidence.snapshot_digest and request.scope == "commit"
+                              and not request.citations and request.supersedes is None)
+            else:
+                # A run's own specialists record what they established at the commit the run started from, whether
+                # or not it delivers. Intake indexed that commit; its snapshot is the evidence.
+                from_run = (proposed_by is not None and proposed_by.channel == "factory" and proposed_by.work_id == work.id
+                            and proposed_by.role in RUN_PROPOSERS)
+                indexed = await self.repository.repository_index_digest(request.project_id, request.source_commit) if from_run else None
+                if indexed is None or request.evidence_digest not in (None, indexed):
+                    raise DomainError("MEMORY_PROVENANCE", "Provenance does not match a project delivery")
+                request = request.model_copy(update={"evidence_digest": indexed})
         item = MemoryItem(**request.model_dump(), id=digest(memory_identity(request)), active=verifiable,
                           approved_at=now() if verifiable else None, proposed_by=proposed_by)
         # Factory consolidation and repository reads stay free of model calls, so their proposals are recalled lexically.
         mechanical = proposed_by is not None and proposed_by.channel in {"factory", "repository"}
         embedding = await self.embeddings.aembed_query(item.content) if self.embeddings and not verifiable and not mechanical else None
         return await self.repository.create_memory(item, embedding)
+
+    def proposer(self, work: WorkOrder, role: str, commit: str):
+        """The propose_memory tool of one specialist assignment. A refusal is a result, never a failed stage."""
+        used = 0
+
+        def refused(code: str, reason: str) -> dict:
+            return {"proposed": False, "code": code, "reason": reason}
+
+        async def propose_memory(statement: str, why: str, citations: list[str], kind: str = "fact"):
+            nonlocal used
+            if used >= MAX_STEP_PROPOSALS:
+                return refused("MEMORY_PROPOSAL_LIMIT", f"This assignment already proposed {MAX_STEP_PROPOSALS} memories. Continue with the task.")
+            if await self.repository.run_proposal_count(work.id) >= MAX_RUN_PROPOSALS:
+                return refused("MEMORY_PROPOSAL_LIMIT", f"This run already proposed {MAX_RUN_PROPOSALS} memories. Continue with the task.")
+            try:
+                # One line of statement, so the record has a title; the reason follows on its own line.
+                request = MemoryCreate(project_id=work.project_id, kind=kind, source_commit=commit, source_work_id=work.id,
+                                       content=f"{' '.join(statement.split())}\nWhy it matters: {' '.join(why.split())}",
+                                       scope="project", citations=citations)
+                item = await self.propose(request, proposed_by=ProposedBy(channel="factory", role=role, work_id=work.id))
+            except ValidationError:
+                return refused("INVALID_CITATION", "Write each citation as a repository-relative path, optionally followed by #L<line>.")
+            except DomainError as error:
+                if error.code not in PROPOSAL_REFUSALS:
+                    raise
+                return refused(error.code, PROPOSAL_REFUSALS[error.code])
+            used += 1
+            return {"proposed": True, "memory_id": item.id, "state": "waiting for the owner's review",
+                    "remaining_in_assignment": MAX_STEP_PROPOSALS - used}
+        return propose_memory
 
     async def withdraw(self, memory_id: str) -> bool:
         """Withdraw a proposal nobody decided on; approved and already invalidated memories are left alone."""

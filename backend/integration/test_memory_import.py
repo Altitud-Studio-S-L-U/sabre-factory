@@ -186,3 +186,73 @@ async def test_a_run_that_holds_the_project_indexes_its_own_checkout_and_recalls
     other = await ingestion.request(project.id, IngestionRequest(version=1, idempotency_key="intake:run:r2", expected_source_commit=C))
     assert (await ingestion.record(other, checkout)).state == "queued"
     assert (await ingestion.report(project.id)).latest.source_commit == B
+
+
+async def test_a_run_that_never_delivers_leaves_what_its_specialists_established(repository, tmp_path):
+    from sabre.memory import MAX_RUN_PROPOSALS
+
+    ingestion, memory, repo, project, runner = await setup(repository, tmp_path)
+    _, _, work = await fixture_work(repository)
+    work = work.model_copy(update={"project_id": project.id})
+    await repo.admit(work.model_copy(update={"id": "run-with-proposals", "idempotency_key": "run-with-proposals"}), AsyncMock())
+    work = await repo.work("run-with-proposals")
+    await read(ingestion, project, runner, A, {"src/pricing.py": "def total(items):\n    return sum(items)\n", "README.md": "# Pricing\n"})
+    digest = (await ingestion.report(project.id)).latest.snapshot_digest
+    assert work.evidence is None
+
+    propose = memory.proposer(work, "analyst", A)
+    result = await propose(statement="Totals are computed by total() in the pricing module.", why="A change to rounding belongs there.",
+                           citations=["src/pricing.py#L1"])
+    assert result["proposed"] is True and result["remaining_in_assignment"] == 2
+    item = (await memory.detail(result["memory_id"])).item
+    assert item.state == "pending" and not item.active and item.scope == "project"
+    assert (item.source_work_id, item.source_commit, item.evidence_digest) == (work.id, A, digest)
+    assert item.proposed_by == ProposedBy(channel="factory", role="analyst", work_id=work.id)
+    assert item.content.split("\n") == ["Totals are computed by total() in the pricing module.", "Why it matters: A change to rounding belongs there."]
+    # The same statement again is the same record, not a second proposal.
+    assert (await propose(statement="Totals are computed by total() in the pricing module.", why="A change to rounding belongs there.",
+                          citations=["src/pricing.py#L1"]))["memory_id"] == item.id
+    assert await repo.run_proposal_count(work.id) == 1
+
+    # Citations are checked against the commit the run started from: the file and the line must exist there.
+    for citations in (["src/missing.py"], ["src/pricing.py#L40"]):
+        refused = await memory.proposer(work, "reviewer", A)(statement="The pricing module has a second entry point.",
+                                                             why="It would need the same change.", citations=citations)
+        assert refused["proposed"] is False and refused["code"] == "MEMORY_CITATION_UNKNOWN"
+    unindexed = await memory.proposer(work, "analyst", B)(statement="Totals are computed by total() in the pricing module.",
+                                                          why="A change to rounding belongs there.", citations=["src/pricing.py"])
+    assert unindexed["code"] == "MEMORY_PROVENANCE"
+    assert await repo.run_proposal_count(work.id) == 1
+
+    # Nothing a specialist wrote guides a run until the owner approves it.
+    assert await repo.search_memory(project.id, "total", A) == []
+    review = await memory.review(project.id)
+    assert [entry.item.id for entry in review.pending] == [item.id]
+    await memory.update(item.id, True)
+    assert [found.id for found in await repo.search_memory(project.id, "total", A)] == [item.id]
+    detail = await memory.detail(item.id)
+    assert detail.provenance.work_id == work.id and detail.provenance.work_status == "queued"
+
+    # One run cannot flood the queue, however many assignments it has.
+    for number in range(1, MAX_RUN_PROPOSALS):
+        accepted = await memory.proposer(work, "developer", A)(statement=f"Observation number {number} about the pricing module.",
+                                                               why="Kept for the bound of one run.", citations=["README.md"])
+        assert accepted["proposed"] is True
+    over = await memory.proposer(work, "developer", A)(statement="One observation more than the run may propose.",
+                                                       why="It must be refused.", citations=["README.md"])
+    assert over["proposed"] is False and over["code"] == "MEMORY_PROPOSAL_LIMIT"
+    assert await repo.run_proposal_count(work.id) == MAX_RUN_PROPOSALS
+
+
+async def test_an_owner_citation_of_a_line_past_the_end_of_the_file_is_refused(repository, tmp_path):
+    ingestion, memory, _, project, runner = await setup(repository, tmp_path)
+    await read(ingestion, project, runner, A, {"src/app.py": "one\ntwo\n"})
+    owner = ProposedBy(channel="owner_console")
+
+    def request(citation):
+        return MemoryCreate(project_id=project.id, kind="lesson", content="Line two holds the second value", source_commit=A, citations=[citation])
+
+    assert (await memory.propose(request("src/app.py#L2"), proposed_by=owner)).citations == ["src/app.py#L2"]
+    with pytest.raises(DomainError) as error:
+        await memory.propose(request("src/app.py#L3"), proposed_by=owner)
+    assert error.value.code == "MEMORY_CITATION_UNKNOWN" and "src/app.py#L3" in error.value.message

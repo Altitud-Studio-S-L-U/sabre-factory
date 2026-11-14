@@ -14,7 +14,7 @@ from sabre.models import Contract
 from sabre.project_context import source_path
 
 ROLES = {"supervisor", "analyst", "architect", "developer", "qa", "reviewer", "security", "designer", "devops"}
-TOOLS = {"list_files", "read_file", "read_files", "search_source", "read_file_range", "write_file", "execute", "prepare_dependencies", "resolve_dependencies", "read_context", "read_memory", "edit_source", "record_note"}
+TOOLS = {"list_files", "read_file", "read_files", "search_source", "read_file_range", "write_file", "execute", "prepare_dependencies", "resolve_dependencies", "read_context", "read_memory", "edit_source", "record_note", "propose_memory"}
 MAX_MESSAGES = 1000
 MAX_TOOLS = 500
 MAX_CONTENT_BYTES = 65536
@@ -50,6 +50,8 @@ class AuditAgent(Contract):
     tool_responses: int = 0
     # Working notes this agent recorded successfully (record_note replies that were accepted).
     notes_recorded: int = 0
+    # Memories this agent proposed for the owner's review (propose_memory replies that were accepted).
+    memories_proposed: int = 0
     last_checkpoint_at: datetime | None = None
     # Measured wall time of this agent's completed, failed or interrupted boundaries.
     duration_ms: int | None = Field(default=None, ge=0)
@@ -257,6 +259,8 @@ def project_agent(thread_id: str, identity: tuple[int, str], checkpoint) -> tupl
             entry.output_digest = data["output_digest"]
         if entry.name == "record_note" and entry.response == "received" and data.get("recorded") is True:
             agent.notes_recorded += 1
+        if entry.name == "propose_memory" and entry.response == "received" and data.get("proposed") is True:
+            agent.memories_proposed += 1
     agent.tool_requests = len(requests)
     agent.tool_responses = sum(item.response != "requested" for item in requests.values())
     return agent, list(requests.values()), truncated

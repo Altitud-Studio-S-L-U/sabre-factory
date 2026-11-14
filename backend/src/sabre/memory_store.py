@@ -216,6 +216,14 @@ class MemoryStore:
                 ORDER BY (m.data->>'created_at')::timestamptz DESC,m.id DESC LIMIT %s""", (project_id, limit))).fetchall()
         return [{"item": item_from(row["data"]), "cited_digest": row["cited_digest"]} for row in rows]
 
+    async def run_proposal_count(self, work_id: str) -> int:
+        """Memories the specialists of one run proposed, whatever became of them."""
+        from sabre.memory import RUN_PROPOSERS
+        async with self.connection() as conn:
+            row = await (await conn.execute("""SELECT count(*) AS total FROM memories WHERE data->'proposed_by'->>'channel'='factory'
+                AND data->'proposed_by'->>'work_id'=%s AND data->'proposed_by'->>'role'=ANY(%s)""", (work_id, sorted(RUN_PROPOSERS)))).fetchone()
+        return int(row["total"])
+
     async def withdraw_memory(self, memory_id: str) -> bool:
         async with self.connection() as conn:
             row = await (await conn.execute("SELECT data FROM memories WHERE id=%s FOR UPDATE", (memory_id,))).fetchone()
@@ -228,6 +236,14 @@ class MemoryStore:
             await conn.execute("UPDATE memories SET data=%s WHERE id=%s", (Jsonb(json.loads(item.model_dump_json())), memory_id))
         return True
 
+    async def _index_line_counts(self, conn, project_id: str, commit: str, paths: list[str]) -> dict[str, int]:
+        """Line counts the index recorded for ``paths``; files it could not measure are left out."""
+        row = await (await conn.execute("""SELECT (SELECT coalesce(jsonb_object_agg(f->>'path',f->'lines'),'{}'::jsonb)
+                FROM jsonb_array_elements(i.data->'files') f WHERE f->>'path'=ANY(%s) AND jsonb_typeof(f->'lines')='number') AS lines
+            FROM repository_indexes i WHERE i.project_id=%s AND i.source_commit=%s AND i.index_version=%s""",
+            (paths, project_id, commit, index_version()))).fetchone()
+        return {} if row is None else {path: int(count) for path, count in dict(row["lines"]).items()}
+
     async def _insert_citations(self, conn, item: MemoryItem):
         if not item.citations:
             return
@@ -238,6 +254,10 @@ class MemoryStore:
         unknown = sorted(set(paths) - set(digests))
         if unknown:
             raise DomainError("MEMORY_CITATION_UNKNOWN", "Cited files must exist in the repository index at the source commit: " + ", ".join(unknown)[:500], 422)
+        counts = await self._index_line_counts(conn, item.project_id, item.source_commit, sorted(paths))
+        beyond = sorted(f"{path}#L{line}" for path, lines in paths.items() for line in lines if path in counts and line > counts[path])
+        if beyond:
+            raise DomainError("MEMORY_CITATION_UNKNOWN", "Cited lines must exist in the file at the source commit: " + ", ".join(beyond)[:500], 422)
         for path, lines in paths.items():
             await conn.execute("""INSERT INTO memory_links(project_id,source_id,kind,target_type,target_id,attrs)
                 VALUES(%s,%s,'cites','file',%s,%s) ON CONFLICT DO NOTHING""",
