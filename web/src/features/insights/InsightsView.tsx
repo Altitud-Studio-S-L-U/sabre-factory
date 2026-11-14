@@ -57,6 +57,38 @@ function delivered(figures: RunFigures): number | null {
   return ended ? figures.completed / ended : null;
 }
 
+/**
+ * What the window cost. A cost charged through API prices comes first. A CLI session is not
+ * charged per token, but it reports what its calls cost at API rates: that figure is shown under
+ * its own name, never as a charge. With neither, the cost is unknown.
+ */
+function cost(totals: RunFigures): { label: string; value: string | null; note: ReactNode } {
+  const reported = usd(totals.reported_cost_usd);
+  if (totals.api_cost_usd !== null)
+    return {
+      label: 'API cost',
+      value: usd(totals.api_cost_usd),
+      note: reported
+        ? `CLI sessions reported ${reported} more at API rates`
+        : totals.cli_calls
+          ? `${full(totals.cli_calls)} CLI calls have no price per token`
+          : 'Settled calls at the configured prices',
+    };
+  if (reported)
+    return {
+      label: 'Cost reported by CLI sessions',
+      value: reported,
+      note: 'At API rates, as the session reported it; a subscription is not charged per token',
+    };
+  return {
+    label: 'API cost',
+    value: null,
+    note: totals.cli_calls
+      ? 'Calls ran through a CLI session, which has no price per token'
+      : 'No call was charged per token',
+  };
+}
+
 function Summary({ totals }: { totals: RunFigures }) {
   const tiles: { label: string; value: string | null; note: ReactNode }[] = [
     {
@@ -92,18 +124,7 @@ function Summary({ totals }: { totals: RunFigures }) {
         ? `${full(totals.settled_calls)} settled calls · ${full(totals.unsettled_calls)} never settled`
         : `${full(totals.settled_calls)} settled calls`,
     },
-    {
-      label: 'API cost',
-      value: usd(totals.api_cost_usd),
-      note:
-        totals.api_cost_usd === null
-          ? totals.cli_calls
-            ? 'Calls ran through a CLI session, which has no price per token'
-            : 'No call was charged per token'
-          : totals.cli_calls
-            ? `${full(totals.cli_calls)} CLI calls have no price per token`
-            : 'Settled calls at the configured prices',
-    },
+    cost(totals),
     {
       label: 'Input read from cache',
       value: percent(totals.cache_read_share),

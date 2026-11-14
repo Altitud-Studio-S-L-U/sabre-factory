@@ -354,7 +354,12 @@ describe('Recorded process console', () => {
   });
 });
 
-function liveSnapshot(measured = 100, calls = 1, unsettled = 0): RunUsageSnapshot {
+function liveSnapshot(
+  measured = 100,
+  calls = 1,
+  unsettled = 0,
+  reported: number | null = null,
+): RunUsageSnapshot {
   return {
     version: 1,
     work_id: 'synthetic-live',
@@ -369,6 +374,7 @@ function liveSnapshot(measured = 100, calls = 1, unsettled = 0): RunUsageSnapsho
     },
     measured_api_cost_usd: unsettled === calls ? null : 0.25,
     reserved_api_cost_usd: unsettled ? 2.25 : 0,
+    reported_cost_usd: reported,
   };
 }
 function UsageConsole({
@@ -406,6 +412,14 @@ describe('Live ledger usage', () => {
       const readout = screen.getByLabelText('Recorded run state');
       expect(within(readout).getByText('100', { exact: true })).toBeVisible();
       expect(within(readout).getByText('$0.2500', { exact: true })).toBeVisible();
+      // Nothing was reported by the provider, so nothing is said about a reported cost.
+      expect(within(readout).queryByText(/reported/)).not.toBeInTheDocument();
+      snapshot = liveSnapshot(100, 1, 0, 0.0421);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+      });
+      // A cost the CLI session reported is shown as reported, beside the recorded API cost.
+      expect(within(readout).getByText(/The CLI session reported \$0\.0421 at API rates/)).toBeVisible();
       snapshot = liveSnapshot(750, 3, 1);
       await act(async () => {
         await vi.advanceTimersByTimeAsync(2000);
@@ -415,7 +429,7 @@ describe('Live ledger usage', () => {
       expect(within(readout).getByText(/1 calls pending.*1,000 tokens reserved/)).toBeVisible();
       expect(within(readout).getByText('$0.2500', { exact: true })).toBeVisible();
       expect(within(readout).getByText(/\$2.2500 reserved.*pending cost unknown/)).toBeVisible();
-      expect(fetch).toHaveBeenCalledTimes(2);
+      expect(fetch).toHaveBeenCalledTimes(3);
       expect(fetch.mock.calls.every((call) => String(call[0]).endsWith('/synthetic-live/usage'))).toBe(true);
       view.rerender(<UsageConsole api={api} connected={false} />);
       expect(screen.getByText(/Disconnected.*snapshot; it may be stale/)).toHaveAttribute('role', 'status');
@@ -424,7 +438,7 @@ describe('Live ledger usage', () => {
       await act(async () => {
         await vi.advanceTimersByTimeAsync(6000);
       });
-      expect(fetch).toHaveBeenCalledTimes(2);
+      expect(fetch).toHaveBeenCalledTimes(3);
       snapshot = liveSnapshot(900, 4);
       view.rerender(<UsageConsole api={api} status="cancelled" />);
       await flushUsage();
@@ -432,12 +446,12 @@ describe('Live ledger usage', () => {
       await act(async () => {
         await vi.advanceTimersByTimeAsync(6000);
       });
-      expect(fetch).toHaveBeenCalledTimes(3);
+      expect(fetch).toHaveBeenCalledTimes(4);
       view.unmount();
       await act(async () => {
         await vi.advanceTimersByTimeAsync(6000);
       });
-      expect(fetch).toHaveBeenCalledTimes(3);
+      expect(fetch).toHaveBeenCalledTimes(4);
     } finally {
       vi.useRealTimers();
     }

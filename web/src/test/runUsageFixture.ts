@@ -15,5 +15,6 @@ export function runUsageSnapshot(workId: string, calls = 0, measuredTokens = 0):
     },
     measured_api_cost_usd: calls ? 0 : null,
     reserved_api_cost_usd: 0,
+    reported_cost_usd: null,
   };
 }

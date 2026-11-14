@@ -3452,6 +3452,11 @@ export interface components {
              */
             api_cost_usd: number | null;
             /**
+             * Reported Cost Usd
+             * @description What providers themselves reported their calls cost, such as a CLI session at API rates; not what was charged
+             */
+            reported_cost_usd: number | null;
+            /**
              * Active Seconds
              * @default 0
              */
@@ -4735,6 +4740,11 @@ export interface components {
              */
             api_cost_usd: number | null;
             /**
+             * Reported Cost Usd
+             * @description What providers themselves reported their calls cost, such as a CLI session at API rates; not what was charged
+             */
+            reported_cost_usd: number | null;
+            /**
              * Active Seconds
              * @default 0
              */
@@ -5943,6 +5953,8 @@ export interface components {
             measured_api_cost_usd: number | null;
             /** Reserved Api Cost Usd */
             reserved_api_cost_usd: number;
+            /** Reported Cost Usd */
+            reported_cost_usd: number | null;
         };
         /** RuntimeInfo */
         RuntimeInfo: {
