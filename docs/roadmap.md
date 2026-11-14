@@ -50,7 +50,7 @@ The decision that matters is narrower: who runs the inner tool loop of the imple
 
 Each phase ends on evidence, and Phase 1 is the gate: what it measures decides the size of Phases 2 and 3.
 
-**Phase 0 · Close what is open.** The owner decides the scanner policy, so the next audit of a repository like that one completes or stops for a stated reason. Tools is organised by service (done alongside this document). Projects gains edit and archive (done, [13](specs/13-projects.md)). Memory opens on a map of the repository as indexed, stops claiming what it cannot do and proposes what the repository already says for the owner's review (done, [17](specs/17-memory-sources.md)). The small defects listed below are fixed. *Exit:* one real audit with a report; no known defect in the console's main path.
+**Phase 0 · Close what is open.** The owner decides the scanner policy, so the next audit of a repository like that one completes or stops for a stated reason. Tools is organised by service (done alongside this document). Projects gains edit and archive (done, [13](specs/13-projects.md)). Memory opens on a map of the repository as indexed, stops claiming what it cannot do and proposes what the repository already says for the owner's review (done, [17](specs/17-memory-sources.md)). The small defects left from the previous plan are fixed (done: the run list shows a pending pause or cancel, the Supervisor reserves estimated tokens, no text is under 12 px, every hooks rule is an error, the launcher help is complete and in English, unused packages are gone). *Exit:* one real audit with a report; no known defect in the console's main path.
 
 **Phase 1 · Prove.** Grow the suite to twenty tasks on three repositories. Add recovery ratio and prefix stability to the scripted driver and run it in CI. Run the provider driver and the baseline with the owner's authorization and budget. Deliver the first real patch as a draft pull request on a sample repository. *Exit:* a committed report with pass rate, cost and time for the factory and for the baseline.
 
@@ -75,12 +75,6 @@ Each phase ends on evidence, and Phase 1 is the gate: what it measures decides t
 
 | Item | State | Disposition |
 | --- | --- | --- |
-| The run list omits a pending pause or cancel that the detail shows | Not done | Fix in Phase 0 |
-| Supervisor chat reserves bytes as tokens | Not done | Fix in Phase 0 |
-| Text at 11 px in the timeline ruler, the segmented control, the production line and the memory layers | Breaks the 12 px floor | Fix in Phase 0 |
-| Two React hooks lint rules only warn | Partial | Raise to errors in Phase 0 |
-| The launcher's help omits `stop` and `migrate-credentials`; `infra/import-legacy.py` has Spanish messages | Partial | Fix in Phase 0 |
-| Five Radix packages are installed and unused | Leftover | Remove in Phase 0 |
 | No test covers the console mounted in the real application | Not done | Phase 5 |
 | Bench without a TypeScript fixture, a maintain task or a real-model driver | Partial | [16](specs/16-evaluation.md) |
 | Default budgets are the same for every flow | Not done | Decision 5 |
