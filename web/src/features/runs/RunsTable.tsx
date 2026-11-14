@@ -122,6 +122,11 @@ function RowActions({
           Pause
         </Button>
       )}
+      {order.control && ACTIVE_STATUSES.includes(order.status) && (
+        <span className="text-xs text-muted-foreground">
+          {order.control === 'pause' ? 'Pause requested' : 'Cancellation requested'}
+        </span>
+      )}
       {pr && (
         <a
           className={buttonVariants({ size: 'sm', variant: 'secondary' })}
