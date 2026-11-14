@@ -29,8 +29,14 @@ const orders = [{ id: 'run-1', objective: 'Correct empty input' }] as WorkOrder[
 
 type Decisions = Parameters<typeof PendingConfirmations>[0]['api'];
 
-function mount(items: OwnerConfirmation[], api: Partial<Decisions>, connected = true) {
+function mount(
+  items: OwnerConfirmation[],
+  api: Partial<Decisions>,
+  connected = true,
+  dismissed: string[] = [],
+) {
   const onChanged = vi.fn();
+  const onDismiss = vi.fn();
   const view = render(
     <MemoryRouter>
       <PendingConfirmations
@@ -39,10 +45,12 @@ function mount(items: OwnerConfirmation[], api: Partial<Decisions>, connected = 
         orders={orders}
         connected={connected}
         onChanged={onChanged}
+        dismissed={new Set(dismissed)}
+        onDismiss={onDismiss}
       />
     </MemoryRouter>,
   );
-  return { onChanged, ...view };
+  return { onChanged, onDismiss, ...view };
 }
 
 describe('PendingConfirmations', () => {
@@ -139,6 +147,52 @@ describe('PendingConfirmations', () => {
       'is unknown. Inspect the run before asking again.',
     );
     expect(screen.queryByText(/^Applied/)).not.toBeInTheDocument();
+  });
+
+  it('keeps a decision that did not take effect until the owner dismisses it', async () => {
+    const refused = confirmation({
+      id: 'confirmation-9',
+      state: 'failed',
+      summary: 'Raise the token limit from 100,000 to 800,000',
+      error_code: 'VERSIONED_BUDGET_REQUIRED',
+      error_message: 'Use a revision-checked metric amendment for this run',
+    });
+    const first = mount([refused], {});
+    const section = screen.getByRole('region', { name: 'Decisions that did not take effect' });
+    expect(within(section).getByTestId('unresolved-confirmation')).toHaveTextContent(
+      'Not applied: Raise the token limit from 100,000 to 800,000. Use a revision-checked metric amendment for this run (VERSIONED_BUDGET_REQUIRED)',
+    );
+    await userEvent
+      .setup()
+      .click(screen.getByRole('button', { name: 'Dismiss: Raise the token limit from 100,000 to 800,000' }));
+    expect(first.onDismiss).toHaveBeenCalledExactlyOnceWith('confirmation-9');
+    first.unmount();
+    // Dismissed in this browser: it is not listed again.
+    const { container } = mount([refused], {}, true, ['confirmation-9']);
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it('acknowledges a refusal when its own notice is dismissed, and never a success', async () => {
+    const api = {
+      confirmRequest: vi.fn(async () =>
+        confirmation({ state: 'failed', error_code: 'STALE_BUDGET', error_message: 'The budget changed.' }),
+      ),
+      rejectRequest: vi.fn(async () => confirmation({ id: 'confirmation-2', state: 'rejected' })),
+    };
+    const { onDismiss } = mount(
+      [confirmation(), confirmation({ id: 'confirmation-2', summary: 'Other' })],
+      api,
+    );
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Reject: Other' }));
+    await user.click(await screen.findByRole('button', { name: 'Dismiss' }));
+    expect(onDismiss).not.toHaveBeenCalled();
+    await user.click(
+      screen.getByRole('button', { name: 'Confirm: Raise the token limit from 100,000 to 250,000' }),
+    );
+    expect(await screen.findByRole('alert')).toHaveTextContent('Not applied');
+    await user.click(screen.getByRole('button', { name: 'Dismiss' }));
+    expect(onDismiss).toHaveBeenCalledExactlyOnceWith('confirmation-1');
   });
 
   it('shows the server refusal and keeps decisions disabled while disconnected', async () => {

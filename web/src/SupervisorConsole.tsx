@@ -22,11 +22,15 @@ import {
   useStablePresence,
   type Presence,
 } from './features/supervisor/presence';
-import type { Api, OperatorMessageView, OperatorAction, WorkOrder } from './api';
+import type { Api, OperatorMessageView, OperatorAction, OwnerConfirmation, WorkOrder } from './api';
+import PendingConfirmations from './features/confirmations/PendingConfirmations';
+import AttentionToasts, { useAttentionToasts } from './features/attention/AttentionToasts';
+import { attentionTone, remember, remembered, unresolved } from './features/attention/attention';
 import Select from './components/Select';
 import { pendingQuestions } from './runState';
 
 const noMessages: OperatorMessageView[] = [];
+const noConfirmations: OwnerConfirmation[] = [];
 
 const actions: { id: OperatorAction; label: string; run: boolean }[] = [
   { id: 'submit_work', label: 'Start runs within explicitly supplied budgets', run: false },
@@ -324,11 +328,19 @@ export default function SupervisorConsole({
   selectedId,
   disconnected,
   headerSlot = null,
+  confirmations = noConfirmations,
+  ready = true,
+  onChanged,
 }: {
   api: Api;
   orders: Pick<WorkOrder, 'id' | 'objective' | 'questions' | 'plan_revision' | 'status' | 'error_code'>[];
   selectedId: string | null;
   disconnected: boolean;
+  /** Requests agents filed for the owner, and their recent outcomes. Decided here, in the inbox. */
+  confirmations?: OwnerConfirmation[];
+  /** The first load has finished: later changes are worth announcing. */
+  ready?: boolean;
+  onChanged?: () => unknown;
   /** Header element for the launcher on wide screens, so it never floats over content. */
   headerSlot?: HTMLElement | null;
 }) {
@@ -482,11 +494,30 @@ export default function SupervisorConsole({
   const attention = orders
     .map((order) => ({ order, questions: pendingQuestions(order) }))
     .filter(({ order, questions }) => questions.length > 0 || ['blocked', 'failed'].includes(order.status));
+  const [dismissed, setDismissed] = useState(() => remembered('dismissed'));
+  const dismissConfirmation = (id: string) => {
+    remember('dismissed', [id]);
+    setDismissed((current) => new Set([...current, id]));
+  };
+  const decisions = confirmations.filter((item) => item.state === 'pending');
+  const problems = unresolved(confirmations, dismissed);
+  const needsYou = attention.length + decisions.length + problems.length;
+  const tone = attentionTone({
+    problems: problems.length,
+    failedRuns: orders.filter((order) => order.status === 'failed').length,
+    waiting: needsYou,
+  });
+  const { toasts, dismiss: dismissToast } = useAttentionToasts({
+    orders,
+    confirmations,
+    ready,
+    inboxOpen: open,
+  });
   const presence = useStablePresence(
     presenceFor({
       disconnected,
       messages: conversation,
-      attention: attention.length,
+      attention: needsYou,
       drafting: open && message.trim().length > 0,
       settledAgoMs: justReplied ? 0 : null,
       activeTool,
@@ -523,6 +554,11 @@ export default function SupervisorConsole({
     }
   }
   const docked = open && !expanded;
+  const chooseInitialScope = () => {
+    if (scopeChosen.current) return;
+    setScope(selectedId ?? '');
+    scopeChosen.current = true;
+  };
   const launcherButton = (
     <Button
       type="button"
@@ -533,26 +569,28 @@ export default function SupervisorConsole({
           ? 'h-9 gap-2 rounded-full border-primary/50 bg-accent pr-3.5 pl-1 text-sm aria-expanded:border-primary'
           : 'fixed right-4 bottom-[calc(4.25rem+env(safe-area-inset-bottom))] z-40 h-12 gap-2.5 rounded-full border-primary/60 bg-accent pr-4 pl-2 shadow-xl lg:right-6 lg:bottom-6',
         docked && !inHeader && 'lg:hidden',
+        // Red: something went wrong. Amber: something waits for the owner.
+        tone === 'danger' && 'border-danger ring-2 ring-danger/60',
+        tone === 'warning' && 'border-warning ring-2 ring-warning/50',
       )}
       aria-expanded={open}
       aria-controls="supervisor-conversation"
+      aria-describedby={needsYou > 0 ? 'supervisor-attention' : undefined}
+      data-attention={tone ?? undefined}
       onClick={() => {
-        if (!open && !scopeChosen.current) {
-          setScope(selectedId ?? '');
-          scopeChosen.current = true;
-        }
+        if (!open) chooseInitialScope();
         setOpen(!open);
         setExpanded(false);
       }}
     >
       <SupervisorAvatar presence={presence} size={inHeader ? 28 : 32} />
       Supervisor
-      {attention.length > 0 && (
+      {needsYou > 0 && (
         <span
           className="min-w-5 rounded-full bg-primary px-1.5 text-center text-xs leading-5 font-semibold text-primary-foreground"
           aria-hidden="true"
         >
-          {attention.length}
+          {needsYou}
         </span>
       )}
     </Button>
@@ -560,6 +598,22 @@ export default function SupervisorConsole({
   return (
     <>
       {inHeader && headerSlot ? createPortal(launcherButton, headerSlot) : launcherButton}
+      {needsYou > 0 && (
+        <span id="supervisor-attention" className="sr-only">
+          {needsYou === 1 ? '1 item needs you' : `${needsYou} items need you`}
+          {problems.length > 0 ? ', including a decision that did not take effect' : ''}
+        </span>
+      )}
+      <AttentionToasts
+        toasts={toasts}
+        docked={docked}
+        onDismiss={dismissToast}
+        onReview={() => {
+          chooseInitialScope();
+          setOpen(true);
+          setExpanded(false);
+        }}
+      />
       {open && (
         <section
           ref={drawer}
@@ -671,6 +725,17 @@ export default function SupervisorConsole({
               </Button>
             </div>
           </div>
+          {/* Renders nothing when no request waits; it stays mounted so the outcome of the last decision remains. */}
+          <PendingConfirmations
+            api={api}
+            items={confirmations}
+            orders={orders}
+            connected={!disconnected}
+            onChanged={() => onChanged?.()}
+            dismissed={dismissed}
+            onDismiss={dismissConfirmation}
+            className="mb-3 max-h-[45%] shrink-0 overflow-auto overscroll-contain pr-1"
+          />
           <label className="mb-1.5 grid shrink-0 gap-1.5 text-xs font-medium text-muted-foreground">
             Conversation context
             <Select value={scope} disabled={busy} onChange={(event) => chooseScope(event.target.value)}>
