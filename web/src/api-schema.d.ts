@@ -2117,6 +2117,11 @@ export interface components {
              * @default 0
              */
             notes_recorded: number;
+            /**
+             * Memories Proposed
+             * @default 0
+             */
+            memories_proposed: number;
             /** Last Checkpoint At */
             last_checkpoint_at: string | null;
             /** Duration Ms */

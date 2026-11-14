@@ -81,7 +81,7 @@ export default function MemoryStatus({
         ? 'The repository has not been read yet, so the factory knows nothing about this project.'
         : empty
           ? lastRead
-            ? 'Nothing is approved or waiting. Memory grows from what the repository says, from the repair lessons of delivered runs and from what you propose.'
+            ? 'Nothing is approved or waiting. Memory grows from what the repository says, what specialists establish during a run, the repair lessons of delivered runs and what you propose.'
             : 'The repository is indexed, but what it says has not been read into memory yet.'
           : [
               plural(approved, 'approved record', 'approved records'),

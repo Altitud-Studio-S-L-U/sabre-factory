@@ -315,6 +315,9 @@ export default function WorkAudit({
                         {count(agent.tool_requests)} tools requested · {count(agent.tool_responses)} responses
                         received
                         {agent.notes_recorded ? ` · ${count(agent.notes_recorded)} work notes` : ''}
+                        {agent.memories_proposed
+                          ? ` · ${count(agent.memories_proposed)} proposed to memory`
+                          : ''}
                       </small>
                     </>
                   ) : (

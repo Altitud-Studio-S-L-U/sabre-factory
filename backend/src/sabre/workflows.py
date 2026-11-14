@@ -21,6 +21,7 @@ from sabre.budget_diagnostics import dispatch_denial
 from sabre.error_boundaries import guarded_call
 from sabre.events import ExecutionEvent
 from sabre.execution_observer import current_execution
+from sabre.memory import PROPOSE_TOOL, RUN_PROPOSERS
 from sabre.memory_lessons import append_repair, lesson_proposer, repair_entry, repair_lesson
 from sabre.models import (
     AgentResult,
@@ -427,6 +428,9 @@ class Factory:
         memory_tools = {"validate_context": self.memory.context_validator(work.project_id, snapshot["base_commit"], work=work, role=role)}
         if memories:
             memory_tools["read_memory"] = self.memory.reader(work.project_id, snapshot["base_commit"])
+        if role in RUN_PROPOSERS and hasattr(self.memory, "proposer"):
+            # What this specialist establishes can outlive the run, delivered or not; the owner still decides.
+            memory_tools[PROPOSE_TOOL] = self.memory.proposer(work, role, snapshot["base_commit"])
         scope = note_scope(role, task)
         pending = STAGE_NOTES.get()
         notes = pending.get(scope) if pending is not None else None

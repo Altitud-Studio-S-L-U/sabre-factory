@@ -63,7 +63,7 @@ class ToolCatalog:
         self.tools[definition.name] = definition
 
     async def invoke(self, name: str, arguments: dict, role: str, *, allow_external_write=False):
-        internal = {"list_files", "read_file", "read_files", "search_source", "read_file_range", "write_file", "execute", "prepare_dependencies", "resolve_dependencies", "read_context", "read_memory", "edit_source", "record_note"}
+        internal = {"list_files", "read_file", "read_files", "search_source", "read_file_range", "write_file", "execute", "prepare_dependencies", "resolve_dependencies", "read_context", "read_memory", "edit_source", "record_note", "propose_memory"}
         with span("tool.call", tool=name if name in internal else "mcp", role=role):
             async with self.observer(name) if self.observer else nullcontext() as boundary:
                 result = await guarded_call(self._invoke, self.guard, "TOOL_EXECUTION_FAILED", name, arguments, role, allow_external_write=allow_external_write)

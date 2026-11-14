@@ -17,6 +17,7 @@ describe('recorded activity and context', () => {
       tool_requests: 2,
       tool_responses: 1,
       notes_recorded: 0,
+      memories_proposed: 2,
       last_checkpoint_at: null,
       duration_ms: null,
     };
@@ -77,6 +78,10 @@ describe('recorded activity and context', () => {
     ).toBeInTheDocument();
     expect(screen.queryByRole('region', { name: 'Tool time' })).not.toBeInTheDocument();
     expect(screen.queryByText(/model calls/)).not.toBeInTheDocument();
+    // What the agent left for later runs is counted next to its tool use.
+    expect(
+      screen.getByText(/2 tools requested · 1 responses\s+received · 2 proposed to memory/),
+    ).toBeVisible();
     const tools = screen.getByText('View 2 tool requests').closest('details');
     expect(tools).not.toHaveAttribute('open');
     expect(within(tools!).getByText('Command finished · exit 1')).toBeInTheDocument();
@@ -219,6 +224,7 @@ describe('recorded activity and context', () => {
           tool_requests: 52,
           tool_responses: 52,
           notes_recorded: 0,
+          memories_proposed: 0,
           last_checkpoint_at: null,
           duration_ms: 61000,
         },

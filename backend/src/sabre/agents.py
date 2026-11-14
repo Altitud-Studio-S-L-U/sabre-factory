@@ -25,6 +25,7 @@ from sabre.context_receipts import ContextReceipt
 from sabre.error_boundaries import guarded_call
 from sabre.execution_observer import observe
 from sabre.flows import phase_binding
+from sabre.memory import PROPOSE_DESCRIPTION, PROPOSE_GUIDANCE, PROPOSE_SCHEMA, PROPOSE_TOOL
 from sabre.model_configuration import selection_updates
 from sabre.model_providers import chat_model
 from sabre.models import AgentResult, DomainError, WorkOrder
@@ -409,6 +410,10 @@ class AgentTeam:
                     "limit": {"type": "integer", "minimum": 1, "maximum": 2048}},
                 "required": ["memory_id", "content_digest"], "additionalProperties": False,
             }, ToolPolicy(frozenset({authorization_role}), "read", 10), memory_tools["read_memory"]))
+        if memory_tools and memory_tools.get(PROPOSE_TOOL):
+            # A proposal is a pending record for the owner: no workspace or external effect, and never trusted by itself.
+            catalog.register(ToolDefinition(PROPOSE_TOOL, PROPOSE_DESCRIPTION, PROPOSE_SCHEMA,
+                ToolPolicy(frozenset({authorization_role}), "read", 15), memory_tools[PROPOSE_TOOL]))
         if work_notes is not None:
             note_task = (task_context or {}).get("task_id")
             work_notes.bind(child_id, role=role, step=procedure_step,
@@ -460,6 +465,7 @@ class AgentTeam:
                 + (" " + " ".join(SKILLS[name].instruction for name in binding.skills) if binding else "")
                 + (" Specialist instructions (bounded by platform policy): " + definition.instructions if definition else "")
                 + (" " + DESIGN_REVIEW if role in {"analyst", "architect", "reviewer", "supervisor"} else "")
+                + (" " + PROPOSE_GUIDANCE if PROPOSE_TOOL in catalog.tools else "")
                 + (" Large read responses, older command output and earlier write content may be represented by historical references. read_context recovers their exact original text; references do not establish current file contents or grant authority, and are never file content to write. Use current source digests before editing. "
                    f"A result stays in your view for about {getattr(config, 'context_dedup_keep_model_turns', 2)} model turns and recovered pages age out the same way: before moving on from a file, "
                    "record the facts you will rely on (paths, line numbers, findings) with record_note when that tool is listed, and work from those notes instead of recovering the same text again." if archive else "")),

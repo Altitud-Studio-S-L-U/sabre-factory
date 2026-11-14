@@ -50,9 +50,9 @@ export default function ReviewQueue({
   if (!review.pending.length && !review.stale.length)
     return (
       <EmptyState as="h2" title="Nothing waiting for review">
-        What the repository says, the repair lessons of delivered runs and your own proposals wait here for
-        your decision, next to any memory they overlap. Approved memories whose cited files change appear here
-        too.
+        What the repository says, what specialists establish during a run, the repair lessons of delivered
+        runs and your own proposals wait here for your decision, next to any memory they overlap. Approved
+        memories whose cited files change appear here too.
       </EmptyState>
     );
 
