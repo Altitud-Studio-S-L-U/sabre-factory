@@ -496,6 +496,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{project_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update Project */
+        put: operations["update_project_api_v1_projects__project_id__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Archive Project */
+        post: operations["archive_project_api_v1_projects__project_id__archive_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Restore Project */
+        post: operations["restore_project_api_v1_projects__project_id__restore_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{project_id}/mcp-tools": {
         parameters: {
             query?: never;
@@ -4822,6 +4873,13 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            /**
+             * Revision
+             * @default 0
+             */
+            revision: number;
+            /** Archived At */
+            archived_at: string | null;
         };
         /** ProjectCreate */
         ProjectCreate: {
@@ -4866,6 +4924,11 @@ export interface components {
             /** Truncated */
             truncated: boolean;
         };
+        /** ProjectStateChange */
+        ProjectStateChange: {
+            /** Expected Revision */
+            expected_revision: number;
+        };
         /** ProjectToolsChange */
         ProjectToolsChange: {
             /** Expected Revision */
@@ -4881,6 +4944,26 @@ export interface components {
             revision: number;
             /** Servers */
             servers: string[];
+        };
+        /**
+         * ProjectUpdate
+         * @description The editable part of a project, sent whole with the revision it was read at.
+         */
+        ProjectUpdate: {
+            /** Expected Revision */
+            expected_revision: number;
+            /** Name */
+            name: string;
+            /**
+             * Profile
+             * @enum {string}
+             */
+            profile: "python" | "node";
+            /** Default Branch */
+            default_branch: string;
+            /** Gate Commands */
+            gate_commands: string[][];
+            browser_preview: components["schemas"]["BrowserPreview-Input"] | null;
         };
         /**
          * ProposedBy
@@ -7062,7 +7145,9 @@ export interface operations {
     };
     projects_api_v1_projects_get: {
         parameters: {
-            query?: never;
+            query?: {
+                include?: "archived" | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -7076,6 +7161,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Project"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -7095,6 +7189,111 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Project"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_project_api_v1_projects__project_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProjectUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Project"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    archive_project_api_v1_projects__project_id__archive_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProjectStateChange"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Project"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    restore_project_api_v1_projects__project_id__restore_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProjectStateChange"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };

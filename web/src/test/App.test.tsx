@@ -2,7 +2,7 @@ import { configuration } from './modelConfigurationFixture';
 import { factoryConfiguration } from './factoryConfigurationFixture';
 import { agentCatalog } from './agentCatalogFixture';
 import { runUsageSnapshot } from './runUsageFixture';
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { StrictMode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -20,6 +20,8 @@ const project = {
   approved_baseline: [],
   browser_preview: null,
   created_at: '2026-11-05T10:00:00Z',
+  revision: 0,
+  archived_at: null,
 } satisfies Project;
 const order = {
   id: 'work-one',
@@ -510,6 +512,29 @@ describe('Control room', () => {
     expect(answer).toHaveValue('Retained synthetic answer');
     expect(answer).toBeEnabled();
     expect(writes).toEqual([]);
+  });
+  it('takes the runs of an archived project out of the list and out of what the Supervisor signals', async () => {
+    // The same waiting run asks for attention while its project is active.
+    mockApi();
+    await enter();
+    expect(within(runList()).getByRole('link', { name: new RegExp(order.objective) })).toBeVisible();
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Supervisor' })).toHaveAttribute('data-attention', 'warning'),
+    );
+    cleanup();
+
+    mockApi({
+      'GET /projects': {
+        status: 200,
+        body: [{ ...project, revision: 1, archived_at: '2026-11-13T09:00:00Z' }],
+      },
+    });
+    const user = await enter();
+    expect(screen.queryByRole('link', { name: new RegExp(order.objective) })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Supervisor' })).not.toHaveAttribute('data-attention');
+    // The run is kept: choosing its project brings it back.
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Project' }), project.id);
+    expect(within(runList()).getByRole('link', { name: new RegExp(order.objective) })).toBeVisible();
   });
   it('preserves an unknown address without inventing a run and returns through the real Runs route', async () => {
     window.history.replaceState(null, '', '/unknown-section');

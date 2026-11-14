@@ -32,6 +32,7 @@ const sections = [
   { name: 'config-environment', path: '/config?section=environment', ready: 'Set by the environment' },
   { name: 'config-history', path: '/config?section=history', ready: 'Revision history' },
   { name: 'projects', path: '/projects', ready: 'Example project' },
+  { name: 'projects-archived', path: '/projects', ready: 'Example project' },
   { name: 'security', path: '/security', ready: 'Independent review' },
 ];
 
@@ -206,6 +207,8 @@ test.describe('gallery', () => {
         await page.getByRole('tab', { name: section.tab, exact: true }).click();
       if (section.name === 'memory')
         await page.getByRole('button', { name: "Memory: Discount uses banker's rounding" }).click();
+      if (section.name === 'projects-archived')
+        await page.getByRole('checkbox', { name: /Show archived/ }).check();
       if (section.name === 'memory-records')
         await page.getByRole('button', { name: 'Inspect memory m27' }).click();
       await page.waitForLoadState('networkidle');

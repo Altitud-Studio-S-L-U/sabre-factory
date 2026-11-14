@@ -81,21 +81,34 @@ export async function mockFactoryApi(page: Page) {
         csrf_token: 'synthetic-browser-csrf',
         expires_at: '2099-01-01T00:00:00Z',
       };
-    if (path.endsWith('/projects'))
-      json = [
-        {
-          id: 'synthetic-project',
-          name: 'Example project',
-          repository: 'https://github.com/example/demo',
-          profile: 'node',
-          default_branch: 'main',
-          gate_commands: [['npm', 'test']],
-          allowed_mcp_servers: [],
-          approved_baseline: [],
-          browser_preview: null,
-          created_at: '2026-01-01T00:00:00Z',
-        },
-      ];
+    if (path.endsWith('/projects')) {
+      const active = {
+        id: 'synthetic-project',
+        name: 'Example project',
+        repository: 'https://github.com/example/demo',
+        profile: 'node',
+        default_branch: 'main',
+        gate_commands: [['npm', 'test']],
+        allowed_mcp_servers: [],
+        approved_baseline: [],
+        browser_preview: null,
+        revision: 0,
+        archived_at: null,
+        created_at: '2026-01-01T00:00:00Z',
+      };
+      const archived = {
+        ...active,
+        id: 'synthetic-archived-project',
+        name: 'Retired reference',
+        repository: 'https://github.com/example/reference',
+        revision: 3,
+        archived_at: '2026-11-13T09:00:00Z',
+      };
+      json =
+        new URL(route.request().url()).searchParams.get('include') === 'archived'
+          ? [active, archived]
+          : [active];
+    }
     if (path.endsWith('/status'))
       json = {
         database: 'connected',

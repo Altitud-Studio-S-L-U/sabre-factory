@@ -91,11 +91,22 @@ class Budget(Contract):
         return self.policy is None and self.max_calls is None and self.max_tokens is None and self.active_seconds is None
 
 
+BRANCH_NAME = r"^[A-Za-z0-9][A-Za-z0-9._/-]*$"
+
+
+def check_project_fields(branch: str, commands: list[list[str]]):
+    """Rules shared by registering a project and editing one."""
+    if any(token in branch for token in ("..", "//", "@{")) or branch.endswith(("/", ".", ".lock")) or any(part.startswith(".") for part in branch.split("/")):
+        raise ValueError("Invalid Git branch name")
+    if any(not cmd or any(not arg or "\x00" in arg for arg in cmd) for cmd in commands):
+        raise ValueError("Gate commands must be non-empty argv arrays")
+
+
 class ProjectCreate(Contract):
     name: str = Field(min_length=1, max_length=100)
     repository: str = Field(min_length=1, max_length=2048)
     profile: Literal["python", "node"]
-    default_branch: str = Field(default="main", pattern=r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")
+    default_branch: str = Field(default="main", pattern=BRANCH_NAME)
     gate_commands: list[list[str]] = Field(min_length=1, max_length=12)
     allowed_mcp_servers: list[str] = Field(default_factory=list)
     approved_baseline: list[str] = Field(default_factory=list)
@@ -103,16 +114,34 @@ class ProjectCreate(Contract):
 
     @model_validator(mode="after")
     def commands_are_argv(self):
-        if any(token in self.default_branch for token in ("..", "//", "@{")) or self.default_branch.endswith(("/", ".", ".lock")) or any(part.startswith(".") for part in self.default_branch.split("/")):
-            raise ValueError("Invalid Git branch name")
-        if any(not cmd or any(not arg or "\x00" in arg for arg in cmd) for cmd in self.gate_commands):
-            raise ValueError("Gate commands must be non-empty argv arrays")
+        check_project_fields(self.default_branch, self.gate_commands)
         return self
 
 
 class Project(ProjectCreate):
     id: str = Field(default_factory=new_id)
     created_at: datetime = Field(default_factory=now)
+    revision: int = Field(default=0, ge=0)
+    archived_at: datetime | None = None
+
+
+class ProjectUpdate(Contract):
+    """The editable part of a project, sent whole with the revision it was read at."""
+    expected_revision: int = Field(ge=0)
+    name: str = Field(min_length=1, max_length=100)
+    profile: Literal["python", "node"]
+    default_branch: str = Field(pattern=BRANCH_NAME)
+    gate_commands: list[list[str]] = Field(min_length=1, max_length=12)
+    browser_preview: BrowserPreview | None
+
+    @model_validator(mode="after")
+    def commands_are_argv(self):
+        check_project_fields(self.default_branch, self.gate_commands)
+        return self
+
+
+class ProjectStateChange(Contract):
+    expected_revision: int = Field(ge=0)
 
 
 class WorkOrderCreate(Contract):

@@ -56,6 +56,8 @@ from sabre.models import (
     MemoryItem,
     Project,
     ProjectCreate,
+    ProjectStateChange,
+    ProjectUpdate,
     ProposedBy,
     ScopeChange,
     SecretDeactivate,
@@ -425,12 +427,24 @@ def create_app(service=None, config=None) -> FastAPI:
         return JSONResponse(await svc().private_credentials("slack"), headers={"Cache-Control": "no-store"})
 
     @application.get("/api/v1/projects", response_model=list[Project])
-    async def projects():
-        return await svc().repository.projects()
+    async def projects(include: Literal["archived"] | None = None):
+        return await svc().repository.projects(archived=include == "archived")
 
     @application.post("/api/v1/projects", response_model=Project, status_code=201)
     async def create_project(body: ProjectCreate):
         return await svc().create_project(body)
+
+    @application.put("/api/v1/projects/{project_id}", response_model=Project)
+    async def update_project(project_id: str, body: ProjectUpdate):
+        return await svc().update_project(project_id, body)
+
+    @application.post("/api/v1/projects/{project_id}/archive", response_model=Project)
+    async def archive_project(project_id: str, body: ProjectStateChange):
+        return await svc().archive_project(project_id, body)
+
+    @application.post("/api/v1/projects/{project_id}/restore", response_model=Project)
+    async def restore_project(project_id: str, body: ProjectStateChange):
+        return await svc().restore_project(project_id, body)
 
     @application.get("/api/v1/projects/{project_id}/mcp-tools", response_model=ProjectToolsPolicy)
     async def project_tools(project_id: str):

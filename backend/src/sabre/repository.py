@@ -233,10 +233,38 @@ class Repository(MemoryStore):
                 await enqueue(conn, project.id)
         return project
 
-    async def projects(self) -> list[Project]:
+    async def projects(self, *, archived: bool = False) -> list[Project]:
+        """Active projects; with archived=True, every project."""
         async with self.connection() as conn:
-            cursor = await conn.execute("SELECT data FROM projects ORDER BY data->>'name'")
+            cursor = await conn.execute("SELECT data FROM projects WHERE %s OR data->>'archived_at' IS NULL ORDER BY data->>'name'", (archived,))
             return [Project.model_validate(row["data"]) async for row in cursor]
+
+    async def change_project(self, project_id: str, expected_revision: int, action: str, change) -> Project:
+        """Apply one revision-checked change to a project and record it. `change` returns the fields to replace."""
+        async with self.connection() as conn:
+            row = await (await conn.execute("SELECT data FROM projects WHERE id=%s FOR UPDATE", (project_id,))).fetchone()
+            if not row:
+                raise DomainError("PROJECT_NOT_FOUND", "Project not found", 404)
+            project = Project.model_validate(row["data"])
+            if project.revision != expected_revision:
+                raise DomainError("PROJECT_CHANGED", "The project changed; refresh it before continuing", 409)
+            if action == "archive":
+                # A scheduled security report has no controls of its own, so it never holds a project open.
+                open_run = await (await conn.execute(
+                    """SELECT id FROM work_orders WHERE project_id=%s AND data->>'phase' IS DISTINCT FROM 'security_watch'
+                       AND data->>'status' NOT IN ('completed','cancelled','failed') ORDER BY updated_at DESC LIMIT 1""",
+                    (project_id,))).fetchone()
+                if open_run:
+                    raise DomainError("PROJECT_HAS_OPEN_RUNS", f"Run {open_run['id'][:8]} is not finished; cancel it or let it finish before archiving", 409)
+            values = change(project)
+            fields = sorted(key for key, value in values.items() if getattr(project, key) != value)
+            if not fields:
+                return project
+            changed = Project.model_validate({**payload(project), **values, "revision": project.revision + 1})
+            await conn.execute("UPDATE projects SET data=%s WHERE id=%s", (Jsonb(payload(changed)), project_id))
+            await conn.execute("INSERT INTO project_events(project_id,revision,action,fields) VALUES(%s,%s,%s,%s)",
+                               (project_id, changed.revision, action, Jsonb(fields)))
+        return changed
 
     async def project(self, project_id: str) -> Project:
         async with self.connection() as conn:
@@ -267,6 +295,10 @@ class Repository(MemoryStore):
                 if prior["request_hash"] != request_hash:
                     raise DomainError("IDEMPOTENCY_CONFLICT", "The key already identifies another work order")
                 return WorkOrder.model_validate(prior["data"])
+            # Shares the row with archiving, which takes it for update: one of the two sees the other.
+            project = await (await conn.execute("SELECT data->>'archived_at' AS archived_at FROM projects WHERE id=%s FOR SHARE", (work.project_id,))).fetchone()
+            if project and project["archived_at"]:
+                raise DomainError("PROJECT_ARCHIVED", "This project is archived; restore it before launching a run", 409)
             await conn.execute("INSERT INTO work_orders(id,project_id,idem,request_hash,data) VALUES(%s,%s,%s,%s,%s)",
                                (work.id, work.project_id, work.idempotency_key, request_hash, Jsonb(payload(work))))
             # Enqueue in this same PostgreSQL transaction to avoid accepted-but-lost work.

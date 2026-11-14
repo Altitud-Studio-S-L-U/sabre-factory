@@ -129,6 +129,22 @@ const states: { name: string; open: (page: Page) => Promise<void> }[] = [
     },
   },
   {
+    name: 'the archived projects',
+    open: async (page) => {
+      await page.goto('/projects');
+      await page.getByRole('checkbox', { name: 'Show archived (1)' }).check();
+      await expect(page.getByRole('region', { name: 'Archived' })).toBeVisible();
+    },
+  },
+  {
+    name: 'the edit project dialog',
+    open: async (page) => {
+      await page.goto('/projects');
+      await page.getByRole('button', { name: 'Edit Example project' }).click();
+      await expect(page.getByRole('dialog', { name: 'Edit Example project' })).toBeVisible();
+    },
+  },
+  {
     name: 'the command palette',
     open: async (page) => {
       await page.goto('/runs');
