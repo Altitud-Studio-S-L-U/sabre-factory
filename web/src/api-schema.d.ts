@@ -4349,6 +4349,12 @@ export interface components {
             /** Refused Memory Ids */
             refused_memory_ids: string[];
             /**
+             * Index Missing
+             * @description True when the commit had no repository index: only memories recorded at that exact commit could be recalled
+             * @default false
+             */
+            index_missing: boolean;
+            /**
              * Bytes
              * @description UTF-8 size of the memory context placed in the prompt
              */

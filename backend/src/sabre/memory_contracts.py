@@ -96,6 +96,8 @@ class MemoryRecall(Contract):
     selected: list[RecallSelection]
     omitted: int = Field(description="Retrieved memories left out by the four-item context limit")
     refused_memory_ids: list[str]
+    index_missing: bool = Field(default=False, description=(
+        "True when the commit had no repository index: only memories recorded at that exact commit could be recalled"))
     bytes: int = Field(description="UTF-8 size of the memory context placed in the prompt")
     created_at: datetime
 

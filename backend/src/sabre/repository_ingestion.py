@@ -189,6 +189,40 @@ class RepositoryIngestion:
             job.error_message = "The repository was indexed, but reading its statements into memory failed. Read the repository again."
         await self._save(job)
 
+    async def _store(self, job, snapshot):
+        """Index one admission-scanned snapshot for ``job`` and propose what the repository says."""
+        self.guard.check_snapshot(snapshot)
+        commit = snapshot.get("base_commit", "")
+        if (job.expected_source_commit and commit != job.expected_source_commit) or (job.source_commit and commit != job.source_commit):
+            raise DomainError("INGESTION_SOURCE_CHANGED", "The observed repository commit differs from the requested source", 409)
+        job.source_commit = commit
+        await self._save(job)
+        previous = await self._latest(job.project_id)
+        index = build_index(self.context, job.project_id, snapshot, previous)
+        async with self.repository.connection() as conn:
+            # The immutable index key makes repeated workers and requests
+            # at one commit idempotent without promoting inferred summaries.
+            await conn.execute("INSERT INTO repository_indexes(project_id,source_commit,index_version,data) VALUES(%s,%s,%s,%s) ON CONFLICT(project_id,source_commit,index_version) DO NOTHING", (job.project_id, commit, INDEX_VERSION, Jsonb(index.model_dump(mode="json"))))
+            job.source_commit, job.state, job.finished_at = commit, "completed", now()
+            await conn.execute("UPDATE repository_ingestions SET data=%s WHERE id=%s AND project_id=%s", (Jsonb(job.model_dump(mode="json")), job.id, job.project_id))
+        await self._read_statements(job, index, snapshot)
+        return job
+
+    async def record(self, job: IngestionJob, snapshot: dict) -> IngestionJob:
+        """Index a snapshot whose reader already holds the project: the fresh checkout of a run's intake.
+
+        A run takes the project before its queued job can read the repository, so without this the run
+        would find no index at its own commit and recall no project memory. The queued job then finds
+        its work done. A snapshot the index cannot hold is left to that job, which reports why.
+        """
+        job = await self._job(job.id)
+        if job.state == "completed":
+            return job
+        try:
+            return await self._store(job, snapshot)
+        except DomainError:
+            return await self._job(job.id)
+
     async def report(self, project_id):
         await self.repository.project(project_id)
         async with self.repository.connection() as conn:
@@ -216,21 +250,7 @@ class RepositoryIngestion:
                 project = await self.repository.project(job.project_id)
                 await self.executor.prepare(project, scratch)
                 snapshot = await self.executor.snapshot(scratch)
-                self.guard.check_snapshot(snapshot)
-                commit = snapshot.get("base_commit", "")
-                if (job.expected_source_commit and commit != job.expected_source_commit) or (job.source_commit and commit != job.source_commit):
-                    raise DomainError("INGESTION_SOURCE_CHANGED", "The observed repository commit differs from the requested source", 409)
-                job.source_commit = commit
-                await self._save(job)
-                previous = await self._latest(job.project_id)
-                index = build_index(self.context, job.project_id, snapshot, previous)
-                async with self.repository.connection() as conn:
-                    # The immutable index key makes repeated workers and requests
-                    # at one commit idempotent without promoting inferred summaries.
-                    await conn.execute("INSERT INTO repository_indexes(project_id,source_commit,index_version,data) VALUES(%s,%s,%s,%s) ON CONFLICT(project_id,source_commit,index_version) DO NOTHING", (job.project_id, commit, INDEX_VERSION, Jsonb(index.model_dump(mode="json"))))
-                    job.source_commit, job.state, job.finished_at = commit, "completed", now()
-                    await conn.execute("UPDATE repository_ingestions SET data=%s WHERE id=%s AND project_id=%s", (Jsonb(job.model_dump(mode="json")), job.id, job.project_id))
-                await self._read_statements(job, index, snapshot)
+                await self._store(job, snapshot)
             except asyncio.CancelledError:
                 job.state, job.error_code, job.error_message = "queued", "INGESTION_INTERRUPTED", "Indexing was interrupted and can resume from its queued job"
                 await self._save(job)

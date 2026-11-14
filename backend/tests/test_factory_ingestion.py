@@ -10,13 +10,17 @@ pytest_plugins = ["tests.test_factory_workflow"]
 
 async def test_intake_requests_rebuildable_index_bound_to_actual_source_commit(build_factory):
     factory, repo, _, executor, _, _ = build_factory()
-    factory.ingestion = SimpleNamespace(request=AsyncMock())
+    job = SimpleNamespace(id="synthetic-job")
+    factory.ingestion = SimpleNamespace(request=AsyncMock(return_value=job), record=AsyncMock())
     result = await factory.intake({"order": repo.current.model_dump(mode="json")})
     project_id, request = factory.ingestion.request.await_args.args
     snapshot = await executor.snapshot(repo.current.id)
     assert project_id == repo.current.project_id
     assert request.expected_source_commit == snapshot["base_commit"]
     assert request.idempotency_key.endswith(snapshot["base_commit"])
+    # The run indexes its own checkout: the queued job could not read the repository while the run holds it.
+    recorded, source = factory.ingestion.record.await_args.args
+    assert recorded is job and source["base_commit"] == snapshot["base_commit"] and source["digest"] == snapshot["digest"]
     await factory.intake(result)
     assert factory.ingestion.request.await_args_list[0].args == factory.ingestion.request.await_args_list[1].args
 

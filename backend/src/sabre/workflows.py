@@ -450,9 +450,12 @@ class Factory:
         self.guard.check_snapshot(source)
         if self.ingestion is not None:
             from sabre.repository_ingestion import IngestionRequest
-            await self.ingestion.request(work.project_id, IngestionRequest(version=1,
+            job = await self.ingestion.request(work.project_id, IngestionRequest(version=1,
                 idempotency_key=f"intake:{work.id}:r{work.plan_revision}:{source['base_commit']}",
                 expected_source_commit=source["base_commit"]))
+            # The run holds the project, so that job could only wait for it. This checkout is the same
+            # tree: indexing it now lets the run recall the project's memory at its own commit.
+            await self.ingestion.record(job, source)
         await self.executor.prepare_dependencies(work.id)
         manifest_digest = self.artifacts.put(json.dumps(select_manifests(source), sort_keys=True).encode())
         index_digest = self.artifacts.put(json.dumps(source_index(work, source), sort_keys=True).encode())

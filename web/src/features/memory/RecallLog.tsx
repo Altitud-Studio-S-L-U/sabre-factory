@@ -157,10 +157,17 @@ export default function RecallLog({
                             {short(id)}
                           </button>
                         ))}
-                        {recall.outcome === 'recalled' && !recall.selected.length && (
-                          <span className="text-xs text-muted-foreground">Nothing matched</span>
-                        )}
+                        {recall.outcome === 'recalled' &&
+                          !recall.selected.length &&
+                          !recall.index_missing && (
+                            <span className="text-xs text-muted-foreground">Nothing matched</span>
+                          )}
                       </span>
+                      {recall.index_missing && (
+                        <span className="block text-xs text-warning">
+                          No repository index at this commit, so project memory could not be checked
+                        </span>
+                      )}
                       {recall.omitted > 0 && (
                         <span className="text-xs text-muted-foreground">
                           +{recall.omitted} over the limit

@@ -213,6 +213,25 @@ it('lists what each station recalled with its ranks and marks refused calls', as
   expect(screen.queryByText(/Hybrid retrieval/)).not.toBeInTheDocument();
 });
 
+it('says when a station found no repository index at its commit instead of "nothing matched"', async () => {
+  const page = memoryRecalls();
+  stub({
+    '/projects/synthetic-project/memory/recalls': {
+      ...page,
+      items: [{ ...page.items[0], id: 'r3', selected: [], candidates: 0, bytes: 2, index_missing: true }],
+    },
+  });
+  render(
+    <MemoryRouter>
+      <RecallLog api={api()} projectId="synthetic-project" refreshKey={0} onInspect={vi.fn()} />
+    </MemoryRouter>,
+  );
+  expect(
+    await screen.findByText('No repository index at this commit, so project memory could not be checked'),
+  ).toBeVisible();
+  expect(screen.queryByText('Nothing matched')).not.toBeInTheDocument();
+});
+
 it('names hybrid retrieval only when the instance ranks by meaning', async () => {
   stub({ '/projects/synthetic-project/memory/recalls': memoryRecalls() });
   render(
