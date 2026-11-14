@@ -21,9 +21,10 @@ These specifications define the operator console's behavior and acceptance contr
 | [14](14-context-economy.md) | 02, 10 | Batch archiving, stable prefix, provider cache and failure handling |
 | [15](15-observability.md) | 04, 10, 14 | Standard trace attributes, cost with cache prices, insights across runs |
 | [16](16-evaluation.md) | 02, 14 | Real-task suite, baseline and regression reports |
+| [17](17-memory-sources.md) | 07, 16 | Memory sources beyond delivered runs, coverage map and an honest console |
 
 Keep LangGraph as execution authority and PostgreSQL as the persistent store. Do not introduce an auxiliary routing model or duplicate execution state machine. All mutations must use the shared application authorization and durable receipts.
 
 Build screens from the shared components in `web/src/components` and Tailwind utilities over the SABRE tokens; do not add per-screen stylesheets or a second component system. Tokens own colour, radius and type. Blur is limited to the sticky header, the mobile tab bar and floating Supervisor chrome, with opaque fallbacks and readable contrast. Text is at least 12 px; every state reads without colour alone (text, icon or shape).
 
-Each spec closes with its observable acceptance checks. Prototype data never counts as runtime evidence. Specs 12 to 16 describe work that is not built yet; the order of that work and the gaps against a public release are in [the roadmap](../roadmap.md).
+Each spec closes with its observable acceptance checks. Prototype data never counts as runtime evidence. Specs 12 to 17 describe work that is not built yet (13 is built in part: editing and archiving); the order of that work and the gaps against a public release are in [the roadmap](../roadmap.md).
