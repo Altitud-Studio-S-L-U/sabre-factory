@@ -28,6 +28,7 @@ async function build(target = 'dev', recipe = 'infra/Dockerfile.backend', extraA
     '--exclude=.git', '--exclude=work', '--exclude=.env', '--exclude=.env.*', '--exclude=.sabre',
     '--exclude=node_modules', '--exclude=.venv', '--exclude=__pycache__',
     '--exclude=dist', '--exclude=.pytest_cache', '--exclude=.ruff_cache',
+    '--exclude=test-results*', '--exclude=playwright-report',
     '-cf', '-', '.',
   ], ['ignore', 'pipe', 'inherit']);
   const image = start(dockerCommand, [...dockerPrefix, 'build', '--progress=plain',

@@ -1,9 +1,10 @@
 import Button from './components/Button';
 import Input from './components/Input';
 import Textarea from './components/Textarea';
-import { Fragment, useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { SlidersHorizontal } from 'lucide-react';
 import { Link } from 'react-router';
+import { cn } from './lib/utils';
 import {
   ApiError,
   type Api,
@@ -60,13 +61,25 @@ const phaseNames = [
 const skills = ['engineering', 'verification', 'review', 'security'] as const;
 const encode = (value: FactoryConfiguration) => JSON.stringify(value, null, 2);
 /** Views grouped by where a setting lives: versioned in the console, or set by the running instance. */
-const modeGroups = [
-  {
-    label: 'Factory · versioned',
-    modes: ['Guided setup', 'Policies & limits', 'Context & storage', 'YAML / JSON', 'History'],
-  },
-  { label: 'Runtime', modes: ['Environment', 'Access', 'About'] },
+/** The first five edit the versioned configuration; the rest describe this instance. */
+const modes = [
+  'General',
+  'Models',
+  'Policies & limits',
+  'Context & storage',
+  'YAML / JSON',
+  'History',
+  'Environment',
+  'Access',
+  'About',
 ];
+/** Where each readiness row is fixed. */
+const readinessTargets: Record<string, { label: string; mode?: string; to?: string }> = {
+  provider: { label: 'Open Models', mode: 'Models' },
+  model: { label: 'Open Models', mode: 'Models' },
+  project: { label: 'Open Projects', to: '/projects' },
+  delivery: { label: 'Open Tools', to: '/tools?connection=github.publish' },
+};
 const budgetModes = ['patch', 'maintain', 'create', 'audit'] as const;
 const compactNumber = new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 });
 const hours = (seconds: number | null) =>
@@ -75,7 +88,6 @@ const hours = (seconds: number | null) =>
     : seconds % 3600 === 0
       ? `${seconds / 3600} h`
       : `${Math.round(seconds / 60)} min`;
-const steps = ['Connect provider', 'Choose model', 'Connect project', 'Review readiness'];
 
 /** Explanatory fine print under a control or panel. */
 const note = 'text-xs leading-relaxed text-muted-foreground';
@@ -113,14 +125,14 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
   const [mode, setMode] = useState(
     () =>
       (
-        ({ access: 'Access', environment: 'Environment', history: 'History', about: 'About' }) as Record<
-          string,
-          string
-        >
-      )[new URLSearchParams(window.location.search).get('section') ?? ''] ?? 'Guided setup',
-  );
-  const [step, setStep] = useState(() =>
-    new URLSearchParams(window.location.search).get('section') === 'models' ? 1 : 0,
+        ({
+          models: 'Models',
+          access: 'Access',
+          environment: 'Environment',
+          history: 'History',
+          about: 'About',
+        }) as Record<string, string>
+      )[new URLSearchParams(window.location.search).get('section') ?? ''] ?? 'General',
   );
   const [flow, setFlow] = useState<'patch' | 'maintain' | 'create' | 'audit'>('patch');
   const [runners, setRunners] = useState<ModelConfiguration['runners']>([]);
@@ -266,7 +278,7 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
     if (next === mode) return;
     if (!connected && mode === 'YAML / JSON' && next !== mode) {
       setError(
-        'Reconnect to validate the document before returning to guided editing. Your document is retained.',
+        'Reconnect to validate the document before returning to the forms. Your document is retained.',
       );
       return;
     }
@@ -317,7 +329,7 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
       <PageHeader
         icon={<SlidersHorizontal />}
         title="Config"
-        description="Factory-wide defaults. Each run pins a snapshot when it starts, so a change here never alters work in progress. Guided editing and YAML share one validated contract."
+        description="Factory-wide defaults. Each run pins a snapshot when it starts, so a change here never alters work in progress. The forms and the YAML document share one validated contract."
         actions={
           <>
             <Badge variant="outline">{saved ? `Revision ${saved.revision}` : 'Loading configuration'}</Badge>
@@ -345,360 +357,332 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
       {loading && !draft && <ConfigSkeleton header={false} />}
       {draft && saved && selection && (
         <>
-          <div className="grid min-w-0 items-start gap-6 @5xl:grid-cols-[12.5rem_minmax(0,1fr)]">
-            <nav aria-label="Configuration sections" className="grid min-w-0 gap-4 @5xl:sticky @5xl:top-20">
+          <div className="grid min-w-0 gap-6">
+            <nav aria-label="Configuration sections" className="min-w-0">
               <div
                 role="group"
                 aria-label="Configuration views"
-                className="flex w-full max-w-full gap-0.5 overflow-x-auto overscroll-x-contain border-b border-border [scrollbar-width:thin] @5xl:grid @5xl:overflow-visible @5xl:border-b-0"
+                className="flex w-full max-w-full gap-0.5 overflow-x-auto overscroll-x-contain border-b border-border [scrollbar-width:thin]"
               >
-                {modeGroups.map((group) => (
-                  <Fragment key={group.label}>
-                    <span
-                      aria-hidden="true"
-                      className="hidden px-2.5 pt-3 pb-1 text-[0.6875rem] font-semibold tracking-wider text-muted-foreground uppercase first:pt-0 @5xl:block"
-                    >
-                      {group.label}
-                    </span>
-                    {group.modes.map((name) => (
-                      <Button
-                        key={name}
-                        disabled={busy}
-                        aria-pressed={mode === name}
-                        className="-mb-px inline-flex min-h-10 shrink-0 cursor-pointer items-center border-b-2 border-transparent px-3 py-1.5 text-sm font-medium whitespace-nowrap text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-50 aria-pressed:border-primary aria-pressed:text-foreground @5xl:mb-0 @5xl:min-h-9 @5xl:rounded-md @5xl:border-b-0 @5xl:px-2.5 @5xl:aria-pressed:bg-accent/15 @5xl:aria-pressed:shadow-[inset_2px_0_0_var(--primary)]"
-                        onClick={() => void switchMode(name)}
-                      >
-                        {name}
-                      </Button>
-                    ))}
-                  </Fragment>
+                {modes.map((name) => (
+                  <Button
+                    key={name}
+                    disabled={busy}
+                    aria-pressed={mode === name}
+                    className="-mb-px inline-flex min-h-10 shrink-0 cursor-pointer items-center border-b-2 border-transparent px-3 py-1.5 text-sm font-medium whitespace-nowrap text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-50 aria-pressed:border-primary aria-pressed:text-foreground"
+                    onClick={() => void switchMode(name)}
+                  >
+                    {name}
+                  </Button>
                 ))}
-              </div>
-              <div className="hidden gap-1 border-t border-border pt-3 text-xs @5xl:grid">
-                <span className="px-2.5 pb-1 text-[0.6875rem] font-semibold tracking-wider text-muted-foreground uppercase">
-                  Elsewhere
-                </span>
-                <Link
-                  className="rounded-md px-2.5 py-1.5 text-muted-foreground hover:text-foreground"
-                  to="/tools"
-                >
-                  Connections &amp; credentials →
-                </Link>
-                <Link
-                  className="rounded-md px-2.5 py-1.5 text-muted-foreground hover:text-foreground"
-                  to="/agents"
-                >
-                  Crew &amp; remote agents →
-                </Link>
               </div>
             </nav>
             <div className="grid min-w-0 gap-6">
-              {mode === 'Guided setup' && (
+              {mode === 'General' && (
+                <div className="grid min-w-0 items-start gap-5 @4xl:grid-cols-[minmax(0,1.45fr)_minmax(18rem,1fr)]">
+                  <Card aria-labelledby="config-readiness-title">
+                    <PanelHeading
+                      id="config-readiness-title"
+                      title="Factory readiness"
+                      description="What a run needs before it can start, for the saved revision. A row that needs action opens the place where it is fixed."
+                    />
+                    <ul className={rows}>
+                      {saved.readiness.map((item) => {
+                        const target = readinessTargets[item.id];
+                        return (
+                          <li key={item.id} className={cn(row, 'flex-wrap')}>
+                            <div className="min-w-48 flex-1">
+                              {item.message}
+                              <Secondary>{item.action}</Secondary>
+                            </div>
+                            <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                              <Badge variant={item.status === 'ready' ? 'success' : 'warning'}>
+                                {item.status === 'ready'
+                                  ? 'Configured'
+                                  : item.status === 'unavailable'
+                                    ? 'Unavailable'
+                                    : 'Action needed'}
+                              </Badge>
+                              {item.status !== 'ready' && target?.mode && (
+                                <Button
+                                  variant="secondary"
+                                  size="sm"
+                                  aria-label={`${target.label}: ${item.message}`}
+                                  onClick={() => void switchMode(target.mode!)}
+                                >
+                                  {target.label}
+                                </Button>
+                              )}
+                              {item.status !== 'ready' && target?.to && (
+                                <Button variant="secondary" size="sm" asChild>
+                                  <Link to={target.to} aria-label={`${target.label}: ${item.message}`}>
+                                    {target.label}
+                                  </Link>
+                                </Button>
+                              )}
+                            </div>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                    <Notice tone="neutral">
+                      Connection, explicit model, repository access and delivery authorization are separate.
+                      Final model and permission checks run before dispatch.
+                    </Notice>
+                  </Card>
+                  <Card aria-labelledby="config-places-title">
+                    <PanelHeading
+                      id="config-places-title"
+                      title="Where things live"
+                      description="Config holds factory-wide defaults. Repositories, credentials and agents have their own sections."
+                    />
+                    <ul className={rows}>
+                      <li className={row}>
+                        <div className="min-w-0">
+                          Default model
+                          <Secondary>
+                            {providers[selection.provider].title} · {selection.name || 'Model required'}
+                          </Secondary>
+                        </div>
+                        <Button variant="secondary" size="sm" onClick={() => void switchMode('Models')}>
+                          Edit model
+                        </Button>
+                      </li>
+                      <li className={row}>
+                        <div className="min-w-0">
+                          Projects
+                          <Secondary>
+                            {projects.length === 1
+                              ? '1 registered repository'
+                              : `${projects.length} registered repositories`}
+                          </Secondary>
+                        </div>
+                        <Button variant="secondary" size="sm" asChild>
+                          <Link to="/projects">Manage projects</Link>
+                        </Button>
+                      </li>
+                      <li className={row}>
+                        <div className="min-w-0">
+                          Connections and credentials
+                          <Secondary>GitHub, MCP servers and delivery</Secondary>
+                        </div>
+                        <Button variant="secondary" size="sm" asChild>
+                          <Link to="/tools">Open Tools</Link>
+                        </Button>
+                      </li>
+                      <li className={row}>
+                        <div className="min-w-0">
+                          Crew and remote agents
+                          <Secondary>Specialists, skills and delegated access</Secondary>
+                        </div>
+                        <Button variant="secondary" size="sm" asChild>
+                          <Link to="/agents">Open Agents</Link>
+                        </Button>
+                      </li>
+                    </ul>
+                  </Card>
+                </div>
+              )}
+              {mode === 'Models' && (
                 <>
-                  <div
-                    role="group"
-                    aria-label="Setup steps"
-                    className="grid grid-cols-2 gap-2 @3xl:grid-cols-4"
-                  >
-                    {steps.map((name, index) => (
-                      <Button
-                        key={name}
-                        aria-pressed={step === index}
-                        className="flex min-h-10 cursor-pointer items-center justify-center rounded-md border border-border bg-card px-3 py-2 text-center text-sm text-muted-foreground transition-colors hover:bg-hover hover:text-foreground aria-pressed:border-primary aria-pressed:bg-accent aria-pressed:text-foreground"
-                        onClick={() => setStep(index)}
-                      >
-                        {String(index + 1).padStart(2, '0')} · {name}
-                      </Button>
-                    ))}
-                  </div>
                   <div className="grid min-w-0 items-start gap-5 @5xl:grid-cols-[minmax(0,1.45fr)_minmax(18rem,1fr)]">
-                    <Card>
-                      <Eyebrow>Step {step + 1} of 4</Eyebrow>
-                      {step === 0 && (
-                        <>
-                          <PanelHeading
-                            title="Connect a model provider"
-                            description="Choose how specialists access the model. Each method retains its own authentication and destination."
-                          />
-                          <Field label="Model provider">
-                            <Select
-                              value={selection.provider}
-                              onChange={(event) => {
-                                const provider = event.target.value as ModelSelection['provider'];
-                                changeDefault({
-                                  ...selection,
-                                  provider,
-                                  name: '',
-                                  destination: providers[provider].destination,
-                                  input_usd_per_million: 0,
-                                  output_usd_per_million: 0,
-                                });
-                              }}
-                            >
-                              <optgroup label="Recommended connection methods">
-                                {['codex_cli', 'claude_cli', 'openai', 'anthropic'].map((id) => (
-                                  <option key={id} value={id}>
-                                    {providers[id as ModelSelection['provider']].title}
-                                  </option>
-                                ))}
-                              </optgroup>
-                              <optgroup label="Advanced adapters">
-                                <option value="google">Google · API</option>
-                                <option value="local">Compatible endpoint</option>
-                              </optgroup>
-                            </Select>
-                          </Field>
-                          <div className="grid justify-items-start gap-2.5 border-t border-border pt-4">
-                            <h3 className="text-base font-semibold">
-                              {cli ? 'Official account session' : 'Destination-scoped API credential'}
-                            </h3>
-                            <p className="text-sm">
-                              {cli
-                                ? 'Connect the dedicated factory runner from your own terminal using the official CLI login. Your everyday CLI session is not imported.'
-                                : 'Store a write-only credential for the registered destination. Its value is never included in this document or its exports.'}
-                            </p>
-                            <Badge
-                              variant={
-                                (cli ? runner?.authenticated : providerConfigured) ? 'success' : 'warning'
-                              }
-                              className="whitespace-normal"
-                            >
-                              {cli
-                                ? runner?.busy
-                                  ? 'Runner busy · session not checked'
-                                  : !runner?.available
-                                    ? 'Runner unavailable'
-                                    : runner.authenticated
-                                      ? 'Session connected'
-                                      : 'Session connection required'
-                                : providerTargetIds.length === 0
-                                  ? 'Save the provider selection to register its credential destination'
-                                  : credentialMetadata === null
-                                    ? 'Credential metadata unavailable'
-                                    : providerConfigured
-                                      ? 'Credential present · validity not checked'
-                                      : 'Credential not configured'}
-                            </Badge>
-                            {cli && (
-                              <p className={note}>
-                                In the SABRE terminal:{' '}
-                                <code className="font-mono text-foreground">
-                                  node infra/ops.mjs{' '}
-                                  {selection.provider === 'claude_cli' ? 'claude-login' : 'codex-login'}
-                                </code>
-                              </p>
-                            )}
-                            {!cli && providerTargetIds.length ? (
-                              <Button
-                                variant="secondary"
-                                onClick={() => setCredentialIds(providerTargetIds)}
-                                disabled={!connected}
-                              >
-                                Manage provider credential
-                              </Button>
-                            ) : null}
-                          </div>
-                          <Notice tone="neutral">
-                            <span>
-                              Context destination:{' '}
-                              <code className="font-mono">
-                                {selection.destination || 'Explicit endpoint required'}
-                              </code>
-                              .{' '}
-                              {cli
-                                ? 'Subscription limits are managed by the provider.'
-                                : 'API spend requires separate run authorization.'}
-                            </span>
-                          </Notice>
-                          <div>
-                            <Button variant="primary" onClick={() => setStep(1)}>
-                              Continue to model
-                            </Button>
-                          </div>
-                        </>
-                      )}
-                      {step === 1 && (
-                        <>
-                          <PanelHeading
-                            title="Choose the default model"
-                            description="Use one explicit model for the team, then override only the specialists that need a different selection."
-                          />
-                          <Field
-                            label="Model identifier"
-                            hint="Use an identifier available to your provider account. Saving a name does not prove model availability."
+                    <div className="grid min-w-0 gap-5">
+                      <Card>
+                        <PanelHeading
+                          title="Connect a model provider"
+                          description="Choose how specialists access the model. Each method retains its own authentication and destination."
+                        />
+                        <Field label="Model provider">
+                          <Select
+                            value={selection.provider}
+                            onChange={(event) => {
+                              const provider = event.target.value as ModelSelection['provider'];
+                              changeDefault({
+                                ...selection,
+                                provider,
+                                name: '',
+                                destination: providers[provider].destination,
+                                input_usd_per_million: 0,
+                                output_usd_per_million: 0,
+                              });
+                            }}
                           >
+                            <optgroup label="Recommended connection methods">
+                              {['codex_cli', 'claude_cli', 'openai', 'anthropic'].map((id) => (
+                                <option key={id} value={id}>
+                                  {providers[id as ModelSelection['provider']].title}
+                                </option>
+                              ))}
+                            </optgroup>
+                            <optgroup label="Advanced adapters">
+                              <option value="google">Google · API</option>
+                              <option value="local">Compatible endpoint</option>
+                            </optgroup>
+                          </Select>
+                        </Field>
+                        <div className="grid justify-items-start gap-2.5 border-t border-border pt-4">
+                          <h3 className="text-base font-semibold">
+                            {cli ? 'Official account session' : 'Destination-scoped API credential'}
+                          </h3>
+                          <p className="text-sm">
+                            {cli
+                              ? 'Connect the dedicated factory runner from your own terminal using the official CLI login. Your everyday CLI session is not imported.'
+                              : 'Store a write-only credential for the registered destination. Its value is never included in this document or its exports.'}
+                          </p>
+                          <Badge
+                            variant={
+                              (cli ? runner?.authenticated : providerConfigured) ? 'success' : 'warning'
+                            }
+                            className="whitespace-normal"
+                          >
+                            {cli
+                              ? runner?.busy
+                                ? 'Runner busy · session not checked'
+                                : !runner?.available
+                                  ? 'Runner unavailable'
+                                  : runner.authenticated
+                                    ? 'Session connected'
+                                    : 'Session connection required'
+                              : providerTargetIds.length === 0
+                                ? 'Save the provider selection to register its credential destination'
+                                : credentialMetadata === null
+                                  ? 'Credential metadata unavailable'
+                                  : providerConfigured
+                                    ? 'Credential present · validity not checked'
+                                    : 'Credential not configured'}
+                          </Badge>
+                          {cli && (
+                            <p className={note}>
+                              In the SABRE terminal:{' '}
+                              <code className="font-mono text-foreground">
+                                node infra/ops.mjs{' '}
+                                {selection.provider === 'claude_cli' ? 'claude-login' : 'codex-login'}
+                              </code>
+                            </p>
+                          )}
+                          {!cli && providerTargetIds.length ? (
+                            <Button
+                              variant="secondary"
+                              onClick={() => setCredentialIds(providerTargetIds)}
+                              disabled={!connected}
+                            >
+                              Manage provider credential
+                            </Button>
+                          ) : null}
+                        </div>
+                        <Notice tone="neutral">
+                          <span>
+                            Context destination:{' '}
+                            <code className="font-mono">
+                              {selection.destination || 'Explicit endpoint required'}
+                            </code>
+                            .{' '}
+                            {cli
+                              ? 'Subscription limits are managed by the provider.'
+                              : 'API spend requires separate run authorization.'}
+                          </span>
+                        </Notice>
+                      </Card>
+                      <Card>
+                        <PanelHeading
+                          title="Choose the default model"
+                          description="Use one explicit model for the team, then override only the specialists that need a different selection."
+                        />
+                        <Field
+                          label="Model identifier"
+                          hint="Use an identifier available to your provider account. Saving a name does not prove model availability."
+                        >
+                          <Input
+                            required
+                            value={selection.name}
+                            maxLength={128}
+                            pattern={'[A-Za-z0-9._:\\/\\-]+'}
+                            onChange={(event) => changeDefault({ ...selection, name: event.target.value })}
+                          />
+                        </Field>
+                        <p className="text-sm text-muted-foreground">
+                          Provider:{' '}
+                          <strong className="text-foreground">{providers[selection.provider].title}</strong>
+                        </p>
+                        <Disclosure summary="Advanced model settings" contentClassName="gap-4 @container">
+                          <Field label="Destination">
                             <Input
-                              required
-                              value={selection.name}
-                              maxLength={128}
-                              pattern={'[A-Za-z0-9._:\\/\\-]+'}
-                              onChange={(event) => changeDefault({ ...selection, name: event.target.value })}
+                              type="url"
+                              readOnly={selection.provider !== 'local'}
+                              value={selection.destination}
+                              onChange={(event) =>
+                                changeDefault({ ...selection, destination: event.target.value })
+                              }
                             />
                           </Field>
-                          <p className="text-sm text-muted-foreground">
-                            Provider:{' '}
-                            <strong className="text-foreground">{providers[selection.provider].title}</strong>
-                          </p>
-                          <Disclosure summary="Advanced model settings" contentClassName="gap-4 @container">
-                            <Field label="Destination">
-                              <Input
-                                type="url"
-                                readOnly={selection.provider !== 'local'}
-                                value={selection.destination}
-                                onChange={(event) =>
-                                  changeDefault({ ...selection, destination: event.target.value })
-                                }
-                              />
-                            </Field>
-                            <Field label="Maximum output tokens">
-                              <Input
-                                type="number"
-                                min={128}
-                                max={32768}
-                                value={selection.max_output_tokens}
-                                onChange={(event) =>
-                                  changeDefault({
-                                    ...selection,
-                                    max_output_tokens: Number(event.target.value),
-                                  })
-                                }
-                              />
-                            </Field>
-                            {!cli && (
-                              <div className="grid gap-4 @md:grid-cols-2">
-                                <Field label="USD per million input tokens">
-                                  <Input
-                                    type="number"
-                                    min={0}
-                                    step="any"
-                                    value={selection.input_usd_per_million}
-                                    onChange={(event) =>
-                                      changeDefault({
-                                        ...selection,
-                                        input_usd_per_million: Number(event.target.value),
-                                      })
-                                    }
-                                  />
-                                </Field>
-                                <Field label="USD per million output tokens">
-                                  <Input
-                                    type="number"
-                                    min={0}
-                                    step="any"
-                                    value={selection.output_usd_per_million}
-                                    onChange={(event) =>
-                                      changeDefault({
-                                        ...selection,
-                                        output_usd_per_million: Number(event.target.value),
-                                      })
-                                    }
-                                  />
-                                </Field>
-                              </div>
-                            )}
-                          </Disclosure>
-                          <Disclosure summary="Specialist overrides" contentClassName="pt-0">
-                            <ul className={rows}>
-                              {Object.entries(draft.models.roles).map(([name, value]) => (
-                                <li key={name} className={row}>
-                                  <div className="min-w-0">
-                                    {roleNames[name] ?? name}
-                                    <Secondary>
-                                      {value
-                                        ? `${providers[value.provider].title} · ${value.name || 'Model required'}`
-                                        : `Inherits default · ${selection.name || 'Model required'}`}
-                                    </Secondary>
-                                  </div>
-                                  <Button variant="secondary" size="sm" onClick={() => setRole(name)}>
-                                    Edit
-                                  </Button>
-                                </li>
-                              ))}
-                            </ul>
-                          </Disclosure>
-                          <div>
-                            <Button
-                              variant="primary"
-                              disabled={!selection.name.trim()}
-                              onClick={() => setStep(2)}
-                            >
-                              Continue to project
-                            </Button>
-                          </div>
-                        </>
-                      )}
-                      {step === 2 && (
-                        <>
-                          <PanelHeading
-                            title="Connect a project"
-                            description="GitHub supplies source access and draft PR delivery. Read, publish and repository creation use separate scoped credentials."
-                          />
-                          {projects.length ? (
-                            <ul className={rows}>
-                              {projects.map((project) => (
-                                <li key={project.id} className={row}>
-                                  <div className="min-w-0">
-                                    <strong className="font-semibold">{project.name}</strong>
-                                    <Secondary>{project.repository}</Secondary>
-                                    <Secondary>
-                                      {project.profile} · {project.gate_commands.length} configured checks ·{' '}
-                                      {project.default_branch}
-                                    </Secondary>
-                                  </div>
-                                  <Badge variant="outline">Registered</Badge>
-                                </li>
-                              ))}
-                            </ul>
-                          ) : (
-                            <Notice tone="warning">
-                              No project is registered. Add a repository from the project selector or browse
-                              GitHub in Tools.
-                            </Notice>
+                          <Field label="Maximum output tokens">
+                            <Input
+                              type="number"
+                              min={128}
+                              max={32768}
+                              value={selection.max_output_tokens}
+                              onChange={(event) =>
+                                changeDefault({
+                                  ...selection,
+                                  max_output_tokens: Number(event.target.value),
+                                })
+                              }
+                            />
+                          </Field>
+                          {!cli && (
+                            <div className="grid gap-4 @md:grid-cols-2">
+                              <Field label="USD per million input tokens">
+                                <Input
+                                  type="number"
+                                  min={0}
+                                  step="any"
+                                  value={selection.input_usd_per_million}
+                                  onChange={(event) =>
+                                    changeDefault({
+                                      ...selection,
+                                      input_usd_per_million: Number(event.target.value),
+                                    })
+                                  }
+                                />
+                              </Field>
+                              <Field label="USD per million output tokens">
+                                <Input
+                                  type="number"
+                                  min={0}
+                                  step="any"
+                                  value={selection.output_usd_per_million}
+                                  onChange={(event) =>
+                                    changeDefault({
+                                      ...selection,
+                                      output_usd_per_million: Number(event.target.value),
+                                    })
+                                  }
+                                />
+                              </Field>
+                            </div>
                           )}
-                          <p className={note}>
-                            Repository permissions and executable checks are checked at launch. A saved
-                            credential alone does not establish readiness.
-                          </p>
-                          <div className="flex flex-wrap items-center gap-2">
-                            <Button variant="secondary" asChild>
-                              <Link to="/tools">Manage repository access</Link>
-                            </Button>
-                            <Button variant="primary" onClick={() => setStep(3)}>
-                              Review readiness
-                            </Button>
-                          </div>
-                        </>
-                      )}
-                      {step === 3 && (
-                        <>
-                          <PanelHeading
-                            title="Review readiness"
-                            description="These checks describe the saved revision. Draft changes must be validated and saved before they affect future runs."
-                          />
+                        </Disclosure>
+                        <Disclosure summary="Specialist overrides" contentClassName="pt-0">
                           <ul className={rows}>
-                            {saved.readiness.map((item) => (
-                              <li key={item.id} className={row}>
+                            {Object.entries(draft.models.roles).map(([name, value]) => (
+                              <li key={name} className={row}>
                                 <div className="min-w-0">
-                                  {item.message}
-                                  <Secondary>{item.action}</Secondary>
+                                  {roleNames[name] ?? name}
+                                  <Secondary>
+                                    {value
+                                      ? `${providers[value.provider].title} · ${value.name || 'Model required'}`
+                                      : `Inherits default · ${selection.name || 'Model required'}`}
+                                  </Secondary>
                                 </div>
-                                <Badge variant={item.status === 'ready' ? 'success' : 'warning'}>
-                                  {item.status === 'ready'
-                                    ? 'Configured'
-                                    : item.status === 'unavailable'
-                                      ? 'Unavailable'
-                                      : 'Action needed'}
-                                </Badge>
+                                <Button variant="secondary" size="sm" onClick={() => setRole(name)}>
+                                  Edit
+                                </Button>
                               </li>
                             ))}
                           </ul>
-                          <Notice tone="neutral">
-                            Connection, explicit model, repository access and delivery authorization are
-                            separate. Final model and permission checks run before dispatch.
-                          </Notice>
-                        </>
-                      )}
-                    </Card>
+                        </Disclosure>
+                      </Card>
+                    </div>
                     <aside
                       aria-labelledby="config-effective-title"
                       className="flex min-w-0 flex-col gap-4 rounded-lg border border-border bg-card p-5 @5xl:sticky @5xl:top-20"
@@ -740,7 +724,7 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
                   <PanelHeading
                     id="config-contract-title"
                     title="Versioned configuration contract"
-                    description="The server validates YAML and JSON against the same schema as guided setup. Aliases, duplicate keys, unknown capabilities and input over 64 KiB are rejected."
+                    description="The server validates YAML and JSON against the same schema as the forms. Aliases, duplicate keys, unknown capabilities and input over 64 KiB are rejected."
                   />
                   <Field label="Configuration document">
                     <Textarea
@@ -1189,7 +1173,7 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
                   </Card>
                 </div>
               )}
-              {!['Access', 'Environment', 'History', 'About'].includes(mode) && (
+              {!['General', 'Access', 'Environment', 'History', 'About'].includes(mode) && (
                 <Card aria-labelledby="config-validate-title">
                   <CardHeader>
                     <PanelHeading
