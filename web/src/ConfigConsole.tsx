@@ -127,6 +127,8 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
       (
         ({
           models: 'Models',
+          // Provider and model are one form; the Supervisor still links to each by name.
+          provider: 'Models',
           access: 'Access',
           environment: 'Environment',
           history: 'History',
