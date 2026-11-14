@@ -153,7 +153,6 @@ export default function RepoCreations({ api }: { api: Api }) {
   };
   return (
     <section className="grid min-w-0 gap-4" aria-labelledby="repository-creation-title">
-      <CreateRepositoryFlow api={api} onCreated={update} />
       <SectionHeading
         id="repository-creation-title"
         title="Create on GitHub"
@@ -363,6 +362,8 @@ export default function RepoCreations({ api }: { api: Api }) {
       {page.truncated && (
         <p className="text-xs text-muted-foreground">Showing the 100 most recent proposals.</p>
       )}
+      {/* After the proposals: proposing a repository is the main path; this one authorizes it together with its first flow. */}
+      <CreateRepositoryFlow api={api} onCreated={update} />
     </section>
   );
 }

@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { GitBranch } from 'lucide-react';
 import type { Api, Project, WorkOrder } from '../../api';
 import Button from '../../components/Button';
@@ -11,6 +11,9 @@ import Disclosure from '../../components/Disclosure';
 import CheckField from '../../components/CheckField';
 import EmptyState from '../../components/EmptyState';
 import PageHeader from '../../components/PageHeader';
+import SegmentedControl from '../../components/SegmentedControl';
+import RepoCreations from '../../RepoCreations';
+import GitHubRepositories from '../tools/GitHubRepositories';
 import { Badge } from '../../components/ui/badge';
 import { Card } from '../../components/ui/card';
 import { ErrorNotice, lines, requestDialogClose, useAction } from '../runs/shared';
@@ -27,8 +30,16 @@ function argv(value: string, error: string): string[] {
   }
 }
 
+/** Where a new project comes from. Every source ends in a registered repository with its checks. */
+const SOURCES = [
+  { value: 'github', label: 'From GitHub' },
+  { value: 'address', label: 'By address' },
+  { value: 'new', label: 'New repository' },
+] as const;
+type Source = (typeof SOURCES)[number]['value'];
+
 /**
- * Registered repositories with their checks. A project is registered, edited and archived here;
+ * Registered repositories with their checks. A project is added, edited and archived here;
  * `projects` carries the archived ones too, shown only on request.
  */
 export default function ProjectsView({
@@ -55,6 +66,31 @@ export default function ProjectsView({
   onCreateRun: (project: Project) => void;
 }) {
   const [showArchived, setShowArchived] = useState(false);
+  // By address until the factory says GitHub can be browsed; the owner's own choice is never overridden.
+  const [source, setSource] = useState<Source>('address');
+  const chosen = useRef(false);
+  const [github, setGithub] = useState<{ enabled: boolean; installed: boolean } | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    let current = true;
+    Promise.all([api.integrations(), api.githubConnection()]).then(
+      ([integrations, connection]) => {
+        if (!current) return;
+        const installed = connection?.state === 'connected';
+        setGithub({
+          enabled: integrations.find((item) => item.id === 'github.read')?.enabled ?? false,
+          installed,
+        });
+        // With the app installed its repositories are one click away: start there.
+        if (installed && !chosen.current) setSource('github');
+      },
+      // GitHub cannot be described: the address form still works.
+      () => current && setGithub({ enabled: false, installed: false }),
+    );
+    return () => {
+      current = false;
+    };
+  }, [api, open]);
   const [editingId, setEditingId] = useState('');
   const [editState, setEditState] = useState({ busy: false, dirty: false });
   const [archivingId, setArchivingId] = useState('');
@@ -106,29 +142,53 @@ export default function ProjectsView({
             type="button"
             onClick={(event) => onOpenChange(!open, event.currentTarget)}
           >
-            + Register project
+            + Add project
           </Button>
         }
       />
       <Dialog
         open={open}
         onClose={() => onOpenChange(false)}
-        title="Register project"
+        title="Add project"
+        placement="top"
         busy={draftState.busy}
         dirty={draftState.dirty}
-        description="Register a repository and the exact checks future deliveries must pass."
+        description="Add a repository the factory may work on, with the exact checks its deliveries must pass."
       >
         {open && (
-          <ProjectForm
-            connected={connected}
-            onState={onDraftState}
-            api={api}
-            onDone={async () => {
-              onOpenChange(false);
-              await onRegistered();
-            }}
-            onCancel={() => onOpenChange(false)}
-          />
+          <div className="grid min-w-0 gap-5">
+            <SegmentedControl
+              label="Where the project comes from"
+              value={source}
+              options={SOURCES}
+              onChange={(value) => {
+                chosen.current = true;
+                setSource(value);
+              }}
+            />
+            {source === 'github' && (
+              <GitHubRepositories
+                api={api}
+                enabled={connected && (github?.enabled ?? false)}
+                installed={github?.installed ?? false}
+                onChanged={onRegistered}
+              />
+            )}
+            {/* Kept mounted while another source is open, so a draft is not lost by looking elsewhere. */}
+            <div hidden={source !== 'address'}>
+              <ProjectForm
+                connected={connected}
+                onState={onDraftState}
+                api={api}
+                onDone={async () => {
+                  onOpenChange(false);
+                  await onRegistered();
+                }}
+                onCancel={() => onOpenChange(false)}
+              />
+            </div>
+            {source === 'new' && <RepoCreations api={api} />}
+          </div>
         )}
       </Dialog>
       <Dialog

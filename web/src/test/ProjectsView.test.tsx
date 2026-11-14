@@ -267,3 +267,131 @@ it('leaves the runs of an archived project out of the list until that project is
   expect(screen.getByText('Audit Reference audit')).toBeVisible();
   expect(screen.queryByText('Audit Altimeter')).not.toBeInTheDocument();
 });
+
+/** The view with the Add project dialog its parent opens and closes. */
+function AddHarness() {
+  const [open, setOpen] = useState(false);
+  const [state, setState] = useState({ busy: false, dirty: false });
+  return (
+    <ProjectsView
+      api={createApi('synthetic-csrf')}
+      projects={[base]}
+      orders={[]}
+      connected
+      open={open}
+      onOpenChange={(next) => setOpen(next)}
+      draftState={state}
+      onDraftState={setState}
+      onRegistered={async () => undefined}
+      onCreateRun={() => undefined}
+    />
+  );
+}
+
+const reading = {
+  id: 'github.read',
+  kind: 'github',
+  title: 'GitHub · read repositories',
+  description: 'Browse repositories.',
+  enabled: true,
+  revision: 0,
+  toggleable: true,
+  credential_ids: ['github.read'],
+  credential_configured: false,
+  access: 'Public access.',
+  tools: [],
+};
+const connection = (state: 'not_connected' | 'connected') => ({
+  version: 1,
+  state,
+  app: null,
+  account:
+    state === 'connected'
+      ? { login: 'octo-fixture', type: 'Organization', repository_selection: 'selected' }
+      : null,
+  install_url: null,
+  manage_url: null,
+});
+
+/** What the dialog asks the factory before it can say where a project may come from. */
+function sources(state: 'not_connected' | 'connected') {
+  return service((call) => {
+    if (call.path === '/github/connection') return Response.json(connection(state));
+    if (call.path === '/integrations') return Response.json([reading]);
+    if (call.path === '/repository-proposals') return Response.json({ items: [], truncated: false });
+    if (call.path.startsWith('/github/connection/repositories'))
+      return Response.json({
+        page: 1,
+        next_page: null,
+        total: 2,
+        items: [
+          {
+            id: 502,
+            full_name: 'octo-fixture/gadgets',
+            url: 'https://github.com/octo-fixture/gadgets',
+            default_branch: 'trunk',
+            visibility: 'public',
+          },
+          {
+            id: 501,
+            full_name: 'octo-fixture/widgets',
+            url: 'https://github.com/octo-fixture/widgets',
+            default_branch: 'main',
+            visibility: 'private',
+          },
+        ],
+      });
+    return undefined;
+  });
+}
+
+const pressed = (group: HTMLElement) =>
+  within(group)
+    .getAllByRole('button')
+    .map((button) => [button.textContent, button.getAttribute('aria-pressed')]);
+
+it('adds a project from one place with three sources and keeps a draft while another source is looked at', async () => {
+  const user = userEvent.setup();
+  sources('not_connected');
+  render(<AddHarness />);
+  await user.click(screen.getByRole('button', { name: '+ Add project' }));
+  const dialog = screen.getByRole('dialog', { name: 'Add project' });
+  const group = within(dialog).getByRole('group', { name: 'Where the project comes from' });
+  // With no app installed the address form comes first.
+  expect(pressed(group)).toEqual([
+    ['From GitHub', 'false'],
+    ['By address', 'true'],
+    ['New repository', 'false'],
+  ]);
+  await user.type(within(dialog).getByLabelText('Project name'), 'Draft name');
+
+  // While only tokens are configured, GitHub is browsed by account.
+  await user.click(within(group).getByRole('button', { name: 'From GitHub' }));
+  expect(await within(dialog).findByRole('button', { name: 'Search repositories' })).toBeEnabled();
+  expect(within(dialog).queryByRole('button', { name: 'Propose repository' })).not.toBeInTheDocument();
+
+  // A new repository is proposed here too, with its own approval and single attempt.
+  await user.click(within(group).getByRole('button', { name: 'New repository' }));
+  expect(await within(dialog).findByRole('button', { name: 'Propose repository' })).toBeVisible();
+  expect(within(dialog).getByText('Create a repository and launch its flow')).toBeVisible();
+  expect(within(dialog).queryByRole('button', { name: 'Search repositories' })).not.toBeInTheDocument();
+
+  await user.click(within(group).getByRole('button', { name: 'By address' }));
+  expect(within(dialog).getByLabelText('Project name')).toHaveValue('Draft name');
+});
+
+it("starts from the repositories of the GitHub connection once the app is installed and keeps the owner's own choice", async () => {
+  const user = userEvent.setup();
+  sources('connected');
+  render(<AddHarness />);
+  await user.click(screen.getByRole('button', { name: '+ Add project' }));
+  const dialog = screen.getByRole('dialog', { name: 'Add project' });
+  const group = within(dialog).getByRole('group', { name: 'Where the project comes from' });
+  expect(await within(dialog).findByText(/2 repositories through the GitHub\s+connection/)).toBeVisible();
+  expect(pressed(group)[0]).toEqual(['From GitHub', 'true']);
+  expect(within(dialog).getByRole('button', { name: 'Import octo-fixture/widgets' })).toBeEnabled();
+  // The account search belongs to the token path.
+  expect(within(dialog).queryByRole('button', { name: 'Search repositories' })).not.toBeInTheDocument();
+  await user.click(within(group).getByRole('button', { name: 'By address' }));
+  await waitFor(() => expect(pressed(group)[1]).toEqual(['By address', 'true']));
+});

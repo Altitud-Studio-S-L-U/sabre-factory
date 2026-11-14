@@ -1032,7 +1032,7 @@ describe('Control room', () => {
     expect(screen.getByRole('heading', { name: 'Register a project to get started' })).toBeVisible();
     expect(writes).toEqual([]);
     await user.click(screen.getByRole('button', { name: 'Register project' }));
-    await user.click(screen.getByRole('button', { name: 'Close Register project' }));
+    await user.click(screen.getByRole('button', { name: 'Close Add project' }));
     expect(screen.getByRole('heading', { name: 'Your first project starts here' })).toBeVisible();
     await user.click(screen.getByRole('link', { name: 'Memory' }));
     expect(await screen.findByRole('heading', { name: 'No project knowledge yet' })).toBeVisible();
@@ -1508,7 +1508,7 @@ describe('Control room', () => {
     mockApi();
     const user = await enter();
     await legacyRoute('/projects');
-    await user.click(screen.getByRole('button', { name: '+ Register project' }));
+    await user.click(screen.getByRole('button', { name: '+ Add project' }));
     await user.type(screen.getByLabelText('Project name'), 'Another project');
     await user.type(screen.getByLabelText('Repository'), 'https://github.com/example/another');
     await user.clear(screen.getByLabelText('Delivery checks'));

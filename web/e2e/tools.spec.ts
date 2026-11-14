@@ -110,7 +110,15 @@ test('new repository flow requires explicit authorization and submits selected l
       },
     });
   });
+  // Creating a repository is a way of adding a project: Tools keeps the access and points here.
   await page.goto('/tools');
+  await page.getByRole('link', { name: 'Add a project' }).click();
+  await expect(page).toHaveURL(/\/projects$/);
+  const dialog = page.getByRole('dialog', { name: 'Add project' });
+  await dialog
+    .getByRole('group', { name: 'Where the project comes from' })
+    .getByRole('button', { name: 'New repository' })
+    .click();
   await page.getByText('Create a repository and launch its flow', { exact: true }).click();
   await page.getByLabel('Repository owner', { exact: true }).fill('example');
   await page.getByLabel('New repository name').fill('synthetic-project');

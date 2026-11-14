@@ -39,6 +39,9 @@ const sections = [
   { name: 'config-history', path: '/config?section=history', ready: 'Revision history' },
   { name: 'projects', path: '/projects', ready: 'Example project' },
   { name: 'projects-archived', path: '/projects', ready: 'Example project' },
+  { name: 'projects-add', path: '/projects', ready: 'Example project', dialog: 'Add project' },
+  { name: 'projects-add-github', path: '/projects', ready: 'Example project', dialog: 'Add project' },
+  { name: 'projects-add-new', path: '/projects', ready: 'Example project', dialog: 'Add project' },
   { name: 'security', path: '/security', ready: 'Independent review' },
   { name: 'insights', path: '/insights', ready: 'Runs by outcome' },
 ];
@@ -217,7 +220,7 @@ test.describe('gallery', () => {
 
   for (const section of sections) {
     test(section.name, async ({ page }) => {
-      if (section.name === 'tools-github-connected')
+      if (section.name === 'tools-github-connected' || section.name === 'projects-add-github')
         await page.route('**/api/v1/github/connection', (route) =>
           route.fulfill({ json: githubConnection('connected') }),
         );
@@ -235,11 +238,24 @@ test.describe('gallery', () => {
         await page.getByRole('button', { name: 'Review proposal AGENTS.md › Verify' }).click();
       if (section.name === 'memory-records')
         await page.getByRole('button', { name: 'Inspect memory m27' }).click();
+      const dialog = 'dialog' in section ? section.dialog : undefined;
+      if (dialog) {
+        await page.getByRole('button', { name: `+ ${dialog}` }).click();
+        const opened = page.getByRole('dialog', { name: dialog });
+        await expect(opened).toBeVisible();
+        if (section.name === 'projects-add-github')
+          await expect(opened.getByRole('button', { name: /^Import / }).first()).toBeVisible();
+        if (section.name === 'projects-add-new') {
+          await opened.getByRole('button', { name: 'New repository' }).click();
+          await expect(opened.getByRole('button', { name: 'Propose repository' })).toBeVisible();
+        }
+      }
       await page.waitForLoadState('networkidle');
       await page.mouse.move(0, 0);
       await page.screenshot({
         path: `../work/gallery/${label}/${section.name}-${test.info().project.name}.png`,
-        fullPage: true,
+        // A dialog is fixed to the viewport: the capture is what the owner sees, not the page behind it.
+        fullPage: !dialog,
         scale: 'css',
       });
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);

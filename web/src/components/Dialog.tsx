@@ -17,6 +17,8 @@ export interface DialogProps {
   footer?: ReactNode;
   busy?: boolean;
   dirty?: boolean;
+  /** `top` keeps the header where it is while the body changes height, for a dialog that switches content. */
+  placement?: 'center' | 'top';
   className?: string;
 }
 
@@ -30,6 +32,7 @@ export default function Dialog({
   footer,
   busy = false,
   dirty = false,
+  placement = 'center',
   className = '',
 }: DialogProps) {
   const ref = useRef<HTMLDialogElement>(null);
@@ -62,7 +65,10 @@ export default function Dialog({
     <dialog
       ref={ref}
       className={cn(
-        'm-auto max-h-[calc(100dvh-1.25rem)] w-[min(45rem,calc(100vw-1.25rem))] overflow-auto rounded-xl border border-border bg-popover p-0 text-popover-foreground shadow-2xl sm:max-h-[calc(100dvh-3rem)] sm:w-[min(45rem,calc(100vw-2rem))]',
+        'w-[min(45rem,calc(100vw-1.25rem))] overflow-auto rounded-xl border border-border bg-popover p-0 text-popover-foreground shadow-2xl sm:w-[min(45rem,calc(100vw-2rem))]',
+        placement === 'top'
+          ? 'mx-auto mt-[max(0.625rem,6dvh)] mb-auto max-h-[calc(100dvh-0.625rem-max(0.625rem,6dvh))]'
+          : 'm-auto max-h-[calc(100dvh-1.25rem)] sm:max-h-[calc(100dvh-3rem)]',
         'backdrop:bg-background/75 backdrop:backdrop-blur-sm',
         className,
       )}
