@@ -62,6 +62,13 @@ ALTER TABLE work_orders ADD COLUMN trace_root jsonb;
 """
 
 
+# What a provider said a call cost, kept apart from what the factory charged for it. A CLI session
+# reports the price of its call at API rates although a subscription is not charged per token.
+USAGE_REPORTED_COST = """
+ALTER TABLE model_usage ADD COLUMN reported_usd numeric CHECK(reported_usd>=0);
+"""
+
+
 async def migrate(conn, baseline: str):
     from sabre.console_configuration import CONSOLE_CONFIGURATION_SCHEMA
     from sabre.delegation import DELEGATION_SCHEMA
@@ -109,7 +116,7 @@ async def migrate(conn, baseline: str):
         """, 10: INGESTION_SCHEMA, 11: RELEASE_SCHEMA, 12: PANEL_SESSION_DIRECTORY,
         13: USAGE_BREAKDOWN, 14: MEMORY_GRAPH_SCHEMA, 15: MEMORY_RECALL_SCHEMA,
         16: OWNER_CONFIRMATION_SCHEMA, 17: OWNER_CONFIRMATION_SUBJECTS, 18: PROJECT_EVENTS,
-        19: USAGE_CACHE_AND_FAILURE, 20: TRACE_ROOT}
+        19: USAGE_CACHE_AND_FAILURE, 20: TRACE_ROOT, 21: USAGE_REPORTED_COST}
     if set(applied) - set(migrations):
         raise DomainError("SCHEMA_NEWER_THAN_RUNTIME", "Restore the matching application version before opening this database", 503)
     for version, statement in migrations.items():

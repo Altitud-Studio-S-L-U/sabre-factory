@@ -17,7 +17,7 @@ SPAN_NAMES = {"factory.work", "workflow.stage", "agent.role", "tool.call", "mode
 IDENTIFIERS = {"work_id", "role", "phase", "tool", "model_provider", "model_name", "tool_call_id"}
 FAILURE_CLASSES = {"rate_limit", "overloaded", "timeout", "authentication", "invalid_request", "other"}
 NUMBERS = {"attempt", "provider_attempts", "tokens", "input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens",
-           "cost_usd", "reserved_tokens", "reserved_usd", "max_output_tokens", "exit_code", "output_bytes",
+           "cost_usd", "reported_usd", "reserved_tokens", "reserved_usd", "max_output_tokens", "exit_code", "output_bytes",
            "context_original_bytes", "context_sent_bytes", "context_dedup_results", "context_compacted_results",
            "context_request_original_bytes", "context_request_sent_bytes"}
 # Recorded only when true: their absence says nothing happened.

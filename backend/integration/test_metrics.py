@@ -166,3 +166,25 @@ async def test_a_run_keeps_the_root_span_of_its_latest_execution_and_the_next_on
         (first["trace_id"], first["span_id"])]
     assert await repo.trace_root(work.id) == second
     provider.shutdown()
+
+
+async def test_the_ledger_keeps_a_reported_cost_beside_the_charged_one(repository):
+    repo, project, work = await fixture_work(repository)
+    session = await repo.reserve_usage(work, 2000, 0, 1000, context_receipt=call_receipt(work, project, "analyst", "claude_cli"))
+    await repo.settle_usage(session, 1500, 0, breakdown={"input_tokens": 1400, "output_tokens": 100, "reported_usd": 0.0421})
+    silent = await repo.reserve_usage(work, 2000, 0, 1000, context_receipt=call_receipt(work, project, "analyst", "claude_cli"))
+    await repo.settle_usage(silent, 900, 0, breakdown={"input_tokens": 800, "output_tokens": 100})
+    usage = await repo.audit_usage_breakdown(work.id)
+    # Nothing was charged; one call reported what it would have cost at API rates.
+    assert (usage["measured_api_cost_usd"], usage["reported_cost_usd"]) == (0, 0.0421)
+    totals = (await RunMetricsService(repo).runs(30, project_id=project.id)).totals
+    assert (totals.api_cost_usd, totals.reported_cost_usd, totals.cli_calls) == (None, 0.0421, 2)
+    application = create_app(SimpleNamespace(repository=repo), SimpleNamespace(auth_token=SecretStr(TOKEN), allowed_origins=["http://localhost:8000"]))
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(application), base_url="http://localhost:8000",
+                                 headers={"Authorization": f"Bearer {TOKEN}"}) as client:
+        snapshot = (await client.get(f"/api/v1/work/{work.id}/usage")).json()
+        assert (snapshot["measured_api_cost_usd"], snapshot["reported_cost_usd"]) == (0, 0.0421)
+    _, _, unreported = await fixture_work(repository)
+    assert (await repo.audit_usage_breakdown(unreported.id))["reported_cost_usd"] is None
+    with pytest.raises(psycopg.errors.CheckViolation):
+        await repo.settle_usage(silent, 900, 0, breakdown={"reported_usd": -1})

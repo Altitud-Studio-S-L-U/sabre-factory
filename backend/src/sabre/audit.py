@@ -36,6 +36,8 @@ class RunUsageSnapshot(Contract):
     usage: AuditUsage
     measured_api_cost_usd: float | None = Field(ge=0)
     reserved_api_cost_usd: float = Field(ge=0)
+    # What providers themselves reported their calls cost (a CLI session reports API rates); not what was charged.
+    reported_cost_usd: float | None = Field(default=None, ge=0)
 
 
 class AuditAgent(Contract):

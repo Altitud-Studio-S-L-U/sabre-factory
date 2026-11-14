@@ -20,7 +20,7 @@ def run(status="completed", **values):
     row = {"id": "work", "mode": "patch", "status": status, "created_at": datetime(2026, 11, 14, 9, tzinfo=UTC), "active_seconds": 10.0,
            "calls": 0, "settled_calls": 0, "cli_calls": 0, "measured_tokens": 0, "unknown_reserved_tokens": 0,
            "input_tokens": None, "output_tokens": None, "cache_read_tokens": None, "cache_write_tokens": None,
-           "api_cost_usd": None, "failed_calls": None, "tool_calls": 0, "recoveries": 0}
+           "api_cost_usd": None, "reported_cost_usd": None, "failed_calls": None, "tool_calls": 0, "recoveries": 0}
     assert set(values) <= set(row)
     return row | values
 
@@ -148,3 +148,15 @@ async def test_the_endpoint_is_the_owners_and_validates_its_filters():
 def test_every_status_a_run_can_have_is_counted_in_exactly_one_outcome(status):
     result = figures([run(status)])
     assert result.completed + result.cancelled + result.stopped + result.waiting + result.active == result.runs == 1
+
+
+def test_a_cost_the_provider_reported_is_summed_apart_from_what_was_charged():
+    # Two runs through a CLI session that reported its cost at API rates, and one that reported nothing.
+    runs = [run(calls=3, settled_calls=3, cli_calls=3, measured_tokens=900, reported_cost_usd=1.25),
+            run(calls=2, settled_calls=2, cli_calls=2, measured_tokens=400, reported_cost_usd=0.5),
+            run(calls=1, settled_calls=1, cli_calls=1, measured_tokens=100)]
+    result = figures(runs)
+    # Nothing was charged per token, so the charged cost stays unknown; the reported one is known.
+    assert result.api_cost_usd is None and result.reported_cost_usd == 1.75
+    assert figures(runs[2:]).reported_cost_usd is None
+    assert plain(run(reported_cost_usd=Decimal("0.0125")))["reported_cost_usd"] == 0.0125

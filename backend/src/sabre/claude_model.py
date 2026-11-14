@@ -80,6 +80,8 @@ class RunnerStatus(StrictContract):
 
 class ClaudeInvocationResponse(InvocationResponse):
     cache_creation_input_tokens: int = Field(default=0, ge=0, le=1_000_000_000)
+    # What the CLI says the call would cost at API rates; None when it did not say.
+    reported_cost_usd: float | None = Field(default=None, ge=0, le=100_000, allow_inf_nan=False)
 
 
 async def runner_status(config) -> dict[str, Any]:
@@ -141,7 +143,8 @@ class ClaudeChatModel(BaseChatModel):
                 "input_token_details": {"cache_read": response.cached_input_tokens,
                     "cache_creation": getattr(response, "cache_creation_input_tokens", 0)}},
             response_metadata={"usage_kind": "cli_invocation", "model_name": self.model_name or "automatic",
-                "protocol": "claude_schema_v1"})
+                "protocol": "claude_schema_v1",
+                **({"reported_cost_usd": response.reported_cost_usd} if getattr(response, "reported_cost_usd", None) is not None else {})})
         return ChatResult(generations=[ChatGeneration(message=message)])
 
     async def _invoke(self, request: InvocationRequest) -> ClaudeInvocationResponse:

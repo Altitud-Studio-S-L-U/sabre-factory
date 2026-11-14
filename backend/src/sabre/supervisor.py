@@ -20,7 +20,7 @@ from sabre.agent_catalog import definition_errors
 from sabre.agents import cache_read_tokens, input_reservation_tokens
 from sabre.audit import AuditUsage, RunUsageSnapshot
 from sabre.budget_views import budget_view
-from sabre.costs import Rates, cache_write_tokens, call_cost_usd, reserved_cost_usd
+from sabre.costs import Rates, cache_write_tokens, call_cost_usd, reported_cost_usd, reserved_cost_usd
 from sabre.credentials import model_secret_id
 from sabre.error_boundaries import guarded_call
 from sabre.logs import log
@@ -151,10 +151,12 @@ class ChatGuard(AgentMiddleware):
             cached = sum(cache_read_tokens(item) for item in usages)
             written = sum(cache_write_tokens(item) for item in usages)
             cost = call_cost_usd(rates, input_tokens=inputs, output_tokens=outputs, cache_read_tokens=cached, cache_write_tokens=written)
+            reported = reported_cost_usd(response.result)
             await self.repository.settle_usage(usage_id, inputs + outputs, cost, breakdown={
-                "input_tokens": inputs, "output_tokens": outputs, "cache_read_tokens": cached, "cache_write_tokens": written})
+                "input_tokens": inputs, "output_tokens": outputs, "cache_read_tokens": cached, "cache_write_tokens": written,
+                **({"reported_usd": reported} if reported is not None else {})})
             observation.set(input_tokens=inputs, output_tokens=outputs, cache_read_tokens=cached, cache_write_tokens=written,
-                            tokens=inputs + outputs, cost_usd=cost)
+                            tokens=inputs + outputs, cost_usd=cost, reported_usd=reported)
             if cli and inputs + outputs > input_bound + output_bound:
                 raise DomainError("CLI_USAGE_EXCEEDED", "The CLI consumed more tokens than reserved; review limits before resuming")
         return response
@@ -235,7 +237,8 @@ def conversation_tools(service, store, event: ConversationMessage | OperatorCont
         limits = await budget_view(repository, work.id)
         current = await repository.audit_usage_breakdown(work.id)
         usage = RunUsageSnapshot(work_id=work.id, usage=AuditUsage(**current["usage"]),
-            measured_api_cost_usd=current["measured_api_cost_usd"], reserved_api_cost_usd=current["reserved_api_cost_usd"])
+            measured_api_cost_usd=current["measured_api_cost_usd"], reserved_api_cost_usd=current["reserved_api_cost_usd"],
+            reported_cost_usd=current.get("reported_cost_usd"))
         reason = stop_reason(work)
         notes = ["Each run has its own allowance; this is not a shared project budget.",
             "Measured usage excludes pending reservations; unknown usage is not zero.",

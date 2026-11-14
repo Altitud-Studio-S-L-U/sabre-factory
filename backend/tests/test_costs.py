@@ -167,3 +167,64 @@ async def test_the_supervisor_conversation_records_why_its_call_failed():
         await guard.awrap_model_call(fixture_request(), AsyncMock(side_effect=[sdk_error(openai.AuthenticationError, 401)]))
     repository.fail_usage.assert_awaited_once_with("usage", "authentication")
     repository.settle_usage.assert_not_awaited()
+
+
+@pytest.mark.parametrize("value, expected", [
+    (0.0123, 0.0123), (0, 0.0), (3, 3.0),
+    # Anything that is not a plain, finite, plausible amount is not a reported cost.
+    (None, None), ("0.01", None), (True, None), (-0.01, None), (float("inf"), None), (float("nan"), None), (1_000_000, None),
+])
+def test_the_claude_bridge_keeps_the_cost_the_cli_reports_and_never_requires_one(value, expected):
+    from sabre import claude_runner
+    from tests.test_claude import result_bytes
+
+    changes = {} if value is None else {"total_cost_usd": value}
+    parsed = claude_runner.parse_result(result_bytes(**changes))
+    assert parsed.reported_cost_usd == expected
+    # The usage counters are read the same way with or without it.
+    assert (parsed.input_tokens, parsed.output_tokens, parsed.cached_input_tokens) == (170, 20, 30)
+
+
+def reported_answer(cost):
+    usage = {"input_tokens": 1_000, "output_tokens": 40, "total_tokens": 1_040}
+    metadata = {} if cost is None else {"reported_cost_usd": cost}
+    return SimpleNamespace(result=[AIMessage(content="Observed", usage_metadata=usage, response_metadata=metadata)])
+
+
+async def test_a_reported_cost_is_kept_as_reported_and_charges_nothing_to_a_cli_session():
+    from sabre.costs import reported_cost_usd
+
+    work, _, config = setup()
+    config.model_provider, config.model_name, config.model_max_output_tokens = "claude_cli", "claude-opus-5-5", 4096
+    repository = Repository()
+    await GuardedCalls(repository, config, work, SecretGuard()).awrap_model_call(fixture_request(), AsyncMock(return_value=reported_answer(0.0421)))
+    (_, tokens, charged), = repository.settled
+    # A subscription is not charged per token: the ledger charges nothing and keeps what the CLI reported beside it.
+    assert (tokens, charged) == (1_040, 0)
+    assert repository.breakdowns[0]["reported_usd"] == 0.0421
+    silent = Repository()
+    await GuardedCalls(silent, config, work, SecretGuard()).awrap_model_call(fixture_request(), AsyncMock(return_value=reported_answer(None)))
+    assert "reported_usd" not in silent.breakdowns[0]
+    # Several responses add up; values that are not plain amounts are ignored.
+    messages = [AIMessage(content="a", response_metadata={"reported_cost_usd": 0.5}), AIMessage(content="b", response_metadata={"reported_cost_usd": 0.25}),
+                AIMessage(content="c", response_metadata={"reported_cost_usd": "1"}), AIMessage(content="d")]
+    assert reported_cost_usd(messages) == 0.75 and reported_cost_usd(messages[2:]) is None
+
+
+async def test_the_claude_model_carries_the_reported_cost_to_the_agent_loop(monkeypatch):
+    from sabre.claude_model import ClaudeChatModel, ClaudeInvocationResponse
+    from sabre.cli_protocol import AssistantEnvelope
+    from sabre.costs import reported_cost_usd
+
+    answers = iter([0.0317, None])
+
+    async def invoke(self, request):
+        return ClaudeInvocationResponse(result=AssistantEnvelope(content="done", tool_calls=[]), input_tokens=100, output_tokens=20,
+                                        cached_input_tokens=30, cache_creation_input_tokens=40, reported_cost_usd=next(answers))
+
+    monkeypatch.setattr(ClaudeChatModel, "_invoke", invoke)
+    model = ClaudeChatModel()
+    reported = (await model.ainvoke("Read the fixture"))
+    assert reported.response_metadata["reported_cost_usd"] == 0.0317 and reported_cost_usd([reported]) == 0.0317
+    silent = await model.ainvoke("Read the fixture")
+    assert "reported_cost_usd" not in silent.response_metadata and reported_cost_usd([silent]) is None

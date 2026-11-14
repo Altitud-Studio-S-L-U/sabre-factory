@@ -495,7 +495,8 @@ def create_app(service=None, config=None) -> FastAPI:
         work = await repository.work(work_id)
         current = await repository.audit_usage_breakdown(work.id)
         return RunUsageSnapshot(work_id=work.id, usage=AuditUsage(**current["usage"]),
-            measured_api_cost_usd=current["measured_api_cost_usd"], reserved_api_cost_usd=current["reserved_api_cost_usd"])
+            measured_api_cost_usd=current["measured_api_cost_usd"], reserved_api_cost_usd=current["reserved_api_cost_usd"],
+            reported_cost_usd=current.get("reported_cost_usd"))
 
     @application.get("/api/v1/work/{work_id}/budget", response_model=BudgetView)
     async def work_budget(work_id: str):

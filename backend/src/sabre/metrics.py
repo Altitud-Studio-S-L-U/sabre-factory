@@ -45,6 +45,8 @@ class Figures(Contract):
     cache_read_tokens: int | None = None
     cache_write_tokens: int | None = None
     api_cost_usd: float | None = Field(default=None, description="Charged through API prices; None when no settled call had one")
+    reported_cost_usd: float | None = Field(
+        default=None, description="What providers themselves reported their calls cost, such as a CLI session at API rates; not what was charged")
     active_seconds: float = 0
     median_tokens_per_completed_run: int | None = None
     median_active_seconds_per_completed_run: float | None = None
@@ -102,7 +104,8 @@ def plain(row: dict) -> dict:
         row[name] = int(row[name])
     for name in SPLITS:
         row[name] = whole(row[name])
-    row["api_cost_usd"] = None if row["api_cost_usd"] is None else float(row["api_cost_usd"])
+    for name in ("api_cost_usd", "reported_cost_usd"):
+        row[name] = None if row[name] is None else float(row[name])
     row["active_seconds"] = float(row["active_seconds"])
     return row
 
@@ -137,8 +140,9 @@ def figures(runs: list[dict]) -> Figures:
     result.unknown_reserved_tokens = sum(run["unknown_reserved_tokens"] for run in runs)
     for name in SPLITS:
         setattr(result, name, known_sum(run[name] for run in runs))
-    cost = known_sum(run["api_cost_usd"] for run in runs)
-    result.api_cost_usd = None if cost is None else round(float(cost), 6)
+    for name in ("api_cost_usd", "reported_cost_usd"):
+        cost = known_sum(run[name] for run in runs)
+        setattr(result, name, None if cost is None else round(float(cost), 6))
     result.active_seconds = round(sum(run["active_seconds"] for run in runs), 3)
     completed = [run for run in runs if run["status"] == "completed"]
     if completed:
@@ -186,7 +190,8 @@ RUNS_QUERY = SELECTED + sql.SQL(""", ledger AS (
          sum(u.input_tokens) AS input_tokens, sum(u.output_tokens) AS output_tokens,
          sum(u.cache_read_tokens) AS cache_read_tokens, sum(u.cache_write_tokens) AS cache_write_tokens,
          sum(u.actual_usd) FILTER (WHERE u.context_receipt->>'model_provider' IS NOT NULL
-                                   AND NOT (u.context_receipt->>'model_provider' = ANY(%(cli)s))) AS api_cost_usd
+                                   AND NOT (u.context_receipt->>'model_provider' = ANY(%(cli)s))) AS api_cost_usd,
+         sum(u.reported_usd) AS reported_cost_usd
   FROM model_usage u JOIN selected s ON s.id = u.work_id GROUP BY u.work_id
 ), failures AS (
   SELECT work_id, jsonb_object_agg(failure_class, total) AS failed_calls
@@ -201,7 +206,7 @@ RUNS_QUERY = SELECTED + sql.SQL(""", ledger AS (
 SELECT s.id, s.mode, s.status, s.created_at, s.active_seconds,
        coalesce(l.calls, 0) AS calls, coalesce(l.settled_calls, 0) AS settled_calls, coalesce(l.cli_calls, 0) AS cli_calls,
        coalesce(l.measured_tokens, 0) AS measured_tokens, coalesce(l.unknown_reserved_tokens, 0) AS unknown_reserved_tokens,
-       l.input_tokens, l.output_tokens, l.cache_read_tokens, l.cache_write_tokens, l.api_cost_usd,
+       l.input_tokens, l.output_tokens, l.cache_read_tokens, l.cache_write_tokens, l.api_cost_usd, l.reported_cost_usd,
        f.failed_calls, coalesce(t.tool_calls, 0) AS tool_calls, coalesce(t.recoveries, 0) AS recoveries
 FROM selected s LEFT JOIN ledger l ON l.work_id = s.id LEFT JOIN failures f ON f.work_id = s.id LEFT JOIN tools t ON t.work_id = s.id
 ORDER BY s.created_at, s.id
