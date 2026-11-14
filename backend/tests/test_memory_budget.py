@@ -6,7 +6,7 @@ from pydantic import SecretStr
 
 from sabre import embeddings as embedding_module
 from sabre.embeddings import BudgetedEmbeddings
-from sabre.memory import MemoryService, verified_fact
+from sabre.memory import MemoryService
 from sabre.models import (
     AgentResult,
     Budget,
@@ -14,6 +14,7 @@ from sabre.models import (
     DomainError,
     MemoryCreate,
     Project,
+    ProposedBy,
     Status,
     WorkOrder,
 )
@@ -69,35 +70,32 @@ async def test_owner_memory_lookup_keeps_service_and_monthly_reservation(monkeyp
 
 
 @pytest.mark.parametrize("status", [Status.COMPLETED, Status.QUEUED, Status.BLOCKED])
-async def test_verified_delivery_fact_is_lexical_even_when_embedding_budget_is_exhausted(status):
+async def test_what_the_factory_records_after_delivery_is_lexical_even_when_the_embedding_budget_is_exhausted(status):
     project, work = fixture_work()
     work.status, work.calls_used = status, 1
     work.evidence = DeliveryEvidence(commit="a" * 40, snapshot_digest="b" * 64, profile_digest="c" * 64,
         rules_version="fixture", gates=[], findings=[], review="Reviewed")
-    if status != Status.COMPLETED:
-        work.evidence.branch = "sabre/fixture"
-        work.evidence.pr_url = "https://github.com/example/project/pull/1"
     repository = SimpleNamespace(work=AsyncMock(return_value=work), create_memory=AsyncMock(side_effect=lambda item, embedding: item))
     embeddings = SimpleNamespace(aembed_query=AsyncMock(side_effect=DomainError("BUDGET_EXHAUSTED", "No paid operation is allowed after delivery")))
-    request = MemoryCreate(project_id=project.id, kind="fact", content=verified_fact(work), source_commit=work.evidence.commit,
-        source_work_id=work.id, evidence_digest=work.evidence.snapshot_digest)
-    stored = await MemoryService(repository, SecretGuard(), embeddings).propose(request)
-    assert stored.active
+    request = MemoryCreate(project_id=project.id, kind="lesson", content="Repair lesson: the check failed until the total was rounded",
+        source_commit=work.evidence.commit, source_work_id=work.id, evidence_digest=work.evidence.snapshot_digest, scope="project")
+    stored = await MemoryService(repository, SecretGuard(), embeddings).propose(request, proposed_by=ProposedBy(channel="factory", role="repair", work_id=work.id))
+    # Consolidation makes no paid request, and its lesson waits for the owner like any other record.
+    assert not stored.active
     embeddings.aembed_query.assert_not_awaited()
     assert repository.create_memory.await_args.args[1] is None
 
 
-@pytest.mark.parametrize("branch,pr_url", [(None, None), ("sabre/fixture", None), (None, "https://github.com/example/project/pull/1")])
-async def test_queued_fact_without_complete_publication_receipt_remains_pending(branch, pr_url):
+async def test_an_owner_proposal_against_a_delivery_is_embedded_and_waits_for_approval():
     project, work = fixture_work()
-    work.status = Status.QUEUED
+    work.status = Status.COMPLETED
     work.evidence = DeliveryEvidence(commit="a" * 40, snapshot_digest="b" * 64, profile_digest="c" * 64,
-        rules_version="fixture", gates=[], findings=[], review="Reviewed", branch=branch, pr_url=pr_url)
+        rules_version="fixture", gates=[], findings=[], review="Reviewed")
     repository = SimpleNamespace(work=AsyncMock(return_value=work), create_memory=AsyncMock(side_effect=lambda item, embedding: item))
     embeddings = SimpleNamespace(aembed_query=AsyncMock(return_value=[0.0] * 1536))
-    request = MemoryCreate(project_id=project.id, kind="fact", content=verified_fact(work), source_commit=work.evidence.commit,
+    request = MemoryCreate(project_id=project.id, kind="fact", content="Totals are rounded half even", source_commit=work.evidence.commit,
         source_work_id=work.id, evidence_digest=work.evidence.snapshot_digest)
-    stored = await MemoryService(repository, SecretGuard(), embeddings).propose(request)
+    stored = await MemoryService(repository, SecretGuard(), embeddings).propose(request, proposed_by=ProposedBy(channel="owner_console"))
     assert not stored.active
     embeddings.aembed_query.assert_awaited_once()
 

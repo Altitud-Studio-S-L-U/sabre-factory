@@ -30,8 +30,6 @@ from sabre.models import (
     DomainError,
     GateResult,
     HumanQuestion,
-    MemoryCreate,
-    ProposedBy,
     SecurityFinding,
     Status,
     Task,
@@ -789,20 +787,17 @@ class Factory:
         return await self.finish(work)
 
     async def remember(self, state):
-        from sabre.memory import verified_fact
         work = WorkOrder.model_validate(state["order"])
         if not work.evidence:
             raise DomainError("EVIDENCE_REQUIRED", "Cannot consolidate without delivery evidence")
-        await self.memory.propose(MemoryCreate(project_id=work.project_id, kind="fact", content=verified_fact(work),
-            source_commit=work.evidence.commit, source_work_id=work.id, evidence_digest=work.evidence.snapshot_digest),
-            proposed_by=ProposedBy(channel="factory", work_id=work.id))
+        # How many checks passed stays in the delivery evidence: it is not knowledge, so it is no memory.
         lesson = repair_lesson(work, state.get("repair_log"))
         if lesson is not None:
             try:
                 await self.memory.propose(lesson, proposed_by=lesson_proposer(work))
             except DomainError as error:
                 # Quoted model text can trip the secret guard; then no lesson is kept, and delivery is not held up.
-                # Provenance is the delivery fact's, already accepted above, so other refusals still surface.
+                # Any other refusal, a provenance mismatch included, still surfaces.
                 if error.code != "SECRET_DETECTED":
                     raise
         await self.executor.cleanup(work.id)

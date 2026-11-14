@@ -11,7 +11,9 @@ A project's memory is useful from the day the project is registered. The console
 - *Index at the base commit.* A run indexes its own fresh checkout at intake, under the project lock it already holds, so the first run on a new base commit recalls the project's valid records. A recall at a commit that has no index is marked in the recall log instead of reading as "nothing matched".
 - *Console.* The status card, the review of repository statements with what they replace, and the coverage map.
 
-Still to build: the index at a delivery commit (it must not replace the default branch as the newest index), dropping the delivery count, the review of records no run recalls, the last-run trace, staleness on the map, and the measurement.
+- *No automatic record.* A delivery no longer writes how many checks passed as a memory, and nothing activates itself: every record waits for the owner.
+
+Still to build: the index at a delivery commit (it must not replace the default branch as the newest index), the review of records no run recalls, the last-run trace, staleness on the map, and the measurement.
 
 ## State it started from
 - Every record must cite a run that delivered a pull request. An audit never does, so an audit that completes records nothing, and neither does a run that stops. Specialists can read memory and cannot propose it.

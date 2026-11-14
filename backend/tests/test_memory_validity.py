@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock
 import pytest
 from pydantic import ValidationError
 
-from sabre.memory import MemoryService, verified_fact
+from sabre.memory import MemoryService
 from sabre.memory_store import cited_paths, evaluate
 from sabre.models import (
     Budget,
@@ -13,6 +13,7 @@ from sabre.models import (
     DomainError,
     MemoryCreate,
     MemoryItem,
+    ProposedBy,
     Status,
     WorkOrder,
     memory_identity,
@@ -61,19 +62,15 @@ def delivered_work():
     return work
 
 
-def test_verified_fact_is_english():
-    assert verified_fact(delivered_work()) == f"Commit {SOURCE}: 0 checks passed; snapshot {'b' * 64}."
-
-
-@pytest.mark.parametrize("update", [{"scope": "project"}, {"citations": ["src/app.py"]}, {"supersedes": "older"}])
-async def test_only_the_plain_commit_scoped_template_fact_activates_itself(update):
+@pytest.mark.parametrize("proposer", [None, ProposedBy(channel="factory", work_id="work"), ProposedBy(channel="owner_console")])
+async def test_nothing_activates_itself_not_even_the_count_a_delivery_used_to_record(proposer):
     work = delivered_work()
     repository = SimpleNamespace(work=AsyncMock(return_value=work), create_memory=AsyncMock(side_effect=lambda item, embedding: item))
-    request = MemoryCreate(project_id=work.project_id, kind="fact", content=verified_fact(work), source_commit=SOURCE,
-                           source_work_id=work.id, evidence_digest=work.evidence.snapshot_digest)
-    service = MemoryService(repository, SecretGuard())
-    assert (await service.propose(request)).active
-    assert not (await service.propose(request.model_copy(update=update))).active
+    # The exact text and shape that earlier versions activated on their own.
+    request = MemoryCreate(project_id=work.project_id, kind="fact", content=f"Commit {SOURCE}: 0 checks passed; snapshot {'b' * 64}.",
+                           source_commit=SOURCE, source_work_id=work.id, evidence_digest=work.evidence.snapshot_digest)
+    stored_item = await MemoryService(repository, SecretGuard()).propose(request, proposed_by=proposer)
+    assert not stored_item.active and stored_item.approved_at is None
 
 
 def stored(scope, source=SOURCE):

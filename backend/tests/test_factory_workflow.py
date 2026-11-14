@@ -432,8 +432,8 @@ async def test_delivery_after_a_repair_proposes_a_pending_repair_lesson(build_fa
     factory.memory.propose = record
     result = await factory.drive(repo.current.id)
     assert result.status == Status.COMPLETED and publisher.calls == ["commit", "publish"]
-    (fact, fact_by), (lesson, lesson_by) = proposals
-    assert fact.kind == "fact" and fact_by.role is None
+    # The lesson is the only record a delivery proposes: the count of passed checks stays in its evidence.
+    ((lesson, lesson_by),) = proposals
     assert lesson.kind == "lesson" and lesson.scope == "project" and lesson.citations == []
     assert lesson.source_commit == result.evidence.commit and lesson.source_work_id == result.id
     assert lesson.evidence_digest == result.evidence.snapshot_digest
@@ -443,7 +443,7 @@ async def test_delivery_after_a_repair_proposes_a_pending_repair_lesson(build_fa
     assert '"Resultado de developer"' in lesson.content
 
 
-async def test_delivery_without_repairs_proposes_only_the_delivery_fact(build_factory):
+async def test_delivery_without_repairs_writes_no_memory_by_itself(build_factory):
     factory, repo, *_ = build_factory()
     proposals = []
 
@@ -452,8 +452,10 @@ async def test_delivery_without_repairs_proposes_only_the_delivery_fact(build_fa
         return item
 
     factory.memory.propose = record
-    assert (await factory.drive(repo.current.id)).status == Status.COMPLETED
-    assert [item.kind for item in proposals] == ["fact"]
+    result = await factory.drive(repo.current.id)
+    assert result.status == Status.COMPLETED and proposals == []
+    # What the delivery verified is still on record, in its evidence.
+    assert result.evidence.commit and result.evidence.snapshot_digest
 
 
 async def test_a_blocked_lesson_never_holds_up_consolidation(build_factory):
@@ -617,7 +619,8 @@ async def test_agent_operational_limit_blocks_without_publication_or_automatic_r
 
 @pytest.mark.parametrize("progress_limits", [False, True])
 async def test_recovery_finishes_memory_and_cleanup_after_delivery_checkpoint(build_factory, monkeypatch, progress_limits):
-    factory, repo, _, executor, _, publisher = build_factory()
+    # A repaired delivery, so consolidation has a lesson to propose and can be interrupted there.
+    factory, repo, _, executor, _, publisher = build_factory(failures=1)
     if progress_limits:
         repo.current.budget = Budget(max_calls=None, max_tokens=None, active_seconds=None)
     fail_once = True

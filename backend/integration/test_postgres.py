@@ -15,7 +15,7 @@ from pydantic import SecretStr
 from sabre.api import create_app
 from sabre.artifacts import ArtifactStore
 from sabre.mcp_server import build_mcp
-from sabre.memory import MemoryService, verified_fact
+from sabre.memory import MemoryService
 from sabre.models import (
     Answer,
     Budget,
@@ -493,8 +493,10 @@ async def test_memory_provenance_approval_invalidation_and_hybrid_project_scope(
     with pytest.raises(DomainError, match="invalidated"):
         await service.update(pending.id, True)
     assert await service.search(project.id, "Compatibility", work.evidence.commit) == []
-    fact = await service.propose(request.model_copy(update={"kind": "fact", "content": verified_fact(work), "evidence_digest": work.evidence.snapshot_digest}))
-    assert fact.active
+    # The count of passed checks that earlier versions activated on their own is a proposal like any other.
+    count = f"Commit {work.evidence.commit}: {len(work.evidence.gates)} checks passed; snapshot {work.evidence.snapshot_digest}."
+    fact = await service.propose(request.model_copy(update={"kind": "fact", "content": count, "evidence_digest": work.evidence.snapshot_digest}))
+    assert not fact.active
     with pytest.raises(DomainError) as wrong:
         await service.propose(request.model_copy(update={"source_commit": "e" * 40}))
     assert wrong.value.code == "MEMORY_PROVENANCE"

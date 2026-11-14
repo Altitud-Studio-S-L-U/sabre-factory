@@ -44,7 +44,7 @@ The decision that matters is narrower: who runs the inner tool loop of the imple
 | G11 | The role pipeline is unmeasured | Seven specialists and several model stages, none justified by an ablation | [16](specs/16-evaluation.md) |
 | G12 | Console and plan leftovers | See "Left over from the previous plan" | Phase 0 and Phase 5 |
 | G13 | Work is sequential | One task at a time and no streaming; the console polls every five seconds | After G1 and G2: read-only parallel subagents first |
-| G14 | Memory fills, and nothing shows that it helps | Reading a repository proposes what its instruction files and manifests say, the owner can record knowledge against an indexed commit, and a run's specialists can propose records whether or not it delivers. No real run has used the tool yet, the one automatic record is never recalled, and nothing measures whether recall helps | [17](specs/17-memory-sources.md) |
+| G14 | Memory fills, and nothing shows that it helps | Reading a repository proposes what its instruction files and manifests say, the owner can record knowledge against an indexed commit, and a run's specialists can propose records whether or not it delivers. No real run has used the tool yet, and nothing measures whether recall helps | [17](specs/17-memory-sources.md) |
 
 ## Plan
 

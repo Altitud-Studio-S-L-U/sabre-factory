@@ -36,7 +36,6 @@ from sabre.models import (
     WorkOrder,
     memory_identity,
     new_id,
-    now,
 )
 from sabre.repository import digest
 
@@ -148,10 +147,6 @@ def memory_excerpt(item, query, limit):
         value["content"] = value["content"][:len(value["content"]) // 2]
 
 
-def verified_fact(work) -> str:
-    return f"Commit {work.evidence.commit}: {len(work.evidence.gates)} checks passed; snapshot {work.evidence.snapshot_digest}."
-
-
 class MemoryService:
     def __init__(self, repository, guard, embeddings=None):
         self.repository = repository
@@ -161,7 +156,6 @@ class MemoryService:
     async def propose(self, request: MemoryCreate, *, proposed_by: ProposedBy | None = None) -> MemoryItem:
         """``proposed_by`` names the calling entry point; it is never taken from the request body."""
         self.guard.check(request.model_dump())
-        verifiable = False
         if request.source_work_id is None:
             # Without a run the anchor is a commit the factory indexed for this project; its snapshot is the evidence.
             indexed = await self.repository.repository_index_digest(request.project_id, request.source_commit)
@@ -172,27 +166,20 @@ class MemoryService:
             work = await self.repository.work(request.source_work_id)
             if work.project_id != request.project_id:
                 raise DomainError("MEMORY_PROVENANCE", "Provenance does not match a project delivery")
-            if work.evidence and work.evidence.commit == request.source_commit:
-                # Recovery may queue a published order before replaying its final memory write.
-                delivered = work.status == "completed" or bool(work.evidence.branch and work.evidence.pr_url)
-                # Only the mechanically derived delivery fact activates itself, and it stays commit-scoped.
-                verifiable = (request.kind == "fact" and delivered and request.content == verified_fact(work)
-                              and request.evidence_digest == work.evidence.snapshot_digest and request.scope == "commit"
-                              and not request.citations and request.supersedes is None)
-            else:
-                # A run's own specialists record what they established at the commit the run started from, whether
-                # or not it delivers. Intake indexed that commit; its snapshot is the evidence.
+            if not work.evidence or work.evidence.commit != request.source_commit:
+                # Not a delivery: a run's own specialists record what they established at the commit the run
+                # started from, whether or not it delivers. Intake indexed that commit; its snapshot is the evidence.
                 from_run = (proposed_by is not None and proposed_by.channel == "factory" and proposed_by.work_id == work.id
                             and proposed_by.role in RUN_PROPOSERS)
                 indexed = await self.repository.repository_index_digest(request.project_id, request.source_commit) if from_run else None
                 if indexed is None or request.evidence_digest not in (None, indexed):
                     raise DomainError("MEMORY_PROVENANCE", "Provenance does not match a project delivery")
                 request = request.model_copy(update={"evidence_digest": indexed})
-        item = MemoryItem(**request.model_dump(), id=digest(memory_identity(request)), active=verifiable,
-                          approved_at=now() if verifiable else None, proposed_by=proposed_by)
+        # Nothing activates itself: whatever its source, a record waits for the owner.
+        item = MemoryItem(**request.model_dump(), id=digest(memory_identity(request)), active=False, proposed_by=proposed_by)
         # Factory consolidation and repository reads stay free of model calls, so their proposals are recalled lexically.
         mechanical = proposed_by is not None and proposed_by.channel in {"factory", "repository"}
-        embedding = await self.embeddings.aembed_query(item.content) if self.embeddings and not verifiable and not mechanical else None
+        embedding = await self.embeddings.aembed_query(item.content) if self.embeddings and not mechanical else None
         return await self.repository.create_memory(item, embedding)
 
     def proposer(self, work: WorkOrder, role: str, commit: str):
