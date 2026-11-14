@@ -603,3 +603,16 @@ async def test_repeated_idle_pause_records_a_single_event(repository):
     assert (await service.control(work.id, "pause")).status == Status.PAUSED
     assert (await service.control(work.id, "pause")).status == Status.PAUSED
     assert [event["kind"] for event in await repo.events(work.id)].count("paused") == 1
+
+
+async def test_the_run_list_reports_a_pending_pause_or_cancel_like_the_detail(repository):
+    repo, _, work = await fixture_work(repository)
+
+    async def listed():
+        return next(item for item in await repo.works() if item.id == work.id)
+
+    assert (await listed()).control is None
+    await repo.request_control(work.id, "pause")
+    assert (await listed()).control == "pause" == (await repo.work(work.id)).control
+    await repo.request_control(work.id, "cancel")
+    assert (await listed()).control == "cancel"

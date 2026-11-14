@@ -6,13 +6,12 @@ export default tseslint.config(
   { ignores: ['dist/**', 'src/api-schema.d.ts'] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
+  // Every hooks rule is an error, the compiler-oriented ones included: the screens they flagged have migrated.
   reactHooks.configs.flat['recommended-latest'],
   {
-    // Compiler-oriented rules stay visible as warnings until the screens they flag migrate
-    // (runs, supervisor and sections); rules-of-hooks remains an error.
     rules: {
-      'react-hooks/set-state-in-effect': 'warn',
-      'react-hooks/purity': 'warn',
+      'react-hooks/set-state-in-effect': 'error',
+      'react-hooks/purity': 'error',
     },
   },
   {

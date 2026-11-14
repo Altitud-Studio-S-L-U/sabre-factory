@@ -316,8 +316,14 @@ class Repository(MemoryStore):
 
     async def works(self) -> list[WorkOrder]:
         async with self.connection() as conn:
-            cursor = await conn.execute("SELECT data FROM work_orders ORDER BY updated_at DESC LIMIT 200")
-            return [WorkOrder.model_validate(row["data"]) async for row in cursor]
+            cursor = await conn.execute("SELECT data,control FROM work_orders ORDER BY updated_at DESC LIMIT 200")
+            works = []
+            async for row in cursor:
+                work = WorkOrder.model_validate(row["data"])
+                # The pending pause or cancel that the detail reports, so the list does not offer it again.
+                work.control = row["control"]
+                works.append(work)
+            return works
 
     async def save(self, work: WorkOrder):
         async with self.connection() as conn:

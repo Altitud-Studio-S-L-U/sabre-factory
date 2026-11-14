@@ -45,7 +45,7 @@ export default function MemoryLayers({ layers }: { layers: Layer[] }) {
           >
             <span className="flex items-center justify-between gap-2">
               <strong className="text-sm font-semibold">{layer.name}</strong>
-              <span className="rounded-full border border-border px-2 text-[0.6875rem] text-muted-foreground">
+              <span className="rounded-full border border-border px-2 text-xs text-muted-foreground">
                 {layer.scope}
               </span>
             </span>

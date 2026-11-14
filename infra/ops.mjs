@@ -460,6 +460,6 @@ if (action === 'init') {
 } else if (action === 'status') {
   await compose(['ps', '--all']);
 } else {
-  throw new Error('Use init, migrate-credentials, open, access-token, prepare-codex, prepare-claude, codex-login, claude-login, stop claude-runner, build [target], config, up [service], prepare, slack, telemetry, status or down');
+  throw new Error('Use init, migrate-credentials, open, access-token, prepare-codex, prepare-claude, codex-login, claude-login, stop claude-runner, build [target], config, up [service], prepare, slack, telemetry, logs [service], status or down');
 }
 }

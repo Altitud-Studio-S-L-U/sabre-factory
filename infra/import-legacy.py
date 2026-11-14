@@ -27,9 +27,9 @@ async def main():
 
     first, second = legacy.get("SABRE_MODEL_API_KEY", ""), legacy.get("OPENAI_API_KEY", "")
     if second and cfg.model_provider != "openai":
-        raise DomainError("LEGACY_SECRET_CONFLICT", "Una credencial OpenAI heredada no puede asignarse a otro proveedor", 409)
+        raise DomainError("LEGACY_SECRET_CONFLICT", "A legacy OpenAI credential cannot be assigned to another provider", 409)
     if first and second and first != second:
-        raise DomainError("LEGACY_SECRET_CONFLICT", "Existen credenciales heredadas diferentes para el mismo destino", 409)
+        raise DomainError("LEGACY_SECRET_CONFLICT", "The legacy configuration holds different credentials for the same destination", 409)
     add(model_secret_id(cfg), first or second)
     for role, override in roles.items():
         if "model_api_key" in override:
@@ -39,7 +39,7 @@ async def main():
                 add(identifier, value)
                 override["secret_ref"] = identifier if value else ""
         if "api_key" in override:
-            raise DomainError("LEGACY_SECRET_CONFLICT", "La configuración heredada usa un campo no reconocido", 409)
+            raise DomainError("LEGACY_SECRET_CONFLICT", "The legacy configuration uses a field this version does not recognize", 409)
     for name, server in servers.items():
         if "token" in server:
             value = server.pop("token")
@@ -67,5 +67,5 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except Exception:
-        print("No se completó la migración. Conserva la configuración heredada y revisa los permisos de la bóveda.", file=sys.stderr)
+        print("The migration did not complete. Keep the legacy configuration and check the vault permissions.", file=sys.stderr)
         raise SystemExit(1) from None

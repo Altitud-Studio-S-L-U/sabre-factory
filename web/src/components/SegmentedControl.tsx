@@ -36,7 +36,7 @@ export default function SegmentedControl<T extends string>({
           {option.count !== undefined && (
             <span
               aria-hidden="true"
-              className="rounded-full bg-muted px-1.5 text-[0.6875rem] text-muted-foreground tabular-nums"
+              className="rounded-full bg-muted px-1.5 text-xs text-muted-foreground tabular-nums"
             >
               {option.count}
             </span>

@@ -651,6 +651,15 @@ describe('Control room', () => {
     expect(writes).toEqual([]);
   });
 
+  it('shows a requested pause in the runs table instead of offering it again', async () => {
+    orders = [{ ...order, status: 'running', control: 'pause', questions: [] }];
+    mockApi();
+    await enter();
+    expect(within(runList()).getByText('Pause requested')).toBeVisible();
+    expect(within(runList()).queryByRole('button', { name: /^Pause run/ })).not.toBeInTheDocument();
+    expect(writes).toEqual([]);
+  });
+
   it('keeps failed runs in Open and lets them be reviewed outside Closed', async () => {
     orders = [
       {

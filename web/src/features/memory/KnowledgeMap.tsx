@@ -222,7 +222,7 @@ export default function KnowledgeMap({
                         x={(a.x + b.x) / 2}
                         y={(a.y + b.y) / 2 - 4}
                         textAnchor="middle"
-                        fontSize={11}
+                        fontSize={12}
                         fill="var(--color-muted-foreground)"
                         stroke="var(--background)"
                         strokeWidth={4}
@@ -257,7 +257,7 @@ export default function KnowledgeMap({
                       x={placement.x}
                       y={placement.y}
                       textAnchor={placement.anchor}
-                      fontSize={focused ? 13 : 11.5}
+                      fontSize={focused ? 13 : 12}
                       fontWeight={focused ? 600 : 400}
                       fill={focused ? 'var(--foreground)' : 'var(--color-muted-foreground)'}
                       stroke="var(--background)"
