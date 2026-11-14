@@ -152,3 +152,18 @@ async def test_recalls_without_a_run_are_not_logged():
     repository = SimpleNamespace(search_memory=AsyncMock(return_value=[]), has_embedded_memory=AsyncMock(return_value=False), record_memory_recall=record)
     await MemoryService(repository, SecretGuard()).context_for_role("project-one", "Objective", "Task", LATER, work=object())
     record.assert_not_awaited()
+
+
+async def test_a_recall_at_a_commit_without_an_index_says_so_in_the_log():
+    record = AsyncMock()
+    indexed = AsyncMock(return_value=False)
+    repository = SimpleNamespace(search_memory=AsyncMock(return_value=[]), has_embedded_memory=AsyncMock(return_value=False),
+                                 record_memory_recall=record, has_repository_index=indexed)
+    service = MemoryService(repository, SecretGuard())
+    work = SimpleNamespace(id="work-1", phase="analysis")
+    assert await service.context_for_role("project-one", "Keep empty input", "Inspect the parser", LATER, work=work, role="analyst") == []
+    indexed.assert_awaited_once_with("project-one", LATER)
+    assert record.await_args.args[0]["data"]["index_missing"] is True
+    indexed.return_value = True
+    await service.context_for_role("project-one", "Keep empty input", "Inspect the parser", LATER, work=work, role="analyst")
+    assert record.await_args.args[0]["data"]["index_missing"] is False

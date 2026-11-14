@@ -256,6 +256,10 @@ class MemoryService:
             return await self.embeddings.aembed_query(query, work=work)
         return None
 
+    async def _indexed(self, project_id: str, commit: str) -> bool:
+        checker = getattr(self.repository, "has_repository_index", None)
+        return await checker(project_id, commit) if checker is not None else True
+
     async def _record_recall(self, recall: dict):
         recorder = getattr(self.repository, "record_memory_recall", None)
         if recorder is not None and recall["work_id"] is not None:
@@ -285,6 +289,8 @@ class MemoryService:
             "commit": commit, "outcome": "recalled", "error_code": None, "memory_ids": [item.id for item in selected],
             "data": {"query_terms": terms[:MAX_RECALL_TERMS], "candidates": len(items), "omitted": len(items) - len(selected),
                      "bytes": encoded_size(result), "refused_memory_ids": [],
+                     # Without an index at this commit nothing recorded at another commit can be evaluated.
+                     "index_missing": not await self._indexed(project_id, commit),
                      "selected": [{"memory_id": item.id, "lexical_rank": getattr(item, "lexical_rank", None),
                                    "vector_rank": getattr(item, "vector_rank", None), "fused_score": getattr(item, "fused_score", None),
                                    "bytes": encoded_size(value), "truncated": value["truncated"]} for item, value in zip(selected, result, strict=True)]},

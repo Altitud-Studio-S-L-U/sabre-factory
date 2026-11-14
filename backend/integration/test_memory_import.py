@@ -148,3 +148,41 @@ async def test_a_failed_read_keeps_the_index_and_says_so_on_the_job(repository, 
     assert report.latest.source_commit == A and report.jobs[0].error_code == "MEMORY_IMPORT_FAILED"
     assert "synthetic failure" not in report.model_dump_json()
     assert (await memory.items(project.id)).items == []
+
+
+async def test_a_run_that_holds_the_project_indexes_its_own_checkout_and_recalls_the_projects_memory(repository, tmp_path):
+    ingestion, memory, repo, project, runner = await setup(repository, tmp_path)
+    _, _, work = await fixture_work(repository)
+    work = work.model_copy(update={"project_id": project.id})
+    files = {"AGENTS.md": guide(Verify="Run pytest before a pull request."), "src/app.py": "print('one')\n"}
+    await read(ingestion, project, runner, A, files)
+    statement = (await by_title(memory, project))["AGENTS.md › Verify"]
+    await memory.update(statement.id, True)
+
+    # The default branch moved on; the instruction file did not change.
+    runner.commit, runner.files = B, {**files, "src/app.py": "print('two')\n"}
+    checkout = await runner.snapshot("run-workspace")
+    prepared = runner.prepare.await_count
+    async with repo.project_lock(project.id) as acquired:
+        assert acquired
+        job = await ingestion.request(project.id, IngestionRequest(version=1, idempotency_key="intake:run:r1", expected_source_commit=B))
+        with pytest.raises(DomainError) as busy:
+            await ingestion.process(job.id)
+        assert busy.value.code == "PROJECT_BUSY"
+        # Without an index at the run's commit the approved record cannot be evaluated, and the log says why.
+        assert await memory.context_for_role(project.id, "Fix the parser", "Run pytest on the parser", B, work=work, role="analyst") == []
+        assert (await memory.recalls(project.id)).items[0].index_missing
+        recorded = await ingestion.record(job, checkout)
+        assert recorded.state == "completed" and recorded.source_commit == B and recorded.imported.unchanged == 1
+        recalled = await memory.context_for_role(project.id, "Fix the parser", "Run pytest on the parser", B, work=work, role="analyst")
+        assert [item["id"] for item in recalled] == [statement.id]
+        latest = (await memory.recalls(project.id)).items[0]
+        assert not latest.index_missing and [entry.memory_id for entry in latest.selected] == [statement.id]
+    # The queued job finds its work done and reads nothing again.
+    assert (await ingestion.process(job.id)).state == "completed" and runner.prepare.await_count == prepared
+    assert (await ingestion.report(project.id)).latest.source_commit == B
+
+    # A checkout at another commit than the one requested is not recorded; the job stays for the queue.
+    other = await ingestion.request(project.id, IngestionRequest(version=1, idempotency_key="intake:run:r2", expected_source_commit=C))
+    assert (await ingestion.record(other, checkout)).state == "queued"
+    assert (await ingestion.report(project.id)).latest.source_commit == B
