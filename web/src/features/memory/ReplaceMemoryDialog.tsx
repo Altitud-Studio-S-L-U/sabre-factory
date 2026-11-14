@@ -137,7 +137,14 @@ export default function ReplaceMemoryDialog({
           />
         </Field>
         <p className="text-xs text-muted-foreground">
-          Provenance stays the original’s: run <code className="font-mono">{item.source_work_id}</code> at
+          Provenance stays the original’s:{' '}
+          {item.source_work_id ? (
+            <>
+              run <code className="font-mono">{item.source_work_id}</code> at
+            </>
+          ) : (
+            'indexed'
+          )}{' '}
           commit <code className="font-mono">{item.source_commit.slice(0, 12)}</code>.
         </p>
         {error && (

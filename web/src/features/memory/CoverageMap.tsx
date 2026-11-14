@@ -52,8 +52,8 @@ export default function CoverageMap({
   if (!index || !root)
     return (
       <EmptyState as="h2" title="The repository has not been read yet">
-        Indexing reads the file paths, sizes and manifests of the default branch and makes no model call. Use
-        Index repository above; the map appears when it finishes.
+        Reading indexes the file paths, sizes and manifests of the default branch and makes no model call. Use
+        Read the repository above; the map appears when it finishes.
       </EmptyState>
     );
   const current = nodeAt(root, path);

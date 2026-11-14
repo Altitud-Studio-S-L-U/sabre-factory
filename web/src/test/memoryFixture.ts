@@ -26,6 +26,7 @@ export function memoryItem(overrides: Partial<MemoryListItem> = {}): MemoryListI
     created_at: '2026-11-10T10:00:00Z',
     approved_at: '2026-11-10T18:42:00Z',
     invalidated_at: null,
+    invalidated_as: null,
     proposed_by: { channel: 'factory', role: 'developer', work_id: 'synthetic-run' },
     state: 'active',
     validity: {
@@ -261,5 +262,69 @@ export function repositoryIndex(): NonNullable<IngestionReport['latest']> {
     previous_commit: null,
     validity: 'current_at_capture',
     untrusted: true,
+  };
+}
+
+/** A statement read from the repository: no run, anchored to the indexed commit it was read at. */
+export function repositoryStatement(overrides: Partial<MemoryListItem> = {}): MemoryListItem {
+  return memoryItem({
+    id: 'r31',
+    content: 'AGENTS.md › Verify\nRun `pytest -q` and `ruff check` before a pull request.',
+    source_commit: head,
+    source_work_id: null,
+    evidence_digest: 'd'.repeat(64),
+    citations: ['AGENTS.md#L12'],
+    active: false,
+    approved_at: null,
+    state: 'pending',
+    proposed_by: { channel: 'repository', role: 'instructions', work_id: null },
+    validity: {
+      commit: head,
+      state: 'unavailable',
+      reason: 'not_active',
+      changed_paths: [],
+      checked_at: null,
+    },
+    recall_count: 0,
+    last_recalled_at: null,
+    link_counts: { cites: 1, supersedes: 0, related: 0, overlaps: 0 },
+    ...overrides,
+  });
+}
+
+type ReadSummary = NonNullable<IngestionReport['jobs'][number]['imported']>;
+
+/** The ingestion report after one completed read of the repository. */
+export function repositoryRead(imported: Partial<ReadSummary> | null = {}): IngestionReport {
+  const index = repositoryIndex();
+  return {
+    version: 1,
+    project_id: 'synthetic-project',
+    latest: index,
+    jobs: [
+      {
+        version: 1,
+        id: 'synthetic-read',
+        project_id: 'synthetic-project',
+        index_version: 1,
+        state: 'completed',
+        source_commit: index.source_commit,
+        expected_source_commit: null,
+        created_at: '2026-11-10T07:39:00Z',
+        finished_at: '2026-11-10T07:40:00Z',
+        error_code: null,
+        error_message: null,
+        imported: imported && {
+          proposed: 3,
+          replaced: 0,
+          unchanged: 0,
+          declined: 0,
+          withdrawn: 0,
+          refused: 0,
+          omitted: 0,
+          ...imported,
+        },
+      },
+    ],
   };
 }

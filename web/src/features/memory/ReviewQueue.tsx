@@ -6,7 +6,7 @@ import Notice from '../../components/Notice';
 import { Badge } from '../../components/ui/badge';
 import { cn } from '../../lib/utils';
 import { message } from '../runs/shared';
-import { KindBadge, proposer, short } from './shared';
+import { anchor, headline, KindBadge, proposer, short } from './shared';
 
 /**
  * Proposals waiting for the owner, each compared with the memories it overlaps, and approved
@@ -31,6 +31,8 @@ export default function ReviewQueue({
   const [error, setError] = useState('');
   const selected = review.pending.find((entry) => entry.item.id === selectedId) ?? review.pending[0];
   const overlap = selected?.overlaps[0];
+  // A proposal that already names what it replaces supersedes it on a plain approval.
+  const replaces = selected?.item.supersedes ?? null;
   const act = async (run: () => Promise<unknown>, notice: string) => {
     if (busy || !connected) return;
     setBusy(true);
@@ -48,8 +50,9 @@ export default function ReviewQueue({
   if (!review.pending.length && !review.stale.length)
     return (
       <EmptyState as="h2" title="Nothing waiting for review">
-        Proposals from runs, the Supervisor or you appear here with any memory they overlap. Approved memories
-        whose cited files change appear here too.
+        What the repository says, the repair lessons of delivered runs and your own proposals wait here for
+        your decision, next to any memory they overlap. Approved memories whose cited files change appear here
+        too.
       </EmptyState>
     );
 
@@ -78,14 +81,16 @@ export default function ReviewQueue({
                       <button
                         type="button"
                         aria-pressed={active}
-                        aria-label={`Review proposal ${entry.item.content.slice(0, 60)}`}
+                        aria-label={`Review proposal ${headline(entry.item.content, 60)}`}
                         onClick={() => setSelectedId(entry.item.id)}
                         className={cn(
                           'grid w-full cursor-pointer gap-1.5 px-4 py-3 text-left hover:bg-hover/50',
                           active && 'bg-accent/15 shadow-[inset_3px_0_0_var(--primary)]',
                         )}
                       >
-                        <span className="line-clamp-2 text-sm font-medium">{entry.item.content}</span>
+                        <span className="line-clamp-2 text-sm font-medium whitespace-pre-line">
+                          {entry.item.content}
+                        </span>
                         <span className="text-xs text-muted-foreground">
                           {entry.item.kind === 'fact' ? 'Fact' : 'Lesson'} ·{' '}
                           {proposer(entry.item.proposed_by)}
@@ -176,7 +181,7 @@ export default function ReviewQueue({
                 <span className="text-xs text-muted-foreground">
                   {overlap ? 'Proposal against the memory it overlaps most' : 'Proposal'}
                 </span>
-                <h2 className="text-base font-semibold">{selected.item.content.slice(0, 120)}</h2>
+                <h2 className="text-base font-semibold">{headline(selected.item.content)}</h2>
               </div>
               <div className="flex flex-wrap gap-2">
                 <Button
@@ -206,7 +211,7 @@ export default function ReviewQueue({
                     Approve as related
                   </Button>
                 )}
-                {overlap && overlap.state === 'active' && (
+                {overlap && overlap.state === 'active' && overlap.memory_id !== replaces && (
                   <Button
                     size="sm"
                     disabled={busy || !connected}
@@ -227,11 +232,13 @@ export default function ReviewQueue({
                   onClick={() =>
                     void act(
                       () => api.approveMemory(selected.item.id, {}),
-                      'Memory approved with its recorded provenance.',
+                      replaces
+                        ? `Proposal approved. ${short(replaces)} is replaced and no longer recalled.`
+                        : 'Memory approved with its recorded provenance.',
                     )
                   }
                 >
-                  Approve
+                  {replaces ? `Approve and replace ${short(replaces)}` : 'Approve'}
                 </Button>
               </div>
             </div>
@@ -246,9 +253,15 @@ export default function ReviewQueue({
                 </span>
                 <p className="text-sm leading-relaxed whitespace-pre-wrap">{selected.item.content}</p>
                 <span className="text-xs text-muted-foreground">
-                  {proposer(selected.item.proposed_by)} · run {short(selected.item.source_work_id)} · commit{' '}
-                  {selected.item.source_commit.slice(0, 8)}
+                  {proposer(selected.item.proposed_by)} · {anchor(selected.item)}
+                  {selected.item.citations.length > 0 && ` · cites ${selected.item.citations.join(', ')}`}
                 </span>
+                {replaces && (
+                  <span className="text-xs text-muted-foreground">
+                    Replaces <code className="font-mono">{short(replaces)}</code> when you approve it; until
+                    then the earlier record keeps guiding runs.
+                  </span>
+                )}
               </article>
               {overlap && (
                 <article className="grid content-start gap-2 rounded-lg border border-primary/35 bg-primary/5 p-3">

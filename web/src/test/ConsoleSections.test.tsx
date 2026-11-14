@@ -362,10 +362,13 @@ it('queues real repository ingestion without claiming completion and displays re
     }),
   );
   render(<MemoryConsole api={createApi('synthetic-csrf')} projects={[project]} />);
-  await screen.findByRole('button', { name: 'Index repository' });
-  await user.click(screen.getByRole('button', { name: 'Index repository' }));
-  expect(await screen.findByRole('button', { name: 'Indexing queued' })).toBeDisabled();
-  expect(screen.getByText(/Indexing queued. Source admission scanning/)).toBeVisible();
+  await screen.findByRole('button', { name: 'Read the repository' });
+  expect(screen.getByText(/has not been read yet, so the factory knows nothing/)).toBeVisible();
+  await user.click(screen.getByRole('button', { name: 'Read the repository' }));
+  expect(await screen.findByRole('button', { name: 'Reading…' })).toBeDisabled();
+  expect(
+    screen.getByText(/Reading the repository. Admission scanning runs before anything is kept/),
+  ).toBeVisible();
   expect(writes).toHaveLength(1);
   expect(writes[0].version).toBe(1);
   expect(writes[0].idempotency_key).toMatch(/^operator:/);

@@ -9,7 +9,7 @@ import Notice from '../../components/Notice';
 import ReplaceMemoryDialog from './ReplaceMemoryDialog';
 import { message } from '../runs/shared';
 import { runPath } from '../runs/RunsTable';
-import { KindBadge, StateBadge, proposer, relative, short, validityReasons } from './shared';
+import { KindBadge, StateBadge, endings, proposer, relative, short, validityReasons } from './shared';
 
 function Step({ tone, children }: { tone: string; children: React.ReactNode }) {
   return (
@@ -116,22 +116,26 @@ export default function MemoryInspector({
             <h3 className="text-xs font-medium text-muted-foreground">Provenance</h3>
             <ol className="grid gap-2">
               <Step tone="var(--success)">Proposed by {proposer(detail.provenance.proposed_by)}</Step>
-              <Step tone="var(--info)">
-                From run{' '}
-                <Link to={runPath(detail.provenance.work_id)} className="hover:underline">
-                  {detail.provenance.work_objective ?? short(detail.provenance.work_id)}
-                </Link>
-                {detail.provenance.work_status
-                  ? ` · ${detail.provenance.work_status.replaceAll('_', ' ')}`
-                  : ''}
-              </Step>
+              {detail.provenance.work_id ? (
+                <Step tone="var(--info)">
+                  From run{' '}
+                  <Link to={runPath(detail.provenance.work_id)} className="hover:underline">
+                    {detail.provenance.work_objective ?? short(detail.provenance.work_id)}
+                  </Link>
+                  {detail.provenance.work_status
+                    ? ` · ${detail.provenance.work_status.replaceAll('_', ' ')}`
+                    : ''}
+                </Step>
+              ) : (
+                <Step tone="var(--info)">No run: recorded against the repository as indexed</Step>
+              )}
               <Step tone="var(--color-muted-foreground)">
                 At commit <code className="font-mono text-xs">{detail.provenance.commit.slice(0, 12)}</code>
                 {detail.provenance.evidence_digest ? ' · evidence digest retained' : ' · no evidence digest'}
               </Step>
               <Step tone="var(--primary)">
                 {detail.provenance.invalidated_at
-                  ? `Invalidated ${new Date(detail.provenance.invalidated_at).toLocaleString('en-US')}`
+                  ? `${endings[detail.item.invalidated_as ?? ''] ?? 'Invalidated'} · ${new Date(detail.provenance.invalidated_at).toLocaleString('en-US')}`
                   : detail.provenance.approved_at
                     ? `Approved ${new Date(detail.provenance.approved_at).toLocaleString('en-US')}`
                     : 'Waiting for your review'}

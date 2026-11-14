@@ -6,7 +6,8 @@ import {
   memoryItem,
   memoryRecalls,
   memoryReview,
-  repositoryIndex,
+  repositoryRead,
+  repositoryStatement,
 } from '../src/test/memoryFixture';
 import { configurationHistory, runtimeSettings } from '../src/test/runtimeFixture';
 
@@ -29,6 +30,7 @@ const sections = [
   { name: 'memory', path: '/memory', ready: 'Memory', tab: 'Knowledge map' },
   { name: 'memory-records', path: '/memory', ready: 'Memory', tab: 'Records' },
   { name: 'memory-review', path: '/memory', ready: 'Memory', tab: 'Review queue' },
+  { name: 'memory-review-repository', path: '/memory', ready: 'Memory', tab: 'Review queue' },
   { name: 'memory-recalls', path: '/memory', ready: 'Memory', tab: 'Recall log' },
   { name: 'config', path: '/config', ready: 'Config' },
   { name: 'config-access', path: '/config?section=access', ready: 'Paired browsers' },
@@ -111,35 +113,19 @@ test.describe('gallery', () => {
         },
       }),
     );
-    // The repository as indexed, so the repository map has something to draw.
+    // The repository as read: the map has something to draw and the status says what the read proposed.
     await page.route('**/api/v1/projects/*/ingestion', (route) =>
-      route.fulfill({
-        json: {
-          version: 1,
-          project_id: 'synthetic-project',
-          jobs: [
-            {
-              version: 1,
-              id: 'synthetic-ingestion',
-              project_id: 'synthetic-project',
-              index_version: 1,
-              state: 'completed',
-              source_commit: repositoryIndex().source_commit,
-              expected_source_commit: null,
-              created_at: '2026-11-10T07:39:00Z',
-              finished_at: '2026-11-10T07:40:00Z',
-              error_code: null,
-              error_message: null,
-            },
-          ],
-          latest: repositoryIndex(),
-        },
-      }),
+      route.fulfill({ json: repositoryRead({ proposed: 1, unchanged: 4 }) }),
     );
     // Realistic project memory so the knowledge map, review queue and recall log can be reviewed.
     await page.route('**/api/v1/projects/*/memory/graph*', (route) => route.fulfill({ json: memoryGraph() }));
     await page.route('**/api/v1/projects/*/memory/review', (route) =>
-      route.fulfill({ json: memoryReview() }),
+      route.fulfill({
+        json: {
+          ...memoryReview(),
+          pending: [...memoryReview().pending, { item: repositoryStatement(), overlaps: [] }],
+        },
+      }),
     );
     await page.route('**/api/v1/projects/*/memory/recalls*', (route) =>
       route.fulfill({ json: memoryRecalls() }),
@@ -239,6 +225,8 @@ test.describe('gallery', () => {
         await page.getByRole('button', { name: "Memory: Discount uses banker's rounding" }).click();
       if (section.name === 'projects-archived')
         await page.getByRole('checkbox', { name: /Show archived/ }).check();
+      if (section.name === 'memory-review-repository')
+        await page.getByRole('button', { name: 'Review proposal AGENTS.md › Verify' }).click();
       if (section.name === 'memory-records')
         await page.getByRole('button', { name: 'Inspect memory m27' }).click();
       await page.waitForLoadState('networkidle');

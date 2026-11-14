@@ -8,7 +8,14 @@ import MemoryInspector from '../features/memory/MemoryInspector';
 import ReviewQueue from '../features/memory/ReviewQueue';
 import RecallLog from '../features/memory/RecallLog';
 import MemoryRecords from '../features/memory/MemoryRecords';
-import { memoryDetail, memoryGraph, memoryItem, memoryRecalls, memoryReview } from './memoryFixture';
+import {
+  memoryDetail,
+  memoryGraph,
+  memoryItem,
+  memoryRecalls,
+  memoryReview,
+  repositoryStatement,
+} from './memoryFixture';
 
 function stub(routes: Record<string, unknown>) {
   const calls: { path: string; method: string; body: unknown }[] = [];
@@ -136,6 +143,39 @@ it('compares a proposal with the memory it overlaps and approves it as a replace
   expect(onChanged).toHaveBeenCalledWith(expect.stringContaining('superseded'));
   const stale = screen.getByRole('region', { name: /Needs revalidation/ });
   expect(within(stale).getByText(/src\/limits.py changed/)).toBeVisible();
+});
+
+it('reviews a statement read from the repository that replaces an earlier record', async () => {
+  const user = userEvent.setup();
+  const calls = stub({ '/memory/r31/approve': repositoryStatement({ active: true, state: 'active' }) });
+  const onChanged = vi.fn();
+  const review = memoryReview();
+  render(
+    <ReviewQueue
+      api={api()}
+      review={{
+        ...review,
+        stale: [],
+        pending: [{ item: repositoryStatement({ supersedes: 'm27' }), overlaps: review.pending[0].overlaps }],
+      }}
+      connected
+      onChanged={onChanged}
+      onInspect={vi.fn()}
+    />,
+  );
+  // The title of a statement names the queue entry; the text below is the file's own.
+  expect(screen.getByRole('button', { name: 'Review proposal AGENTS.md › Verify' })).toBeVisible();
+  const comparison = screen.getByRole('region', { name: 'Proposal comparison' });
+  expect(within(comparison).getByRole('heading', { name: 'AGENTS.md › Verify' })).toBeVisible();
+  expect(
+    within(comparison).getByText('Repository · instructions · indexed commit 5be10d70 · cites AGENTS.md#L12'),
+  ).toBeVisible();
+  expect(within(comparison).getByText(/until then the earlier record keeps guiding runs/)).toBeVisible();
+  // One decision replaces the earlier record: no second button offers the same thing.
+  expect(within(comparison).queryByRole('button', { name: /Approve and supersede/ })).not.toBeInTheDocument();
+  await user.click(within(comparison).getByRole('button', { name: 'Approve and replace m27' }));
+  expect(calls.at(-1)).toEqual({ path: '/memory/r31/approve', method: 'POST', body: {} });
+  expect(onChanged).toHaveBeenCalledWith('Proposal approved. m27 is replaced and no longer recalled.');
 });
 
 it('keeps every review decision disabled while disconnected', () => {
