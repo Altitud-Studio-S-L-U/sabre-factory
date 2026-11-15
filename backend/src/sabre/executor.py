@@ -30,6 +30,7 @@ from pydantic import Field
 
 from sabre.browser_contracts import BrowserJob
 from sabre.browser_qa import BrowserRunner
+from sabre.framework import TELEMETRY_OFF
 from sabre.logs import log
 from sabre.models import Contract, DomainError, Project, SecurityFinding
 from sabre.private_credentials import fetch_credentials
@@ -998,7 +999,7 @@ class ExecutorClient:
         await self.client.aclose()
 
 
-app = FastAPI(title="SABRE executor", docs_url=None, redoc_url=None)
+app = FastAPI(title="SABRE executor", docs_url=None, redoc_url=None, telemetry=TELEMETRY_OFF)
 _broker: DockerBroker | None = None
 
 
