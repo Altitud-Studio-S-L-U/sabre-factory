@@ -16,6 +16,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
+from sabre.cli_protocol import status_failure
 from sabre.codex_model import (
     INVOCATION_TIMEOUT_S,
     MAX_INPUT_BYTES,
@@ -211,19 +212,6 @@ async def capture_process(args: list[str], *, env: dict[str, str], cwd: str, std
             raise asyncio.CancelledError
 
 
-def failure_of(status: int) -> str | None:
-    """The class of an HTTP status, as the factory classifies any provider's."""
-    if status == 429:
-        return "rate_limit"
-    if status in (401, 403):
-        return "authentication"
-    if status == 408:
-        return "timeout"
-    if status >= 500:
-        return "overloaded"
-    return "invalid_request" if status >= 400 else None
-
-
 def turn_failure(raw: bytes) -> DomainError | None:
     """The failure the CLI reported for its turn, as an error of the bridge; None when it named none this bridge knows."""
     message = None
@@ -240,7 +228,7 @@ def turn_failure(raw: bytes) -> DomainError | None:
     failure = None
     status = FAILED_STATUS.match(message)
     if status:
-        failure = failure_of(int(status.group(1)))
+        failure = status_failure(int(status.group(1)))
     elif message.startswith(USAGE_LIMIT):
         failure = "rate_limit"
     elif message.startswith(HIGH_DEMAND):

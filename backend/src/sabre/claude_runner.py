@@ -23,6 +23,7 @@ from sabre.claude_model import (
     ClaudeInvocationResponse,
     read_bridge_token,
 )
+from sabre.cli_protocol import status_failure
 from sabre.codex_model import AssistantEnvelope, InvocationRequest
 from sabre.codex_runner import capture_process as capture_bounded_process
 from sabre.framework import TELEMETRY_OFF
@@ -107,20 +108,37 @@ async def capture_process(args, **kwargs):
             error.message.replace("Codex", "Claude"), error.status_code) from None
 
 
-def execution_failure(result: dict) -> DomainError:
-    """Name a rate or usage limit, or an overload, when the CLI's own result says so.
+EXECUTION_FAILURES = {
+    "rate_limit": ("CLAUDE_RATE_LIMITED", "Claude reported a rate or usage limit"),
+    "overloaded": ("CLAUDE_OVERLOADED", "Claude reported that the service is overloaded"),
+    "authentication": ("CLAUDE_ACCESS_DENIED", "The provider refused the Claude session or its access"),
+    "invalid_request": ("CLAUDE_REQUEST_REJECTED", "The provider rejected the request Claude sent"),
+    "timeout": ("CLAUDE_TIMEOUT", "The Claude invocation timed out"),
+}
 
-    The CLI does not retry (CLAUDE_CODE_MAX_RETRIES is 0), so these reach the factory, which decides
-    whether to call again. The text is only searched for a few markers and never leaves this function.
+
+def execution_failure(result: dict) -> DomainError:
+    """Name the failure the CLI's own result reports for the provider.
+
+    The CLI states the HTTP status it met, and that status decides: a limit, an overload, a session or
+    access the provider refused, a request it rejected. With CLAUDE_CODE_MAX_RETRIES at 0 the CLI does
+    not ride out a limit or an overload, so those reach the factory, which decides whether to call
+    again. Only a result without a status is searched for a few markers of a limit or an overload, and
+    its text never leaves this function.
     """
     status = result.get("api_error_status")
-    text = result.get("result")
-    text = text[:4000].casefold() if isinstance(text, str) else ""
-    if status == 429 or any(marker in text for marker in ("rate limit", "rate_limit", "usage limit", "429")):
-        return DomainError("CLAUDE_RATE_LIMITED", "Claude reported a rate or usage limit", 503)
-    if (type(status) is int and 500 <= status <= 599) or any(marker in text for marker in ("overloaded", "529", "internal server error")):
-        return DomainError("CLAUDE_OVERLOADED", "Claude reported that the service is overloaded", 503)
-    return DomainError("CLAUDE_EXECUTION_FAILED", "Claude reported an invocation failure", 503)
+    if type(status) is int and 400 <= status <= 599:
+        failure = status_failure(status)
+    else:
+        text = result.get("result")
+        text = text[:4000].casefold() if isinstance(text, str) else ""
+        failure = None
+        if any(marker in text for marker in ("rate limit", "rate_limit", "usage limit", "429")):
+            failure = "rate_limit"
+        elif any(marker in text for marker in ("overloaded", "529", "internal server error")):
+            failure = "overloaded"
+    code, message = EXECUTION_FAILURES.get(failure or "", ("CLAUDE_EXECUTION_FAILED", "Claude reported an invocation failure"))
+    return DomainError(code, message, 503)
 
 
 def reported_cost(result: dict) -> float | None:
