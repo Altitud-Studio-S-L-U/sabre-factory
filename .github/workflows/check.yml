@@ -74,6 +74,30 @@ jobs:
       - run: pnpm --dir web test:browser
       - run: pnpm --dir web build
 
+  console:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          node-version: "24.22.2"
+      - run: npm install --global --ignore-scripts pnpm@11.19.0
+      - run: pnpm --dir web install --frozen-lockfile
+      - run: pnpm --dir web exec playwright install --with-deps chromium
+      - name: Build the application and its database
+        run: |
+          node infra/ops.mjs init
+          node infra/ops.mjs build postgres
+          node infra/ops.mjs build api
+      - name: Console journeys against the application, without a model provider
+        run: |
+          node infra/qa.mjs up
+          node infra/qa.mjs check
+      - name: Remove the isolated fixture
+        if: always()
+        run: node infra/qa.mjs down
+
   launcher:
     strategy:
       fail-fast: false
@@ -90,7 +114,7 @@ jobs:
         run: node --test infra/*.test.mjs
 
   candidate:
-    needs: [backend, web, launcher]
+    needs: [backend, web, console, launcher]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
