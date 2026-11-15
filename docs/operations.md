@@ -65,6 +65,10 @@ Each agent invocation retains LangGraph's 50-step limit and a ten-minute deadlin
 
 API, compatible-endpoint and embedding calls cannot borrow this authorization: work reservations without a verified CLI receipt require explicit cumulative quotas. A later provider change to an API blocks before sending rather than silently running without a budget. Existing bounded orders retain their limits; cumulative-limit increase commands reject an already unbounded CLI policy instead of resetting it.
 
+### Model providers
+
+An API provider (OpenAI, Anthropic, Google or a local OpenAI-compatible endpoint) is configured entirely in Config › Models: choose it, store its key in the write-only field and name an explicit model. It is the path for anything shared or run for others. The two CLI runners below are an alternative for the owner's own machine: each signs a vendor's CLI in with a personal account, inside its own isolated container. Whether a plan allows that use is for the owner to check with the vendor.
+
 ### Codex subscription runner
 
 For an existing installation, run `node bin/sabre.mjs prepare-codex`, build `api` and `codex-runner`, set `SABRE_MODEL_PROVIDER=codex_cli` in `.env`, and run `up`. Select an explicit model name in Config › Models before launching a flow. Run `node bin/sabre.mjs codex-login` in the owner's terminal and complete the official device flow. Authentication lives in a dedicated protected volume. Neither setup nor SABRE reads the owner's interactive Codex home. The runner has no Docker socket, project mounts, database credential, GitHub credential or vault master key. Only the control services share its private bridge token.

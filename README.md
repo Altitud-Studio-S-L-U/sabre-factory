@@ -4,6 +4,10 @@ A local software factory for Python and JavaScript/TypeScript projects. Define a
 
 SABRE runs on your machine with your credentials. LangGraph owns recoverable execution; the panel, MCP tools and Slack use the same application service. Merge and deployment remain separate decisions.
 
+## Status
+
+Experimental and unreleased. What is tested is the control plane: durable and resumable runs, budgets with reserves, the command sandbox, security gates, owner confirmations, and the console, which a browser suite exercises against the real API. What is not proven is the work itself: no run with a real model has delivered a pull request, and the GitHub connection has only met a synthetic GitHub. Only Windows with Docker Desktop has been exercised. [The roadmap](docs/roadmap.md) lists every gap and the bar for a public release, and [the threat model](docs/threat-model.md) says what is defended and what is not.
+
 ## Start
 
 Install Node.js 24 or later and a local Linux Docker engine with Compose. Use Docker Desktop on Windows or macOS, or Docker Engine on Linux. No dedicated WSL distribution is required.
@@ -21,7 +25,7 @@ node bin/sabre.mjs up
 
 `init` creates protected, service-specific bootstrap files and a master key in Docker volumes. The ignored `.env` contains public configuration. API keys entered in the write-only panel are encrypted in a separate PostgreSQL vault. Coding and verification containers receive no integration credentials.
 
-Connect an official Codex or Claude CLI session with `codex-login` or `claude-login`. Choose the factory default in Config and explicit role overrides in Agents; API credentials and external connections are managed in Tools. Select explicit model names, approved destinations, prices and limits. Add a repository in Runs › Projects › Add project (from GitHub, by address or as a new repository) with its real verification commands, then launch a flow. See [operations](docs/operations.md) for login, isolation, backup and recovery.
+Connect a model in Config › Models. An API provider (OpenAI, Anthropic, Google, or a local OpenAI-compatible endpoint) is the path this guide assumes: its key is entered in the write-only panel and stored encrypted. A Codex or Claude CLI session (`codex-login`, `claude-login`) is an alternative for your own machine only: it signs the vendor's CLI in with your personal account inside an isolated runner, and it is not meant for anything you share or run for others. Whether your plan allows that use is for you to check with the vendor; the factory cannot. Choose the factory default in Config and explicit role overrides in Agents; external connections are managed in Tools. Select explicit model names, approved destinations, prices and limits. Add a repository in Runs › Projects › Add project (from GitHub, by address or as a new repository) with its real verification commands, then launch a flow. See [operations](docs/operations.md) for login, isolation, backup and recovery.
 
 The Supervisor conversation is available throughout the authenticated panel and through owner MCP tools. Messages are durable and read-only by default. Grant individual action tools per message when you want the Supervisor to act; run-scoped conversations cannot modify another run. Replies use the control worker independently of execution. Each new message pins its published Supervisor definition. Conversation, run coordination and independent judging retain separate contexts. A blocked message retains its checkpoint and can be explicitly reconciled and resumed.
 
@@ -63,9 +67,10 @@ pnpm --dir web test
 pnpm --dir web exec playwright install chromium
 pnpm --dir web test:browser
 pnpm --dir web build
+node bin/sabre.mjs build api && node infra/qa.mjs up && node infra/qa.mjs check; node infra/qa.mjs down
 ```
 
-Backend checks run in pinned containers. PostgreSQL integration and recovery checks require the isolated development network; see the operations guide. Dependency updates retain a seven-day release-age policy. Required checks must pass against the exact candidate commit.
+Backend checks run in pinned containers. `pnpm test:browser` answers every request from a mock; `node infra/qa.mjs check` runs the console against the real API and a real PostgreSQL on an isolated fixture, without a model provider. PostgreSQL integration and recovery checks require the isolated development network; see the operations guide. Dependency updates retain a seven-day release-age policy. Required checks must pass against the exact candidate commit.
 
 The target host matrix is Windows 11 x64, Linux x64/arm64, and macOS Intel/Apple Silicon. Images support Linux amd64/arm64. An image build or launcher test alone does not establish full host compatibility. A public release requires installation, execution, restart and restore evidence on every advertised host; that validation is not yet complete.
 
