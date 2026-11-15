@@ -322,3 +322,53 @@ async def test_without_the_factorys_own_cache_point_the_default_model_would_neve
     assert [message["role"] for message in request["messages"]] == ["user", "system"]
     assert not any(part == "message 0" for part, _ in cache_points(request))
     assert ("message 1", len(request["messages"][1]["content"]) - 1) in cache_points(request)
+
+
+@pytest.mark.parametrize("model,effort,sent", [
+    # The factory's default model takes every level; without one this CLI asks for medium.
+    (DEFAULT_MODEL, None, "medium"), (DEFAULT_MODEL, "low", "low"), (DEFAULT_MODEL, "medium", "medium"),
+    (DEFAULT_MODEL, "high", "high"), (DEFAULT_MODEL, "xhigh", "xhigh"), (DEFAULT_MODEL, "max", "max"),
+    # The CLI decides by model: another default, and a level this model does not have is lowered to one it has.
+    ("claude-sonnet-4-6", None, "high"), ("claude-sonnet-4-6", "xhigh", "high"),
+    # A model without the setting is asked for none, whatever the factory names.
+    ("claude-haiku-4-5", None, None), ("claude-haiku-4-5", "high", None),
+])
+async def test_the_effort_given_to_the_cli_is_what_the_provider_is_asked_for_where_the_model_takes_it(tmp_path, model, effort, sent):
+    """The factory's setting reaches the request as the CLI's own flag, and the rest of the request stays as it was."""
+
+    async def call(name, level):
+        home = tmp_path / f"home-{name}"
+        home.mkdir(mode=0o700)
+        requests = []
+        server, thread = synthetic_provider(requests)
+        environment = ClaudeRunner(home).environment()
+        environment.update({"ANTHROPIC_API_KEY": "synthetic-not-a-credential", "ANTHROPIC_BASE_URL": f"http://127.0.0.1:{server.server_port}"})
+        arguments = [*cli_arguments(), "--model", model, *(["--effort", level] if level else [])]
+        try:
+            with turn_directory() as directory:
+                code, stdout, _ = await capture_process(arguments, env=environment, cwd=directory, stdin=cli_input(["Return the synthetic envelope\n"]),
+                    timeout=45, maximum_output=STREAM_OUTPUT_BYTES)
+        finally:
+            server.shutdown()
+            thread.join(timeout=2)
+            server.server_close()
+        assert code == 0 and len(requests) == 1
+        assert parse_result(stdout, exit_code=code).result.content == "synthetic completed"
+        return requests[0]
+
+    def unlevelled(value):
+        if isinstance(value, list):
+            return [unlevelled(item) for item in value]
+        return {key: unlevelled(item) for key, item in value.items() if key != "output_config"} if isinstance(value, dict) else value
+
+    asked = await call("asked", effort)
+    assert asked["model"] == model and asked.get("output_config") == ({"effort": sent} if sent else None)
+    assert offered_tools(asked) == ["StructuredOutput"]
+    # Where the CLI repeats the level on the message it adds after the prompt, it is the same level.
+    assert all(message.get("output_config", {"effort": sent}) == {"effort": sent} for message in asked["messages"])
+    if effort:
+        # The level is the only thing that moves: the same system, tools, prompt and text after it.
+        # Whether the provider keeps what it cached for a conversation across a change of level was not observed.
+        plain = await call("plain", None)
+        for part in ("system", "tools", "messages", "max_tokens", "thinking"):
+            assert unlevelled(asked.get(part)) == unlevelled(plain.get(part)), part

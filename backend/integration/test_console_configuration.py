@@ -141,6 +141,45 @@ async def test_launch_pins_effective_flow_context_and_same_model_revision_across
     assert (await models.snapshot())[1].default.name == "later-model"
 
 
+async def test_an_effort_saved_with_a_model_is_read_back_and_is_what_a_launch_pins_for_each_phase(configuration_service):
+    from sabre.model_providers import chat_model
+    from sabre.model_selection import DESTINATIONS, ModelSelection
+
+    service, models, owner = configuration_service
+    revision, configuration = await service.snapshot()
+    careful = ModelSelection(provider="claude_cli", name="claude-fixture", destination=DESTINATIONS["claude_cli"], effort="high")
+    configuration.models.default = careful
+    configuration.models.roles["qa"] = careful.model_copy(update={"effort": "low"})
+    # A role with its own selection and no level: the provider decides, whatever the default names.
+    configuration.models.roles["security"] = careful.model_copy(update={"effort": None})
+    await service.save(save_request(revision, configuration))
+    assert (await service.snapshot())[1].models == configuration.models
+    # What is stored names a level only where one was chosen.
+    async with service.repository.connection() as conn:
+        stored = (await (await conn.execute("SELECT data FROM model_configuration")).fetchone())["data"]
+    assert (stored["default"]["effort"], stored["roles"]["qa"]["effort"]) == ("high", "low")
+    assert "effort" not in stored["roles"]["security"]
+    # A process that starts later with another seed gives each role the level it was saved with.
+    seed = Settings(database_url="postgresql://unused", auth_token="synthetic-test-token-000000", executor_token="synthetic-executor-token-000",
+                    model_provider="openai", model_name="seed-model")
+    reader = ModelConfigurationService(service.repository, seed, SecretGuard())
+    cfg = reader.configured(*await reader.snapshot())
+    assert [cfg.for_role(role).model_effort for role in ("developer", "qa", "security")] == ["high", "low", None]
+    assert [chat_model(cfg.for_role(role)).effort for role in ("developer", "qa", "security")] == ["high", "low", ""]
+    # A launch pins the level of each phase, and an edit made afterwards does not reach that run.
+    request = WorkOrderCreate(project_id="p", mode="patch", objective="Correct behavior", acceptance=["Correct output"], budget=Budget(), idempotency_key="pinned-effort-request")
+    work, resolved_request = await prepare_run_configuration(owner, WorkOrder(**request.model_dump()), request)
+    current_revision, data = await models.snapshot()
+    changed = data.model_copy(deep=True)
+    changed.default.effort = "max"
+    await models.change(ModelConfigurationChange(**changed.model_dump(), expected_revision=current_revision, approved_destinations=[changed.default.destination]))
+    assert (await models.snapshot())[1].default.effort == "max"
+    credentials = SimpleNamespace(vault=SimpleNamespace(list_metadata=AsyncMock(return_value=[])))
+    resolved = await resolve_flow(resolved_request.flow_config, "patch", models, credentials, model_snapshot=pinned_models(work))
+    assert {phase: binding.model.effort for phase, binding in resolved.phases.items()} == {
+        "analysis": "high", "planning": "high", "implementation": "high", "verification": "low", "review": "high", "security": None}
+
+
 async def test_configured_github_credential_is_not_claimed_as_verified_repository_readiness(configuration_service):
     service, _, owner = configuration_service
     owner.integrations = lambda: SimpleNamespace(list=AsyncMock(return_value=[SimpleNamespace(id="github.publish", enabled=True, credential_configured=True)]))

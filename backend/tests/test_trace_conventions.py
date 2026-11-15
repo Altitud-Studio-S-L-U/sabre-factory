@@ -81,7 +81,7 @@ async def test_a_run_writes_both_vocabularies_on_its_spans_and_no_content(record
     with span("factory.work", work_id=work.id):
         await AgentTeam(config, AgentRepository(), Executor(), SecretGuard(), model_factory=lambda: model).run("developer", work, project, "Implement the private task")
         settings = priced(agent_fixture()[2])
-        settings.model_provider, settings.model_name = "claude_cli", "claude-opus-5-5"
+        settings.model_provider, settings.model_name, settings.model_effort = "claude_cli", "claude-opus-5-5", "high"
         cached = GuardedCalls(AgentRepository(), settings, work, SecretGuard(), role="analyst")
         await cached.awrap_model_call(fixture_request(), AsyncMock(return_value=cached_answer(1_000)))
     spans = recorded.get_finished_spans()
@@ -111,6 +111,8 @@ async def test_a_run_writes_both_vocabularies_on_its_spans_and_no_content(record
     assert plain.attributes["sabre.cache_read_tokens"] == 0
     assert "gen_ai.usage.cache_read.input_tokens" not in plain.attributes and "gen_ai.usage.cache_write.input_tokens" not in plain.attributes
     assert "gen_ai.conversation.compacted" not in plain.attributes
+    # No effort was named for this call, so none is recorded: the factory does not know what the provider chose.
+    assert "sabre.model_effort" not in plain.attributes
 
     session = next(item for item in calls if item.attributes["gen_ai.request.model"] == "claude-opus-5-5")
     # A CLI session is named by the vendor it reaches; cached input is part of the input, as the convention asks.
@@ -119,6 +121,8 @@ async def test_a_run_writes_both_vocabularies_on_its_spans_and_no_content(record
     assert session.attributes["gen_ai.usage.cache_read.input_tokens"] == 600
     assert session.attributes["gen_ai.usage.cache_write.input_tokens"] == 200
     assert session.attributes["gen_ai.conversation.id"] == work.id
+    # The effort the factory named is written under the factory's own name, and under no other.
+    assert session.attributes["sabre.model_effort"] == "high" and not [name for name in session.attributes if "effort" in name and name != "sabre.model_effort"]
 
     assert all(key.startswith(STANDARD) for item in spans for key in item.attributes), sorted(
         {key for item in spans for key in item.attributes if not key.startswith(STANDARD)})

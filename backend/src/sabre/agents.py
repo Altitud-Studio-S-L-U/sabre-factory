@@ -324,7 +324,8 @@ class GuardedCalls(AgentMiddleware):
         if self.context_archive:
             self.context_archive.acknowledge()
         observation.set(reserved_tokens=input_bound + output_bound, reserved_usd=reserve, invocation_kind="cli_invocation" if cli else "provider_call",
-                        model_provider=provider, model_name=getattr(self.settings, "model_name", None), max_output_tokens=output_bound)
+                        model_provider=provider, model_name=getattr(self.settings, "model_name", None), max_output_tokens=output_bound,
+                        model_effort=getattr(self.settings, "model_effort", None))
         # Unknown outcomes retain the reservation: a lost response does not imply a free request.
         # A rate limit, an overload or a timeout is tried again inside this same reservation.
         started = [time.perf_counter()]

@@ -5050,6 +5050,8 @@ export interface components {
              * @default 4096
              */
             max_output_tokens: number;
+            /** Effort */
+            effort?: ("low" | "medium" | "high" | "xhigh" | "max") | null;
         };
         /** ModelSelection */
         "ModelSelection-Output": {
@@ -5084,6 +5086,8 @@ export interface components {
              * @default 4096
              */
             max_output_tokens: number;
+            /** Effort */
+            effort?: ("low" | "medium" | "high" | "xhigh" | "max") | null;
         };
         /** NumberSetting */
         NumberSetting: {

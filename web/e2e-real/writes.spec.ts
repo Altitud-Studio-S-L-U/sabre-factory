@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { connected, unique, watch } from './fixture';
+import { connected, unique, violations, watch } from './fixture';
 
 // What an owner changes on a new instance, sent to the real application and read back from it.
 // Each journey leaves the fixture as it found it; none starts work or reaches another service.
@@ -39,6 +39,64 @@ test('the default model is chosen, saved by the application and cleared again', 
   await page.reload();
   await connected(page);
   await expect(name).toHaveValue(original);
+  watched.clean();
+});
+
+test('a reasoning effort is saved with the default model, read back and put back', async ({ page }) => {
+  const watched = watch(page);
+  await page.goto('/config?section=models');
+  await connected(page);
+  const provider = page.getByRole('combobox', { name: 'Model provider' });
+  const name = page.getByRole('textbox', { name: 'Model identifier' });
+  const effort = page.getByRole('combobox', { name: 'Reasoning effort' });
+  const advanced = page.getByText('Advanced model settings');
+  const save = async (changed: string) => {
+    await page.getByRole('button', { name: 'Validate & preview' }).click();
+    await expect(page.getByText('Schema validated')).toBeVisible();
+    await expect(page.getByRole('cell', { name: changed, exact: true })).toBeVisible();
+    await page.getByLabel('I approve the listed model data destinations for this configuration.').check();
+    await page.getByRole('button', { name: 'Save configuration' }).click();
+    await expect(
+      page.getByRole('status').filter({ hasText: 'Configuration saved for future runs' }),
+    ).toBeVisible();
+  };
+  await advanced.click();
+  const found = {
+    provider: await provider.inputValue(),
+    name: await name.inputValue(),
+    effort: (await effort.count()) ? await effort.inputValue() : '',
+  };
+  // A run that was interrupted leaves its own name behind: that is not a state to put back.
+  const original = found.name.startsWith('journey-') ? { ...found, name: '', effort: '' } : found;
+
+  await provider.selectOption('claude_cli');
+  await name.fill(`journey-effort-${Date.now().toString(36)}`);
+  const chosen = await name.inputValue();
+  await effort.selectOption('high');
+  const effective = page.getByRole('complementary', { name: 'What the factory will use' });
+  await expect(effective.getByText('High', { exact: true })).toBeVisible();
+  expect(await violations(page)).toEqual([]);
+  await save('models.default.effort');
+
+  // The application holds the level: a reload reads it back with the model it belongs to.
+  await page.reload();
+  await connected(page);
+  await advanced.click();
+  await expect(provider).toHaveValue('claude_cli');
+  await expect(name).toHaveValue(chosen);
+  await expect(effort).toHaveValue('high');
+
+  await provider.selectOption(original.provider);
+  await name.fill(original.name);
+  if (await effort.count()) await effort.selectOption(original.effort);
+  await save('models.default.name');
+  await page.reload();
+  await connected(page);
+  await advanced.click();
+  await expect(provider).toHaveValue(original.provider);
+  await expect(name).toHaveValue(original.name);
+  if (original.provider === 'claude_cli') await expect(effort).toHaveValue(original.effort);
+  else await expect(effort).toHaveCount(0);
   watched.clean();
 });
 

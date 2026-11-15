@@ -76,7 +76,7 @@ def selection(config) -> ModelSelection:
         output_usd_per_million=config.model_output_usd_per_million,
         cache_read_usd_per_million=getattr(config, "model_cache_read_usd_per_million", None),
         cache_write_usd_per_million=getattr(config, "model_cache_write_usd_per_million", None),
-        max_output_tokens=config.model_max_output_tokens)
+        max_output_tokens=config.model_max_output_tokens, effort=getattr(config, "model_effort", None))
 
 
 def selection_updates(choice: ModelSelection) -> dict:
@@ -86,7 +86,7 @@ def selection_updates(choice: ModelSelection) -> dict:
         "model_output_usd_per_million": choice.output_usd_per_million,
         "model_cache_read_usd_per_million": choice.cache_read_usd_per_million,
         "model_cache_write_usd_per_million": choice.cache_write_usd_per_million,
-        "model_max_output_tokens": choice.max_output_tokens}
+        "model_max_output_tokens": choice.max_output_tokens, "model_effort": choice.effort}
 
 
 class ModelConfigurationService:

@@ -14,7 +14,8 @@ from opentelemetry.trace import Link, NonRecordingSpan, SpanContext, SpanKind, S
 from sabre.models import DomainError
 
 SPAN_NAMES = {"factory.work", "workflow.stage", "agent.role", "tool.call", "model.call", "executor.command"}
-IDENTIFIERS = {"work_id", "role", "phase", "tool", "model_provider", "model_name", "tool_call_id"}
+# model_effort is the level the factory named for the call; a call left to the provider's own has none.
+IDENTIFIERS = {"work_id", "role", "phase", "tool", "model_provider", "model_name", "model_effort", "tool_call_id"}
 FAILURE_CLASSES = {"rate_limit", "overloaded", "timeout", "authentication", "invalid_request", "other"}
 NUMBERS = {"attempt", "provider_attempts", "tokens", "input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens",
            "cost_usd", "reported_usd", "reserved_tokens", "reserved_usd", "max_output_tokens", "exit_code", "output_bytes",

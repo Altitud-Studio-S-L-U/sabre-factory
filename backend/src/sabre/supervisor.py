@@ -132,7 +132,7 @@ class ChatGuard(AgentMiddleware):
         usage_id = await self.repository.reserve_chat_usage(f"{self.surface}:{self.event_id}", input_bound + output_bound, cost, self.config.monthly_budget_usd, self.config.chat_budget_usd)
         observation.set(reserved_tokens=input_bound + output_bound, reserved_usd=cost, invocation_kind="cli_invocation" if cli else "provider_call",
                         model_provider=getattr(self.config, "model_provider", None), model_name=getattr(self.config, "model_name", None),
-                        max_output_tokens=output_bound)
+                        max_output_tokens=output_bound, model_effort=getattr(self.config, "model_effort", None))
         async def failed(failure: str, code: str, number: int, final: bool):
             observation.set(failure_class=failure, provider_attempts=number)
             log("model.failed", role="supervisor", failure_class=failure, error_code=code, attempt=number)

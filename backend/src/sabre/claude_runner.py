@@ -230,6 +230,8 @@ class ClaudeRunner:
             args = cli_arguments()
             if request.model:
                 args.extend(["--model", request.model])
+            if request.effort:
+                args.extend(["--effort", request.effort])
             code, raw, _ = await capture_process(args, env=self.environment(), cwd=directory, stdin=cli_input(request.segments),
                                                  maximum_output=STREAM_OUTPUT_BYTES)
         return parse_result(raw, exit_code=code)
