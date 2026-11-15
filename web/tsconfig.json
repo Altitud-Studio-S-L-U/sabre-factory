@@ -16,5 +16,13 @@
     "resolveJsonModule": true,
     "types": ["vite/client", "vitest/globals", "@testing-library/jest-dom"]
   },
-  "include": ["src", "e2e", "playwright.config.ts", "vite.config.ts", "vitest.config.ts"]
+  "include": [
+    "src",
+    "e2e",
+    "e2e-real",
+    "playwright.config.ts",
+    "playwright.real.config.ts",
+    "vite.config.ts",
+    "vitest.config.ts"
+  ]
 }

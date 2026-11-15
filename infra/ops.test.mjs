@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { EventEmitter } from 'node:events';
 import { prepareScannerImages, openPanelAccess, requireClaudeOwnerTerminal, runClaudeOwnerLogin, releaseClaudeBridge,
-  browserOpener, launchWithOpener, serveHandoff, traceSettings } from './ops.mjs';
+  browserOpener, launchWithOpener, panelLink, serveHandoff, traceSettings } from './ops.mjs';
 
 test('Claude account login requires owner stdin and stdout terminals', () => {
   for (const [input, output] of [[{}, {}], [{ isTTY: true }, {}], [{}, { isTTY: true }]]) {
@@ -152,6 +152,18 @@ test('grant, relay, opener and delivery failures expose fixed diagnostics withou
   const closedTerminal = fixture();
   closedTerminal.options.output.write = () => { throw new Error(`private output failure ${ticket}`); };
   await openPanelAccess(closedTerminal.options);
+});
+
+test('the pairing link of the browser journeys is a validated grant and travels only in the environment', () => {
+  assert.equal(panelLink(grant), `${grant.origin}/#ticket=${ticket}`);
+  assert.throws(() => panelLink({ ...grant, origin: 'http://example.test:8000' }), (error) => error.code === 'PANEL_GRANT_INVALID');
+  // In the QA launcher the link is defined once and used once, as an environment entry of the test
+  // process: never an argument, which other processes can read, and never a printed line.
+  const source = readFileSync(new URL('./qa.mjs', import.meta.url), 'utf8');
+  const uses = source.split('\n').filter((line) => /\blink\b/.test(line) && !/^\s*(\*|\/\/)/.test(line));
+  assert.equal(uses.length, 2, uses.join('\n'));
+  assert.match(uses[0], /const link = panelLink\(await requestGrant\(\)\);/);
+  assert.match(uses[1], /env: \{[^}]*SABRE_REAL_PAIRING: link \}/);
 });
 
 test('the operations launcher has no PowerShell or ShellExecute opener', () => {

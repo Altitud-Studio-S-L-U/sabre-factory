@@ -220,11 +220,8 @@ export async function serveHandoff(target, { timeoutMs = 60_000, createServer } 
   return { address: `http://127.0.0.1:${server.address().port}${path}`, delivered, close: () => close(false) };
 }
 
-export async function openPanelAccess({ output = process.stdout, requestGrant, launchBrowser,
-  handoff = serveHandoff }) {
-  let receipt;
-  try { receipt = await requestGrant(); }
-  catch { throw panelFailure('PANEL_UNAVAILABLE', 'Panel access could not be prepared. Check that SABRE is running.'); }
+/** The one-use address of a temporary access grant. A grant that is not one is refused without reporting its contents. */
+export function panelLink(receipt) {
   let origin;
   try { origin = new URL(receipt?.origin); } catch { /* Reject invalid grants without reporting their contents. */ }
   if (!origin || typeof receipt.origin !== 'string' || typeof receipt.ticket !== 'string' || receipt.expires_in !== 60
@@ -234,7 +231,15 @@ export async function openPanelAccess({ output = process.stdout, requestGrant, l
       || !/^[A-Za-z0-9_-]{43}$/.test(receipt.ticket)) {
     throw panelFailure('PANEL_GRANT_INVALID', 'SABRE returned an invalid temporary access grant.');
   }
-  const url = `${receipt.origin}/#ticket=${encodeURIComponent(receipt.ticket)}`;
+  return `${receipt.origin}/#ticket=${encodeURIComponent(receipt.ticket)}`;
+}
+
+export async function openPanelAccess({ output = process.stdout, requestGrant, launchBrowser,
+  handoff = serveHandoff }) {
+  let receipt;
+  try { receipt = await requestGrant(); }
+  catch { throw panelFailure('PANEL_UNAVAILABLE', 'Panel access could not be prepared. Check that SABRE is running.'); }
+  const url = panelLink(receipt);
   let relay;
   try { relay = await handoff(url); }
   catch { throw panelFailure('PANEL_LAUNCH_FAILED', 'The local browser relay could not start. Run sabre open again.'); }
