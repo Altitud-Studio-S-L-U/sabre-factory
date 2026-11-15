@@ -53,6 +53,7 @@ const blockedReasons: Record<string, string> = {
 
 const presenceTones: Partial<Record<Presence, string>> = {
   offline: 'border-danger-border bg-danger-bg text-danger',
+  'no-model': 'border-warning-border bg-warning-bg text-warning',
   blocked: 'border-danger-border bg-danger-bg text-danger',
   working: 'border-info-border bg-info-bg text-info',
   'using-tool': 'border-info-border bg-info-bg text-info',
@@ -330,6 +331,7 @@ export default function SupervisorConsole({
   headerSlot = null,
   confirmations = noConfirmations,
   ready = true,
+  modelReady,
   onChanged,
 }: {
   api: Api;
@@ -340,6 +342,8 @@ export default function SupervisorConsole({
   confirmations?: OwnerConfirmation[];
   /** The first load has finished: later changes are worth announcing. */
   ready?: boolean;
+  /** False when the factory reports that the Supervisor's model cannot be called; unknown when omitted. */
+  modelReady?: boolean;
   onChanged?: () => unknown;
   /** Header element for the launcher on wide screens, so it never floats over content. */
   headerSlot?: HTMLElement | null;
@@ -516,6 +520,7 @@ export default function SupervisorConsole({
   const presence = useStablePresence(
     presenceFor({
       disconnected,
+      modelReady,
       messages: conversation,
       attention: needsYou,
       drafting: open && message.trim().length > 0,
@@ -830,28 +835,45 @@ export default function SupervisorConsole({
             {!conversation.length && (
               <div className="flex min-h-full flex-col items-center justify-center gap-3 px-3 py-6 text-center">
                 <SupervisorAvatar presence={presence} size={64} />
-                <h3 className="text-xl font-medium tracking-tight">What should we work on?</h3>
-                <p className="max-w-90 text-sm text-muted-foreground">
-                  Ask about recorded progress, flag a concern or plan the next run. You stay in control.
-                </p>
-                <div className="flex flex-wrap justify-center gap-2">
-                  {['What needs my attention?', 'Summarize active runs', 'Help me plan a run'].map(
-                    (prompt) => (
-                      <Button
-                        key={prompt}
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        onClick={() => {
-                          setDrafts((prior) => ({ ...prior, [scope]: prompt }));
-                          composer.current?.focus();
-                        }}
-                      >
-                        {prompt}
-                      </Button>
-                    ),
-                  )}
-                </div>
+                {modelReady === false ? (
+                  <>
+                    {/* An answer needs a model: say so before the owner types, not after a blocked message. */}
+                    <h3 className="text-xl font-medium tracking-tight">The Supervisor has no model yet</h3>
+                    <p className="max-w-90 text-sm text-muted-foreground">
+                      Connect a provider and choose a model in Config. A message sent before that is kept and
+                      stays blocked until you resume it.
+                    </p>
+                    <InternalActionLink to="/config?section=provider" onNavigate={closeForNavigation}>
+                      Connect model provider
+                      <ArrowUpRight size={13} aria-hidden="true" />
+                    </InternalActionLink>
+                  </>
+                ) : (
+                  <>
+                    <h3 className="text-xl font-medium tracking-tight">What should we work on?</h3>
+                    <p className="max-w-90 text-sm text-muted-foreground">
+                      Ask about recorded progress, flag a concern or plan the next run. You stay in control.
+                    </p>
+                    <div className="flex flex-wrap justify-center gap-2">
+                      {['What needs my attention?', 'Summarize active runs', 'Help me plan a run'].map(
+                        (prompt) => (
+                          <Button
+                            key={prompt}
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setDrafts((prior) => ({ ...prior, [scope]: prompt }));
+                              composer.current?.focus();
+                            }}
+                          >
+                            {prompt}
+                          </Button>
+                        ),
+                      )}
+                    </div>
+                  </>
+                )}
               </div>
             )}
             {truncated && (

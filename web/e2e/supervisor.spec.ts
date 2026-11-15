@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { captureSource, mockFactoryApi, syntheticRun } from './fixtures';
 
 // Every journey runs against the synthetic API; nothing reaches a real factory.
@@ -284,4 +284,40 @@ test('the Supervisor launcher never floats over content on wide screens', async 
     const tabs = await page.getByRole('navigation', { name: 'Main navigation' }).boundingBox();
     expect(box && tabs && box.y + box.height <= tabs.y).toBe(true);
   }
+});
+
+/** A factory whose Supervisor role has no model it can call, and nothing else asking for attention. */
+async function withoutModel(page: Page) {
+  await page.route('**/api/v1/status', (route) =>
+    route.fulfill({
+      json: {
+        database: 'connected',
+        model: { provider: 'claude_cli', configured: false },
+        roles: { supervisor: { provider: 'claude_cli', configured: false, name: null } },
+        limits: { concurrent_work: 2 },
+        telemetry: { configured: false },
+      },
+    }),
+  );
+  await page.route('**/api/v1/work', (route) => route.fulfill({ json: [] }));
+  await page.route('**/api/v1/operator/messages**', (route) =>
+    route.fulfill({ json: { items: [], truncated: false } }),
+  );
+}
+
+test('a Supervisor without a model says so before a message is typed and leads to the provider form', async ({
+  page,
+}) => {
+  await withoutModel(page);
+  await page.goto('/runs');
+  await page.getByRole('button', { name: 'Supervisor', exact: true }).click();
+  const conversation = page.getByRole('region', { name: 'Supervisor conversation' });
+  await expect(conversation.getByRole('heading', { name: 'The Supervisor has no model yet' })).toBeVisible();
+  await expect(conversation.getByRole('img', { name: 'Supervisor · No model' })).toBeVisible();
+  // Nothing is suggested that nothing could answer.
+  await expect(conversation.getByRole('button', { name: 'Help me plan a run' })).toHaveCount(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await conversation.getByRole('link', { name: 'Connect model provider' }).click();
+  await expect(page).toHaveURL(/\/config\?section=provider$/);
+  await expect(page.getByRole('heading', { level: 1, name: 'Config' })).toBeVisible();
 });

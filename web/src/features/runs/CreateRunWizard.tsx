@@ -100,14 +100,15 @@ export default function CreateRunWizard({
   if (!projects.length)
     return (
       <EmptyState
-        title="Register a project to get started"
+        title="Add a project to get started"
         actions={
           <Button type="button" variant="primary" onClick={onCreateProject}>
-            Register project
+            Add project
           </Button>
         }
       >
-        Register the repository SABRE is authorized to work on.
+        A run works on a project: a repository SABRE is authorized to work on, with the checks its deliveries
+        must pass.
       </EmptyState>
     );
 

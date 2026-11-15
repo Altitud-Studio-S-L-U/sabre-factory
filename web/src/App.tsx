@@ -48,6 +48,7 @@ import InsightsView from './features/insights/InsightsView';
 import WorkAreaNav from './features/runs/WorkAreaNav';
 import { ErrorNotice, message, statusLabels, usesOnlyCliModels } from './features/runs/shared';
 import { TraceViewer, traceViewerOf } from './lib/traceViewer';
+import { supervisorModelReady } from './features/supervisor/presence';
 
 // Sections load on first visit; Runs stays in the main bundle.
 const sections = {
@@ -598,6 +599,7 @@ function Session({ session, onLogout }: { session: PanelSession; onLogout: (erro
         headerSlot={headerActions}
         confirmations={confirmations}
         ready={!loading}
+        modelReady={supervisorModelReady(status)}
         onChanged={reload}
       />
     </>

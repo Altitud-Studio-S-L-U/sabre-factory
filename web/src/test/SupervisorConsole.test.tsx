@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { expect, test, vi } from 'vitest';
 import { createApi, type OperatorMessageRequest, type WorkOrder } from '../api';
@@ -467,4 +467,39 @@ test('the launcher moves into the header on wide screens and floats over the pag
   expect(header).toContainElement(launcher);
   expect(launcher).not.toHaveClass('fixed');
   header.remove();
+});
+
+test('a Supervisor without a model says so before the owner types and points at the place that fixes it', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => Response.json({ items: [], truncated: false })),
+  );
+  const props = { api: createApi('synthetic-csrf'), orders: [], selectedId: null, disconnected: false };
+  const user = userEvent.setup();
+  const without = render(<SupervisorConsole {...props} modelReady={false} />);
+  await user.click(screen.getByRole('button', { name: /Supervisor/ }));
+  const panel = screen.getByRole('region', { name: 'Supervisor conversation' });
+  expect(
+    await within(panel).findByRole('heading', { name: 'The Supervisor has no model yet' }),
+  ).toBeVisible();
+  expect(within(panel).getByRole('img', { name: 'Supervisor · No model' })).toBeInTheDocument();
+  expect(within(panel).getByRole('link', { name: 'Connect model provider' })).toHaveAttribute(
+    'href',
+    '/config?section=provider',
+  );
+  // No prompt is suggested that nothing could answer; typing does not turn the state into "listening".
+  expect(within(panel).queryByRole('button', { name: 'Help me plan a run' })).not.toBeInTheDocument();
+  await user.type(within(panel).getByRole('textbox', { name: 'Message' }), 'Hello');
+  expect(within(panel).getByRole('img', { name: 'Supervisor · No model' })).toBeInTheDocument();
+  without.unmount();
+
+  // With a model, and while the factory has not said either way, nothing changes.
+  for (const modelReady of [true, undefined]) {
+    const view = render(<SupervisorConsole {...props} modelReady={modelReady} />);
+    await user.click(screen.getByRole('button', { name: /Supervisor/ }));
+    expect(await screen.findByRole('heading', { name: 'What should we work on?' })).toBeVisible();
+    expect(screen.getByRole('img', { name: 'Supervisor · Ready' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Connect model provider' })).not.toBeInTheDocument();
+    view.unmount();
+  }
 });

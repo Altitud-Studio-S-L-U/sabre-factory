@@ -6,6 +6,7 @@ import {
   MIN_DWELL_MS,
   presenceFor,
   presenceLabels,
+  supervisorModelReady,
   useStablePresence,
   type Presence,
   type PresenceFacts,
@@ -48,6 +49,30 @@ describe('supervisor presence', () => {
     );
   });
 
+  it('says it has no model instead of promising an answer, and only when the factory says so', () => {
+    // At rest and while the owner types, a Supervisor without a model is neither ready nor listening.
+    expect(presenceFor(facts({ modelReady: false }))).toBe('no-model');
+    expect(presenceFor(facts({ modelReady: false, drafting: true }))).toBe('no-model');
+    // What is recorded still shows first: none of it needs a model to be true.
+    expect(presenceFor(facts({ modelReady: false, attention: 1 }))).toBe('needs-you');
+    expect(presenceFor(facts({ modelReady: false, messages: [message('blocked')] }))).toBe('blocked');
+    expect(presenceFor(facts({ modelReady: false, messages: [message('queued')] }))).toBe('queued');
+    expect(presenceFor(facts({ modelReady: false, disconnected: true }))).toBe('offline');
+    // A status that has not arrived, or that does not say, is not a fault.
+    expect(presenceFor(facts({ modelReady: undefined, drafting: true }))).toBe('listening');
+    expect(presenceFor(facts({ modelReady: true }))).toBe('idle');
+
+    expect(supervisorModelReady({})).toBeUndefined();
+    expect(supervisorModelReady({ roles: null })).toBeUndefined();
+    expect(supervisorModelReady({ roles: { supervisor: { configured: 'yes' } } })).toBeUndefined();
+    expect(supervisorModelReady({ roles: { supervisor: { configured: false } } })).toBe(false);
+    expect(supervisorModelReady({ roles: { supervisor: { configured: true } } })).toBe(true);
+    // The default model is not the Supervisor's: only its own role decides.
+    expect(
+      supervisorModelReady({ model: { configured: true }, roles: { supervisor: { configured: false } } }),
+    ).toBe(false);
+  });
+
   it('holds a state for the minimum dwell time but shows faults immediately', () => {
     vi.useFakeTimers();
     let now = 0;
@@ -66,6 +91,9 @@ describe('supervisor presence', () => {
     rerender({ next: 'blocked' });
     act(() => vi.advanceTimersByTime(0));
     expect(result.current).toBe('blocked');
+    rerender({ next: 'no-model' });
+    act(() => vi.advanceTimersByTime(0));
+    expect(result.current).toBe('no-model');
   });
 
   it('names every state for assistive technology and marks it without relying on colour', () => {
