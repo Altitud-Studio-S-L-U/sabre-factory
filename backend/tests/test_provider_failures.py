@@ -14,6 +14,7 @@ from langgraph.errors import GraphInterrupt
 from sabre import claude_runner, codex_runner
 from sabre.agents import GuardedCalls
 from sabre.claude_model import RUNNER_ERRORS
+from sabre.cli_protocol import status_failure
 from sabre.codex_model import RUNNER_ERRORS as CODEX_RUNNER_ERRORS
 from sabre.codex_model import InvocationRequest
 from sabre.models import DomainError
@@ -75,6 +76,8 @@ def sdk_error(kind, status: int, headers: dict | None = None):
     (DomainError("CLAUDE_LOGIN_REQUIRED", "login", 503), "authentication"),
     (DomainError("CODEX_INPUT_LIMIT", "large", 413), "invalid_request"),
     (DomainError("CLAUDE_EXECUTION_FAILED", "failed", 503), "other"),
+    (DomainError("CLAUDE_ACCESS_DENIED", "refused", 503), "authentication"),
+    (DomainError("CLAUDE_REQUEST_REJECTED", "rejected", 503), "invalid_request"),
     (DomainError("CODEX_RATE_LIMITED", "limit", 503), "rate_limit"),
     (DomainError("CODEX_OVERLOADED", "busy", 503), "overloaded"),
     (DomainError("CODEX_ACCESS_DENIED", "refused", 503), "authentication"),
@@ -250,6 +253,18 @@ async def test_the_supervisor_conversation_retries_the_same_classes_inside_its_r
     ({"is_error": True, "result": "Claude usage limit reached. Your limit will reset later."}, "CLAUDE_RATE_LIMITED"),
     ({"is_error": True, "api_error_status": 429}, "CLAUDE_RATE_LIMITED"),
     ({"is_error": True, "api_error_status": 503}, "CLAUDE_OVERLOADED"),
+    # The lines the pinned CLI was seen to write for a refused session and a rejected request.
+    ({"is_error": True, "api_error_status": 401, "result": "Failed to authenticate. API Error: 401 synthetic"}, "CLAUDE_ACCESS_DENIED"),
+    ({"is_error": True, "api_error_status": 403, "result": "Failed to authenticate. API Error: 403 synthetic"}, "CLAUDE_ACCESS_DENIED"),
+    ({"is_error": True, "api_error_status": 400, "result": "API Error: 400 synthetic"}, "CLAUDE_REQUEST_REJECTED"),
+    ({"is_error": True, "api_error_status": 404}, "CLAUDE_REQUEST_REJECTED"),
+    ({"is_error": True, "api_error_status": 408}, "CLAUDE_TIMEOUT"),
+    # The status the CLI states decides: words in what the provider said do not override it.
+    ({"is_error": True, "api_error_status": 400, "result": "API Error: 400 rate limit 429 overloaded"}, "CLAUDE_REQUEST_REJECTED"),
+    # Without a status that is an HTTP failure, the few markers still apply, and nothing else is named.
+    ({"is_error": True, "api_error_status": 200, "result": "API Error: usage limit reached"}, "CLAUDE_RATE_LIMITED"),
+    ({"is_error": True, "api_error_status": "429"}, "CLAUDE_EXECUTION_FAILED"),
+    ({"is_error": True, "api_error_status": True, "result": "API Error: something else"}, "CLAUDE_EXECUTION_FAILED"),
     ({"is_error": True, "result": "The model returned an unexpected message"}, "CLAUDE_EXECUTION_FAILED"),
     ({"is_error": True, "result": ["not", "text"]}, "CLAUDE_EXECUTION_FAILED"),
 ])
@@ -325,9 +340,9 @@ async def test_a_failed_turn_the_codex_bridge_cannot_name_keeps_the_generic_code
     assert raised.value.code == "CODEX_PROCESS_FAILED"
 
 
-def test_the_codex_bridge_classes_a_status_as_the_factory_does_for_any_provider():
-    assert all(codex_runner.failure_of(status) == by_status(status) for status in range(400, 600))
-    assert codex_runner.failure_of(399) is None and codex_runner.failure_of(200) is None
+def test_the_bridges_class_a_status_as_the_factory_does_for_any_provider():
+    assert all(status_failure(status) == by_status(status) for status in range(400, 600))
+    assert status_failure(399) is None and status_failure(200) is None
     # Output that is not the CLI's event lines, and a turn that did not fail, name no failure.
     assert codex_runner.turn_failure(b"not json") is None and codex_runner.turn_failure(b"") is None
     assert codex_runner.turn_failure(b'{"type":"turn.failed"}') is None and codex_runner.turn_failure(b'{"type":"turn.failed","error":"text"}') is None

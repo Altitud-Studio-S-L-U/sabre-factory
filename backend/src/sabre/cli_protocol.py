@@ -64,6 +64,19 @@ class InvocationResponse(StrictContract):
     usage_kind: Literal["cli_invocation"] = "cli_invocation"
 
 
+def status_failure(status: int) -> str | None:
+    """The class of an HTTP status a CLI reports for its provider, as the factory classes any provider's."""
+    if status == 429:
+        return "rate_limit"
+    if status in (401, 403):
+        return "authentication"
+    if status == 408:
+        return "timeout"
+    if status >= 500:
+        return "overloaded"
+    return "invalid_request" if status >= 400 else None
+
+
 def read_private_bridge(path: Path, provider: Literal["Codex", "Claude"]) -> str:
     try:
         descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0))

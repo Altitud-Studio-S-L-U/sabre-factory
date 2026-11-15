@@ -47,6 +47,8 @@ RUNNER_ERRORS = {
     "CLAUDE_EXECUTION_FAILED": (503, "Claude reported an invocation failure"),
     "CLAUDE_RATE_LIMITED": (503, "Claude reported a rate or usage limit"),
     "CLAUDE_OVERLOADED": (503, "Claude reported that the service is overloaded"),
+    "CLAUDE_ACCESS_DENIED": (503, "The provider refused the Claude session or its access"),
+    "CLAUDE_REQUEST_REJECTED": (503, "The provider rejected the request Claude sent"),
     "CLAUDE_STRUCTURED_OUTPUT_MISSING": (503, "Claude finished without the required structured result"),
     "CLAUDE_STRUCTURED_OUTPUT_INVALID": (503, "The structured Claude result violates the contract"),
     "CLAUDE_USAGE_INVALID": (503, "Claude did not return valid usage counters"),

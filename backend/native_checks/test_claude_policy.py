@@ -19,6 +19,7 @@ from sabre.claude_runner import (
     cli_arguments,
     cli_input,
     parse_result,
+    result_line,
     turn_directory,
 )
 from sabre.cli_protocol import serialize_segments
@@ -176,8 +177,15 @@ async def test_no_native_tools_or_customizations_run(tmp_path, attack, model):
             parse_result(stdout, exit_code=code)
 
 
-def synthetic_provider(requests):
-    """A local stand-in for the provider that records each request and answers with the structured envelope."""
+# What a provider says in a refusal. None of it may leave the bridge.
+PROVIDER_TEXT = "SYNTHETIC_PROVIDER_TEXT"
+
+
+def synthetic_provider(requests, refusal=None):
+    """A local stand-in for the provider that records each request and answers with the structured envelope.
+
+    With ``refusal`` (a status and the provider's error type) it refuses every request instead.
+    """
     envelope = AssistantEnvelope(content="synthetic completed", tool_calls=[]).model_dump()
 
     class Handler(BaseHTTPRequestHandler):
@@ -192,6 +200,15 @@ def synthetic_provider(requests):
         def do_POST(self):
             body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
             requests.append(body)
+            if refusal:
+                status, kind = refusal
+                payload = json.dumps({"type": "error", "error": {"type": kind, "message": PROVIDER_TEXT}, "request_id": "req_synthetic"}).encode()
+                self.send_response(status)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+                return
             usage = {"input_tokens": 100, "output_tokens": 0, "cache_creation_input_tokens": 20, "cache_read_input_tokens": 30}
             message = {"id": "msg_synthetic", "type": "message", "role": "assistant", "model": "claude-sonnet-4-6", "content": [], "stop_reason": None, "stop_sequence": None, "usage": usage}
             block = {"type": "tool_use", "id": f"toolu_synthetic_{len(requests)}", "name": "StructuredOutput", "input": {}}
@@ -372,3 +389,40 @@ async def test_the_effort_given_to_the_cli_is_what_the_provider_is_asked_for_whe
         plain = await call("plain", None)
         for part in ("system", "tools", "messages", "max_tokens", "thinking"):
             assert unlevelled(asked.get(part)) == unlevelled(plain.get(part)), part
+
+
+@pytest.mark.parametrize("status, kind, expected", [
+    (400, "invalid_request_error", "CLAUDE_REQUEST_REJECTED"),
+    (404, "not_found_error", "CLAUDE_REQUEST_REJECTED"),
+    (401, "authentication_error", "CLAUDE_ACCESS_DENIED"),
+    (403, "permission_error", "CLAUDE_ACCESS_DENIED"),
+    (429, "rate_limit_error", "CLAUDE_RATE_LIMITED"),
+    (529, "overloaded_error", "CLAUDE_OVERLOADED"),
+    (500, "api_error", "CLAUDE_OVERLOADED"),
+])
+async def test_the_bridge_names_what_the_pinned_cli_reports_when_the_provider_fails(tmp_path, status, kind, expected):
+    home = tmp_path / "home"
+    home.mkdir(mode=0o700)
+    requests = []
+    server, thread = synthetic_provider(requests, refusal=(status, kind))
+    environment = ClaudeRunner(home).environment()
+    environment.update({"ANTHROPIC_API_KEY": "synthetic-not-a-credential", "ANTHROPIC_BASE_URL": f"http://127.0.0.1:{server.server_port}"})
+    try:
+        with turn_directory() as directory:
+            code, stdout, _ = await capture_process([*cli_arguments(), "--model", DEFAULT_MODEL], env=environment, cwd=directory,
+                stdin=cli_input(["Return the synthetic envelope\n"]), timeout=45, maximum_output=STREAM_OUTPUT_BYTES)
+    finally:
+        server.shutdown()
+        thread.join(timeout=2)
+        server.server_close()
+    # The bridge's environment tells the CLI not to ride a failure out: the factory decides whether to call again.
+    # A request the provider rejects is the exception: the pinned CLI asks again at once, a few times, and stops.
+    assert code != 0 and 1 <= len(requests) <= 10
+    assert len(requests) == 1 or status in (400, 404)
+    # The CLI states the status it met, which is what the bridge reads.
+    assert result_line(stdout)["api_error_status"] == status
+    with pytest.raises(DomainError) as failure:
+        parse_result(stdout, exit_code=code)
+    assert failure.value.code == expected
+    # For most of these the CLI prints what the provider said; the bridge's error carries none of it.
+    assert PROVIDER_TEXT not in str(failure.value) and PROVIDER_TEXT not in failure.value.message
