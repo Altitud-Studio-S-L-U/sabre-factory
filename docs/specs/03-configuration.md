@@ -4,7 +4,7 @@
 Make setup understandable without exposing implementation details as required decisions. Reuse the existing model, integration and flow services.
 
 ## Interfaces and behavior
-Offer guided editing and YAML for the same versioned contract. Parsing returns field-level diagnostics; preview returns the resolved configuration and diff without mutation. Save uses revision checking. Secret values never appear in documents, diffs or exports.
+Offer guided editing and YAML for the same versioned contract. Parsing returns field-level diagnostics; preview returns the resolved configuration and diff without mutation. Save uses revision checking: a view carries `saved_revision`, the number the history lists and the console shows, and apart from it `revision`, the token a save sends back. The token joins the saved revision with the model revision, so an edit made through either editor makes a stale draft fail; it is not a number to show. Secret values never appear in documents, diffs or exports.
 
 Config opens on readiness: what a run needs before it can start (provider, model, project, delivery), each with its state and, when it needs action, one control that opens the place where it is fixed. There is no setup wizard and no step that only describes another screen: provider and default model are one form under Models, projects are added in Projects (from GitHub, by address or as a new repository) and GitHub access is in Tools. Config's views are tabs across the top, not a side column. CLI login remains the official owner authentication path. A connected session alone is not readiness. Model overrides, limits, policies and storage are progressive advanced options. Existing precedence remains phase-run → phase-flow → role → default.
 

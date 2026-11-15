@@ -334,7 +334,10 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
         description="Factory-wide defaults. Each run pins a snapshot when it starts, so a change here never alters work in progress. The forms and the YAML document share one validated contract."
         actions={
           <>
-            <Badge variant="outline">{saved ? `Revision ${saved.revision}` : 'Loading configuration'}</Badge>
+            {/* The saved revision, as the history numbers it. `revision` is the token a save sends back. */}
+            <Badge variant="outline">
+              {saved ? `Revision ${saved.saved_revision}` : 'Loading configuration'}
+            </Badge>
             <Button variant="secondary" disabled={loading || busy || dirty} onClick={load}>
               Refresh
             </Button>
@@ -710,7 +713,7 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
                             } inherited`,
                           ],
                           ['Routing order', 'Run phase → flow phase → specialist → default'],
-                          ['Source', dirty ? 'Unsaved draft' : `Saved revision ${saved.revision}`],
+                          ['Source', dirty ? 'Unsaved draft' : `Saved revision ${saved.saved_revision}`],
                           ['Permissions', 'Resolved and pinned at launch'],
                         ]}
                       />
@@ -1112,7 +1115,7 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
               {mode === 'Access' && <PairedBrowsers api={api} />}
               {mode === 'About' && <About api={api} />}
               {mode === 'Environment' && <RuntimeSettingsPanel api={api} />}
-              {mode === 'History' && <ConfigurationHistoryPanel api={api} revision={saved.revision} />}
+              {mode === 'History' && <ConfigurationHistoryPanel api={api} revision={saved.saved_revision} />}
               {mode === 'Context & storage' && (
                 <div className="grid min-w-0 items-start gap-5 @4xl:grid-cols-2">
                   <Card aria-labelledby="config-context-title">
