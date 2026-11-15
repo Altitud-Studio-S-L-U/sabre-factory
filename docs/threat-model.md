@@ -118,6 +118,7 @@ This bounds the damage; it does not prevent a steered agent from writing bad cod
 | The CLI runner's seccomp profile is the reviewed one | `infra/runtime-check.mjs` |
 | A query string never reaches a log | `infra/runtime-check.mjs` (canary) |
 | The Docker proxy admits only the sandbox profile | `backend/tests/test_docker_proxy.py` and the runtime smokes under `backend/tests/runtime_*_smoke.py` |
+| On the deployed host, a sandbox command has no network, no Docker socket, no broker state and no credential; a gate runs against its snapshot; a restarted broker restores the workspace | `infra/runtime-check.mjs`, which runs `backend/tests/runtime_executor_smoke.py` inside the deployed executor, through its permission proxy |
 | Session, CSRF, origin and delegation rules | backend unit and PostgreSQL integration tests |
 | Secret guard formats and redaction | backend unit tests |
 | Telemetry allowlist: nothing set is dropped, nothing private is exported | backend tests with a recording exporter |
@@ -126,7 +127,7 @@ This bounds the damage; it does not prevent a steered agent from writing bad cod
 ## 6. What is not defended
 
 - **A kernel escape.** Sandboxes are hardened containers on a kernel shared with the control services. Current guidance for untrusted code is VM-level isolation. Run the factory on a machine or virtual machine that holds nothing else of value; a stronger runtime is not evaluated yet.
-- **Egress denial is not verified on the deployed stack.** An acceptance script (`backend/tests/runtime_executor_smoke.py`) asserts that a command in a sandbox cannot open an outbound connection and sees no socket, token or bootstrap file. It is run by hand in a container that holds the Docker socket; it is not part of the test suite, of CI or of the runtime check, so nothing proves it on the host the factory is running on.
+- **Egress denial between checks.** The runtime check proves, when it is run, that a command in a sandbox on this host cannot open an outbound connection and sees no socket, token or bootstrap file. Nothing watches it in between: a later change to the host's Docker configuration is found by the next check, not when it happens. The check opens one connection to one address; it is not a survey of every way out.
 - **Content sent to model providers.** The source a specialist reads goes to the configured provider or CLI vendor. The secret guard stops known secrets and documented token formats; it cannot recognise arbitrary sensitive text.
 - **A steered agent inside its tools.** Section 4.2 bounds it and does not prevent it.
 - **The host, the Docker daemon and the owner.** All three are trusted. There is one owner and no second role.

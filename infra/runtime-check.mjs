@@ -6,6 +6,7 @@ import { codexVolumes, verifyCodexSeccomp } from './codex-bootstrap.mjs';
 import { claudeVolumes } from './claude-bootstrap.mjs';
 import { backupImageReference } from './image-identity.mjs';
 import { buildId } from '../web/scripts/build-id.mjs';
+import { sandboxFailures } from './sandbox-acceptance.mjs';
 
 async function verifyImage(container, reference) {
   const [image] = privateJson((await docker(['image', 'inspect', reference])).toString());
@@ -231,4 +232,16 @@ except Exception as error: print(json.dumps({'check_error':type(error).__name__}
   claude = JSON.parse((await docker(['exec', 'sabre-factory-claude-runner-1', 'python', '-I', '-c', check])).toString());
   if (claude.check_error) throw new Error(`Claude runtime verification failed (${claude.check_error}); no private error content was recorded`);
 }
-console.log(JSON.stringify({ ...value, ...codex, ...claude, credential_env_fields: 0, public_env_secret_fields: 0, query_canary_logged: false }));
+// The sandbox as it is deployed. The acceptance script drives this host's broker through its Docker
+// permission proxy with a workspace of its own, which it removes; it touches no run. A command there
+// must not reach the network, the Docker socket, the broker's state or a credential; a gate must run
+// against the snapshot it names; and a restarted broker must restore the workspace and end its orphans.
+const acceptance = readFileSync(resolve(root, 'backend', 'tests', 'runtime_executor_smoke.py'), 'utf8');
+let sandbox;
+try {
+  sandbox = privateJson((await docker(['exec', '-i', 'sabre-factory-executor-1', 'python', '-I', '-'], acceptance)).toString().trim().split('\n').at(-1));
+} catch { throw new Error('The deployed executor did not complete its sandbox acceptance; no private error content was recorded'); }
+const failed = sandboxFailures(sandbox);
+if (failed.length) throw new Error(`The deployed sandbox is not isolated as specified (${failed.join(', ')})`);
+console.log(JSON.stringify({ ...value, ...codex, ...claude, credential_env_fields: 0, public_env_secret_fields: 0, query_canary_logged: false,
+  sandbox_egress: 'blocked', sandbox_isolated: true, sandbox_recovered: true }));
