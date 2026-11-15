@@ -51,6 +51,12 @@ class ToolDefinition:
     reviewed: bool = False
 
 
+# The tools the factory itself gives a specialist. Only these are named in telemetry and in the run
+# audit; an external tool is named only when the owner reviewed it. The console's list of built-in
+# tools is checked against this set, so a tool added here has to be shown there.
+INTERNAL_TOOLS = frozenset({"list_files", "read_file", "read_files", "search_source", "read_file_range", "write_file", "execute", "prepare_dependencies", "resolve_dependencies", "read_context", "read_memory", "edit_source", "record_note", "propose_memory"})
+
+
 class ToolCatalog:
     def __init__(self, guard: SecretGuard | None = None):
         self.guard = guard or SecretGuard()
@@ -68,9 +74,8 @@ class ToolCatalog:
         self.tools[definition.name] = definition
 
     async def invoke(self, name: str, arguments: dict, role: str, *, allow_external_write=False):
-        internal = {"list_files", "read_file", "read_files", "search_source", "read_file_range", "write_file", "execute", "prepare_dependencies", "resolve_dependencies", "read_context", "read_memory", "edit_source", "record_note", "propose_memory"}
         definition = self.tools.get(name)
-        named = name in internal or (definition is not None and definition.reviewed and re.fullmatch(r"[A-Za-z0-9_/:.-]{1,200}", name))
+        named = name in INTERNAL_TOOLS or (definition is not None and definition.reviewed and re.fullmatch(r"[A-Za-z0-9_/:.-]{1,200}", name))
         # Any other external tool is counted without its name: that name was never reviewed.
         with span("tool.call", tool=name if named else "mcp", role=role, work_id=self.work_id, tool_call_id=tool_call.get()):
             async with self.observer(name) if self.observer else nullcontext() as boundary:
