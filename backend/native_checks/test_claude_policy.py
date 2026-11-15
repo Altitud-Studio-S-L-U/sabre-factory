@@ -49,8 +49,28 @@ async def test_native_identity_empty_auth_and_outer_boundary(tmp_path):
     assert oracle.stat().st_atime_ns != 1_000_000_000, "The filesystem must observe the canary read oracle"
 
 
-@pytest.mark.parametrize("attack", ["StructuredOutput", "text_then_structured", "invalid_then_structured", "invalid_schema", "prose", "Bash", "Read", "Write", "Agent", "WebFetch", "mcp__synthetic__read"])
-async def test_no_native_tools_or_customizations_run(tmp_path, attack):
+# The model the factory selects by default, and one for which the pinned CLI lays the request out the older way.
+DEFAULT_MODEL = "claude-opus-5-5"
+MODELS = [DEFAULT_MODEL, "claude-sonnet-4-6"]
+ATTACKS = ["StructuredOutput", "text_then_structured", "invalid_then_structured", "invalid_schema", "prose", "Bash", "Read", "Write", "Agent",
+           "WebFetch", "mcp__synthetic__read", "DeferredToolPlaceholder"]
+
+
+def offered_tools(request) -> list[str]:
+    """The tools a request offers the model, leaving out the CLI's inert placeholder after checking that it is one."""
+    names = []
+    for tool in request.get("tools", []):
+        if tool.get("name") == "DeferredToolPlaceholder":
+            # For some models the CLI sends this to keep its deferred loading on. It takes no input and loads nothing here.
+            assert tool.get("defer_loading") is True and tool["input_schema"].get("properties") == {}
+            continue
+        names.append(tool.get("name"))
+    return names
+
+
+@pytest.mark.parametrize("model", MODELS)
+@pytest.mark.parametrize("attack", ATTACKS)
+async def test_no_native_tools_or_customizations_run(tmp_path, attack, model):
     home = tmp_path / "home"
     home.mkdir(mode=0o700)
     workspace = tmp_path / "workspace"
@@ -99,7 +119,7 @@ async def test_no_native_tools_or_customizations_run(tmp_path, attack):
                 block = {"type": "tool_use", "id": f"toolu_synthetic_{len(requests)}", "name": name, "input": {}} if injected else {"type": "text", "text": ""}
                 delta = {"type": "input_json_delta", "partial_json": json.dumps(tool_input)} if injected else {"type": "text_delta", "text": json.dumps(envelope)}
                 usage = {"input_tokens": 100, "output_tokens": 0, "cache_creation_input_tokens": 20, "cache_read_input_tokens": 30}
-                message = {"id": "msg_synthetic", "type": "message", "role": "assistant", "model": "claude-sonnet-4-6", "content": [], "stop_reason": None, "stop_sequence": None, "usage": usage}
+                message = {"id": "msg_synthetic", "type": "message", "role": "assistant", "model": model, "content": [], "stop_reason": None, "stop_sequence": None, "usage": usage}
                 events = [("message_start", {"type": "message_start", "message": message}),
                     ("content_block_start", {"type": "content_block_start", "index": 0, "content_block": block}),
                     ("content_block_delta", {"type": "content_block_delta", "index": 0, "delta": delta}),
@@ -120,7 +140,7 @@ async def test_no_native_tools_or_customizations_run(tmp_path, attack):
     environment = ClaudeRunner(home).environment()
     environment.update({"ANTHROPIC_API_KEY": "synthetic-not-a-credential", "ANTHROPIC_BASE_URL": f"http://127.0.0.1:{server.server_port}"})
     try:
-        code, stdout, stderr = await capture_process([*cli_arguments(), "--model", "claude-sonnet-4-6"], env=environment,
+        code, stdout, stderr = await capture_process([*cli_arguments(), "--model", model], env=environment,
             cwd=str(workspace), stdin=cli_input(["Return the synthetic envelope"]), timeout=45)
     finally:
         server.shutdown()
@@ -129,7 +149,10 @@ async def test_no_native_tools_or_customizations_run(tmp_path, attack):
     assert not failures
     assert requests, {"exit_code": code, "stderr": stderr.decode(errors="replace")[:2000], "stdout": stdout.decode(errors="replace")[:2000]}
     assert len(requests) == (1 if attack == "StructuredOutput" else 2)
-    assert all([tool.get("name") for tool in request.get("tools", [])] == ["StructuredOutput"] for request in requests)
+    assert all(offered_tools(request) == ["StructuredOutput"] for request in requests)
+    # What the CLI itself reports as its tools has no placeholder in it.
+    started = [json.loads(line) for line in stdout.splitlines() if line.strip().startswith(b"{")]
+    assert [line.get("tools") for line in started if line.get("subtype") == "init"] == [["StructuredOutput"]]
     wire = json.dumps(requests)
     assert "SYNTHETIC_CLAUDE_PRIVATE_CANARY" not in wire
     assert "SYNTHETIC_CUSTOMIZATION_MUST_NOT_LOAD" not in wire
@@ -199,7 +222,17 @@ def fixture_conversation(turns: int):
     return messages
 
 
-async def test_a_conversation_that_grew_reaches_the_provider_as_the_same_blocks_and_one_more(tmp_path):
+def cache_points(request) -> list[tuple]:
+    """Where a request carries a cache point: (part, block index), in the order the provider renders them."""
+    points = [("system", index) for index, block in enumerate(request["system"]) if block.get("cache_control")]
+    for number, message in enumerate(request["messages"]):
+        content = message["content"] if isinstance(message["content"], list) else []
+        points += [(f"message {number}", index) for index, block in enumerate(content) if block.get("cache_control")]
+    return points
+
+
+@pytest.mark.parametrize("model", MODELS)
+async def test_a_conversation_that_grew_reaches_the_provider_as_the_same_blocks_and_one_more(tmp_path, model):
     """What the provider's cache needs, shown on the request the pinned CLI builds. No provider is asked whether it hit."""
     tools = [{"type": "function", "function": {"name": "read_file", "parameters": {"type": "object", "properties": {"path": {"type": "string"}}}}}]
 
@@ -214,11 +247,11 @@ async def test_a_conversation_that_grew_reaches_the_provider_as_the_same_blocks_
         try:
             if directory is None:
                 with turn_directory() as fixed:
-                    code, stdout, _ = await capture_process([*cli_arguments(), "--model", "claude-sonnet-4-6"], env=environment, cwd=fixed,
+                    code, stdout, _ = await capture_process([*cli_arguments(), "--model", model], env=environment, cwd=fixed,
                         stdin=cli_input(segments), timeout=45, maximum_output=STREAM_OUTPUT_BYTES)
             else:
                 directory.mkdir()
-                code, stdout, _ = await capture_process([*cli_arguments(), "--model", "claude-sonnet-4-6"], env=environment, cwd=str(directory),
+                code, stdout, _ = await capture_process([*cli_arguments(), "--model", model], env=environment, cwd=str(directory),
                     stdin=cli_input(segments), timeout=45, maximum_output=STREAM_OUTPUT_BYTES)
         finally:
             server.shutdown()
@@ -229,26 +262,63 @@ async def test_a_conversation_that_grew_reaches_the_provider_as_the_same_blocks_
         return requests[0]
 
     def blocks(request):
-        assert [message["role"] for message in request["messages"]] == ["user"]
+        # The factory's prompt is the first message, a user message. Some models get a message of the CLI's after it.
+        assert request["messages"][0]["role"] == "user"
         return request["messages"][0]["content"]
 
-    def bare(block):
-        return {key: value for key, value in block.items() if key != "cache_control"}
+    def bare(value):
+        if isinstance(value, list):
+            return [bare(item) for item in value]
+        return {key: bare(item) for key, item in value.items() if key != "cache_control"} if isinstance(value, dict) else value
 
     earlier, later = serialize_segments(fixture_conversation(2), tools, "auto"), serialize_segments(fixture_conversation(3), tools, "auto")
     first, second = await call("first", earlier), await call("second", later)
-    # The CLI sends the factory's blocks as they are, in order, after the few it writes itself.
+    # The CLI sends the factory's blocks as they are, in order, after any it writes itself in the same message.
     own = len(blocks(first)) - len(earlier)
     assert own >= 0 and [block["text"] for block in blocks(first)[own:]] == earlier
     assert [block["text"] for block in blocks(second)[own:]] == later
-    # Everything the first call sent is the beginning of what the second sends: system, tools and every block.
+    # Everything the first call sent before its last cache point is the beginning of what the second sends.
     assert json.dumps(first["system"]) == json.dumps(second["system"]) and first.get("tools") == second.get("tools")
-    assert [bare(block) for block in blocks(second)[:len(blocks(first))]] == [bare(block) for block in blocks(first)]
-    assert len(blocks(second)) == len(blocks(first)) + 1
-    # The cache point is the last block of each request, so the second call can be read back up to the first one's.
+    assert bare(blocks(second)[:len(blocks(first))]) == bare(blocks(first)) and len(blocks(second)) == len(blocks(first)) + 1
+    # What the CLI adds after the prompt, where it adds anything, is the same on both calls.
+    assert bare(first["messages"][1:]) == bare(second["messages"][1:])
     for request in (first, second):
-        assert [index for index, block in enumerate(blocks(request)) if block.get("cache_control")] == [len(blocks(request)) - 1]
-    # Why the directory is fixed: the CLI names it in its first block, and another path makes that block differ.
+        points = cache_points(request)
+        # The conversation ends at a cache point for every model: the factory's own, on its last block.
+        assert ("message 0", len(blocks(request)) - 1) in points
+        assert [point for point in points if point[0] == "message 0"] == [("message 0", len(blocks(request)) - 1)]
+        # The provider takes four cache points in a request; with the CLI's own this is at most four.
+        assert len(points) <= 4
+    # So the second call can be read back up to where the first one's conversation ended: that block is a
+    # cache point of the first request and a block of the second, with identical content before it.
+    assert ("message 0", len(blocks(first)) - 1) in cache_points(first)
+    # Why the directory is fixed: the CLI names it in what it writes itself, and another path changes that.
     elsewhere = await call("elsewhere", earlier, directory=tmp_path / "another-directory")
-    assert bare(blocks(elsewhere)[0]) != bare(blocks(first)[0])
-    assert [bare(block) for block in blocks(elsewhere)[1:]] == [bare(block) for block in blocks(first)[1:]]
+    assert bare(elsewhere["messages"]) != bare(first["messages"]) or json.dumps(elsewhere["system"]) != json.dumps(first["system"])
+    assert [block["text"] for block in blocks(elsewhere)[own:]] == earlier
+
+
+async def test_without_the_factorys_own_cache_point_the_default_model_would_never_read_the_conversation_back(tmp_path):
+    """The reason the factory marks its last block: for the default model the CLI's own cache point comes after the prompt."""
+    home = tmp_path / "home"
+    home.mkdir(mode=0o700)
+    requests = []
+    server, thread = synthetic_provider(requests)
+    environment = ClaudeRunner(home).environment()
+    environment.update({"ANTHROPIC_API_KEY": "synthetic-not-a-credential", "ANTHROPIC_BASE_URL": f"http://127.0.0.1:{server.server_port}"})
+    unmarked = json.loads(cli_input(["header\n", "turn\n"]))
+    unmarked["message"]["content"][-1].pop("cache_control")
+    try:
+        with turn_directory() as directory:
+            code, _, _ = await capture_process([*cli_arguments(), "--model", DEFAULT_MODEL], env=environment, cwd=directory,
+                stdin=(json.dumps(unmarked) + "\n").encode(), timeout=45, maximum_output=STREAM_OUTPUT_BYTES)
+    finally:
+        server.shutdown()
+        thread.join(timeout=2)
+        server.server_close()
+    assert code == 0 and len(requests) == 1
+    request = requests[0]
+    # The CLI adds a message about the environment after the prompt and puts its cache point there, not on the prompt.
+    assert [message["role"] for message in request["messages"]] == ["user", "system"]
+    assert not any(part == "message 0" for part, _ in cache_points(request))
+    assert ("message 1", len(request["messages"][1]["content"]) - 1) in cache_points(request)

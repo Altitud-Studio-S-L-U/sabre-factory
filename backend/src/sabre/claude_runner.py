@@ -55,8 +55,17 @@ def cli_arguments() -> list[str]:
 
 
 def cli_input(segments: list[str]) -> bytes:
-    """One user message whose content is the prompt's blocks, in order, as the CLI reads it from standard input."""
-    content = [{"type": "text", "text": segment} for segment in segments]
+    """One user message whose content is the prompt's blocks, in order, as the CLI reads it from standard input.
+
+    The last block carries a cache point of the factory's own. The CLI marks the end of the request
+    itself, but where that end is depends on the model: for some it is the last block of this message,
+    for others (claude-opus-5-5 among them) a message about the environment that the CLI adds after
+    it. In the second case nothing ever ends at the conversation, so the provider would write it on
+    every call and never read it back. Marked here, the conversation is a cache point for every model;
+    with the CLI's own points that makes at most four, which is the provider's limit.
+    """
+    content: list[dict] = [{"type": "text", "text": segment} for segment in segments]
+    content[-1]["cache_control"] = {"type": "ephemeral"}
     return (json.dumps({"type": "user", "message": {"role": "user", "content": content}}, ensure_ascii=False) + "\n").encode()
 
 

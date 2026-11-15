@@ -157,8 +157,10 @@ async def test_runner_stdin_closed_environment_and_default_model(monkeypatch, tm
     # The prompt reaches the CLI on standard input only, as one user message whose blocks are the segments in order.
     sent = json.loads(capture.call_args.kwargs["stdin"])
     assert capture.call_args.kwargs["stdin"].endswith(b"\n") and capture.call_args.kwargs["stdin"].count(b"\n") == 1
+    # The last block, and only the last, carries the factory's own cache point.
     assert sent == {"type": "user", "message": {"role": "user", "content": [
-        {"type": "text", "text": "synthetic-private-header\n"}, {"type": "text", "text": "synthetic-private-prompt\n"}]}}
+        {"type": "text", "text": "synthetic-private-header\n"},
+        {"type": "text", "text": "synthetic-private-prompt\n", "cache_control": {"type": "ephemeral"}}]}}
     assert [arguments[arguments.index(flag) + 1] for flag in ("--input-format", "--output-format")] == ["stream-json", "stream-json"]
     assert "--verbose" in arguments and "--no-session-persistence" in arguments
     # Every call runs in the same empty directory, which is gone afterwards: the CLI names it in each request.
