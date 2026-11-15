@@ -38,8 +38,10 @@ import Notice from './components/Notice';
 import Disclosure from './components/Disclosure';
 import DescriptionList from './components/DescriptionList';
 import EmptyState from './components/EmptyState';
+import RoutedLink from './components/RoutedLink';
 import Tabs from './components/Tabs';
 import { Badge } from './components/ui/badge';
+import { buttonVariants } from './components/ui/button';
 import { Card, CardDescription, CardTitle } from './components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './components/ui/table';
 
@@ -472,10 +474,22 @@ export default function MemoryConsole({ api, projects, connected = true }: Memor
         </Notice>
       )}
       {!projects.length ? (
-        <EmptyPanel title="No project knowledge yet">
-          Register a repository in Config to establish a project scope. Source context and reviewed memory
-          appear here when recorded.
-        </EmptyPanel>
+        <EmptyState
+          as="h2"
+          title="No project knowledge yet"
+          actions={
+            <RoutedLink
+              className={buttonVariants({ variant: 'secondary' })}
+              to="/projects"
+              state={{ form: 'project' }}
+            >
+              Add a project
+            </RoutedLink>
+          }
+        >
+          Memory belongs to a project. Add one in Projects: what the factory reads from its repository and the
+          records you approve appear here.
+        </EmptyState>
       ) : (
         <>
           <MemoryStatus

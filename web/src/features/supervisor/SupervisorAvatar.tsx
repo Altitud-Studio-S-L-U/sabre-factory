@@ -5,8 +5,8 @@ import './SupervisorAvatar.css';
 /**
  * Eye shapes per state, so each state reads without colour or motion: open capsules at rest,
  * lowered when listening, scanning bars while working, a glance aside while a tool runs,
- * wide circles when the owner is needed, smiling arcs after a reply, crosses when blocked and
- * flat lines when offline.
+ * wide circles when the owner is needed, smiling arcs after a reply, crosses when blocked,
+ * flat lines when offline and hollow rings when it has no model to answer with.
  */
 function Eyes({ presence }: { presence: Presence }) {
   switch (presence) {
@@ -14,6 +14,13 @@ function Eyes({ presence }: { presence: Presence }) {
       return (
         <g className="orb-eyes" fill="none" strokeWidth="2.6" strokeLinecap="round">
           <path d="M22.5 33h6M35.5 33h6" />
+        </g>
+      );
+    case 'no-model':
+      return (
+        <g className="orb-eyes" fill="none" strokeWidth="2.2">
+          <circle cx="25.5" cy="32.5" r="3" />
+          <circle cx="38.5" cy="32.5" r="3" />
         </g>
       );
     case 'blocked':

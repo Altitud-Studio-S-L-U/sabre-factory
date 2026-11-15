@@ -254,10 +254,22 @@ export default function ProjectsView({
         </div>
       )}
       {active.length === 0 ? (
-        <EmptyState title={archived.length ? 'No active project' : 'Your first project starts here'}>
+        <EmptyState
+          title={archived.length ? 'No active project' : 'Your first project starts here'}
+          actions={
+            <Button
+              type="button"
+              variant="primary"
+              disabled={!connected}
+              onClick={(event) => onOpenChange(true, event.currentTarget)}
+            >
+              Add project
+            </Button>
+          }
+        >
           {archived.length
-            ? 'Register a repository, or show the archived projects to restore one.'
-            : 'Register a repository and the checks its deliveries must pass.'}
+            ? 'Add a repository, or show the archived projects to restore one.'
+            : 'Add a repository from GitHub, by its address or as a new one, with the checks its deliveries must pass.'}
         </EmptyState>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">

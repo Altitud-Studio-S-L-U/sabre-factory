@@ -274,6 +274,32 @@ test.describe('gallery', () => {
     });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   });
+
+  test('supervisor-no-model', async ({ page }) => {
+    await page.route('**/api/v1/status', (route) =>
+      route.fulfill({
+        json: {
+          database: 'connected',
+          model: { provider: 'claude_cli', configured: false },
+          roles: { supervisor: { provider: 'claude_cli', configured: false, name: null } },
+          limits: { concurrent_work: 2 },
+          telemetry: { configured: false },
+        },
+      }),
+    );
+    await page.route('**/api/v1/work', (route) => route.fulfill({ json: [] }));
+    await page.route('**/api/v1/operator/messages**', (route) =>
+      route.fulfill({ json: { items: [], truncated: false } }),
+    );
+    await page.goto('/runs');
+    await page.getByRole('button', { name: 'Supervisor', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'The Supervisor has no model yet' })).toBeVisible();
+    await page.waitForLoadState('networkidle');
+    await page.screenshot({
+      path: `../work/gallery/${label}/supervisor-no-model-${test.info().project.name}.png`,
+      scale: 'css',
+    });
+  });
 });
 
 // Loading states: hold the named requests open so each screen's skeleton can be reviewed.

@@ -424,6 +424,9 @@ beforeEach(() => {
   memory = [];
   exceptions = [];
   writes = [];
+  // What one test leaves in the browser (the width of the Supervisor dock) is not the next one's.
+  localStorage.clear();
+  sessionStorage.clear();
   window.history.replaceState(null, '', '/');
 });
 
@@ -535,6 +538,30 @@ describe('Control room', () => {
     // The run is kept: choosing its project brings it back.
     await user.selectOptions(screen.getByRole('combobox', { name: 'Project' }), project.id);
     expect(within(runList()).getByRole('link', { name: new RegExp(order.objective) })).toBeVisible();
+  });
+  it('tells the owner the Supervisor has no model when the factory reports its role as not configured', async () => {
+    projects = [];
+    orders = [];
+    mockApi({
+      'GET /status': {
+        status: 200,
+        body: {
+          ...cliStatus,
+          roles: { ...cliStatus.roles, supervisor: { provider: 'claude_cli', configured: false } },
+        },
+      },
+    });
+    const user = await enter();
+    await user.click(screen.getByRole('button', { name: 'Supervisor' }));
+    const panel = screen.getByRole('region', { name: 'Supervisor conversation' });
+    expect(
+      await within(panel).findByRole('heading', { name: 'The Supervisor has no model yet' }),
+    ).toBeVisible();
+    expect(within(panel).getByRole('img', { name: 'Supervisor · No model' })).toBeInTheDocument();
+    // The link leads to the form that connects the provider.
+    await user.click(within(panel).getByRole('link', { name: 'Connect model provider' }));
+    expect(window.location.pathname + window.location.search).toBe('/config?section=provider');
+    expect(writes).toEqual([]);
   });
   it('preserves an unknown address without inventing a run and returns through the real Runs route', async () => {
     window.history.replaceState(null, '', '/unknown-section');
@@ -1029,9 +1056,9 @@ describe('Control room', () => {
     const user = await enter();
     expect(screen.getByRole('heading', { name: 'Launch a verified process' })).toBeVisible();
     await user.click(screen.getByRole('button', { name: '+ New run' }));
-    expect(screen.getByRole('heading', { name: 'Register a project to get started' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Add a project to get started' })).toBeVisible();
     expect(writes).toEqual([]);
-    await user.click(screen.getByRole('button', { name: 'Register project' }));
+    await user.click(screen.getByRole('button', { name: 'Add project' }));
     await user.click(screen.getByRole('button', { name: 'Close Add project' }));
     expect(screen.getByRole('heading', { name: 'Your first project starts here' })).toBeVisible();
     await user.click(screen.getByRole('link', { name: 'Memory' }));
