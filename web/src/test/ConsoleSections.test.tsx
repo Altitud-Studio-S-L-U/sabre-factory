@@ -208,10 +208,13 @@ it('writes the effort of the default model into the document, only for a provide
   await user.click(await screen.findByRole('button', { name: 'Models' }));
   await user.click(screen.getByText('Advanced model settings'));
   const effective = screen.getByRole('complementary', { name: 'What the factory will use' });
-  // A Codex session is the default here: the factory sets no effort for it, and says nothing about one.
-  expect(screen.queryByLabelText('Reasoning effort')).not.toBeInTheDocument();
-  expect(within(effective).queryByText('Effort')).not.toBeInTheDocument();
+  // A Codex session is the default here: it takes a level, and none is named yet.
+  expect(screen.getByLabelText('Reasoning effort')).toHaveValue('');
+  expect(within(effective).getByText('Effort').nextElementSibling).toHaveTextContent('Provider default');
+  await user.selectOptions(screen.getByLabelText('Reasoning effort'), 'minimal');
+  expect(within(effective).getByText('Effort').nextElementSibling).toHaveTextContent('Minimal');
 
+  // The other CLI has its own levels: the one chosen for Codex is not carried over.
   await user.selectOptions(screen.getByRole('combobox', { name: 'Model provider' }), 'claude_cli');
   await user.type(screen.getByRole('textbox', { name: 'Model identifier' }), 'claude-fixture');
   expect(screen.getByLabelText('Reasoning effort')).toHaveValue('');
@@ -226,7 +229,7 @@ it('writes the effort of the default model into the document, only for a provide
     effort: 'xhigh',
   });
 
-  // Another provider: the level is not carried along, and the document names none.
+  // An API provider has no such control here: the level is not carried along, and the document names none.
   await user.selectOptions(screen.getByRole('combobox', { name: 'Model provider' }), 'anthropic');
   await user.type(screen.getByRole('textbox', { name: 'Model identifier' }), 'api-fixture');
   expect(screen.queryByLabelText('Reasoning effort')).not.toBeInTheDocument();

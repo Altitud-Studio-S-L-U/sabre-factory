@@ -112,6 +112,8 @@ def read_bridge_token(path: Path = TOKEN_FILE) -> str:
 
 class CodexChatModel(BaseChatModel):
     model_name: str = ""
+    # Passed to the CLI as its reasoning effort; empty leaves the level the CLI picks for the model.
+    effort: str = ""
     runner_url: Literal["http://codex-runner:8091"] = RUNNER_URL
     token_file: Path = Field(default=TOKEN_FILE, exclude=True, repr=False)
 
@@ -121,7 +123,7 @@ class CodexChatModel(BaseChatModel):
 
     @property
     def _identifying_params(self) -> dict[str, Any]:
-        return {"model_name": self.model_name or "automatic", "usage_kind": "cli_invocation"}
+        return {"model_name": self.model_name or "automatic", "effort": self.effort or "default", "usage_kind": "cli_invocation"}
 
     def bind_tools(self, tools, *, tool_choice=None, **kwargs):
         schemas = [convert_to_openai_tool(tool) for tool in tools]
@@ -135,7 +137,7 @@ class CodexChatModel(BaseChatModel):
             raise DomainError("CODEX_UNSUPPORTED_OPTION", "Codex CLI does not support provider stop sequences")
         tools = kwargs.get("tools", [])
         prompt = serialize_turn(messages, tools, kwargs.get("tool_choice"), "Codex")
-        request = InvocationRequest(prompt=prompt, model=self.model_name)
+        request = InvocationRequest(prompt=prompt, model=self.model_name, effort=self.effort)
         response = await self._invoke(request)
         calls = validate_tool_calls(response.result, tools, kwargs.get("tool_choice"), "Codex")
         message = AIMessage(content=response.result.content, tool_calls=calls,

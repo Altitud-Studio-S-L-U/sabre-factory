@@ -223,12 +223,17 @@ def test_effort_is_optional_named_by_the_provider_and_leaves_an_unset_selection_
     plain = choice("claude_cli", name="claude-fixture")
     # A selection without an effort is stored exactly as before the field existed, so what a run pinned still matches.
     assert "effort" not in plain.model_dump(mode="json") and plain.effort is None
-    for level in EFFORT_LEVELS["claude_cli"]:
-        chosen = choice("claude_cli", name="claude-fixture", effort=level)
-        stored = chosen.model_dump(mode="json")
-        assert stored["effort"] == level and ModelSelection.model_validate(stored) == chosen
+    assert set(EFFORT_LEVELS) == {"claude_cli", "codex_cli"}
+    for provider, levels in EFFORT_LEVELS.items():
+        for level in levels:
+            chosen = choice(provider, name="fixture", effort=level)
+            stored = chosen.model_dump(mode="json")
+            assert stored["effort"] == level and ModelSelection.model_validate(stored) == chosen
+    # Each CLI has its own levels: the Codex CLI passes the provider's, the Claude CLI has neither of the two lowest.
+    assert set(EFFORT_LEVELS["codex_cli"]) - set(EFFORT_LEVELS["claude_cli"]) == {"none", "minimal"}
     # A level the provider does not have, and a provider where the factory does not set one, are refused.
-    for provider, level in (("claude_cli", "minimal"), ("claude_cli", "HIGH"), ("claude_cli", ""), ("codex_cli", "high"),
+    for provider, level in (("claude_cli", "minimal"), ("claude_cli", "none"), ("claude_cli", "HIGH"), ("claude_cli", ""),
+                            ("codex_cli", "extreme"), ("codex_cli", "HIGH"), ("codex_cli", ""),
                             ("openai", "low"), ("anthropic", "high"), ("google", "low"), ("local", "low")):
         with pytest.raises(ValidationError):
             choice(provider, name="fixture", effort=level)
@@ -255,3 +260,8 @@ def test_effort_travels_between_the_selection_and_the_settings_and_is_not_inheri
     # An override that only bounds the output keeps the model, and with it the model's effort.
     bounded = cfg.model_copy(update={"role_models": {"qa": RoleModelSettings(model_max_output_tokens=1024)}})
     assert bounded.for_role("qa").model_effort == "max"
+    # The Codex CLI is given its level the same way, and a role that moves to it does not carry the other CLI's.
+    quick = cfg.model_copy(update={"role_models": {"qa": RoleModelSettings(**selection_updates(choice("codex_cli", name="codex-fixture", effort="minimal")))}})
+    assert chat_model(quick.for_role("qa")).effort == "minimal" and type(chat_model(quick.for_role("qa"))).__name__ == "CodexChatModel"
+    plain = cfg.model_copy(update={"role_models": {"qa": RoleModelSettings(**selection_updates(choice("codex_cli", name="codex-fixture")))}})
+    assert plain.for_role("qa").model_effort is None and chat_model(plain.for_role("qa")).effort == ""

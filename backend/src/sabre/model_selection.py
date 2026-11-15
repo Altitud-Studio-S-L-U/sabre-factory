@@ -14,14 +14,20 @@ DESTINATIONS = {
     "google": "https://generativelanguage.googleapis.com",
 }
 # Every reasoning effort the factory can name, across providers.
-Effort = Literal["low", "medium", "high", "xhigh", "max"]
+Effort = Literal["none", "minimal", "low", "medium", "high", "xhigh", "max"]
 # The levels each provider takes, for the providers where the factory sets one. A provider is listed
 # once its levels are read from the pinned integration and the value was seen on the request that
 # integration builds; until then a selection that names an effort for it is refused.
 # The Claude CLI decides by model, and the native check holds what the pinned one does: without a
 # level it asks for medium with claude-opus-5-5 and for high with claude-sonnet-4-6, it lowers a
 # level the model does not have, and for a model without the setting it sends none.
-EFFORT_LEVELS: dict[str, tuple[Effort, ...]] = {"claude_cli": ("low", "medium", "high", "xhigh", "max")}
+# The Codex CLI decides nothing: it passes a named level to the provider as it is, so a level the
+# model does not take is refused by the provider and fails the call. Its levels are those the pinned
+# OpenAI SDK declares. Without a level the pinned CLI asks for a default that depends on the model.
+EFFORT_LEVELS: dict[str, tuple[Effort, ...]] = {
+    "claude_cli": ("low", "medium", "high", "xhigh", "max"),
+    "codex_cli": ("none", "minimal", "low", "medium", "high", "xhigh", "max"),
+}
 
 
 class ModelSelection(Contract):

@@ -81,7 +81,7 @@ Each phase ends on evidence, and Phase 1 is the gate: what it measures decides t
 | Timeline: zoom to selection, state kept per run across reloads | Not done | Phase 5, after the main path |
 | Supervisor avatar as the helmeted foreman; a drawn avatar per specialist | Partial (an orb; initials in a ring) | Phase 5 |
 | Collapsible sidebar; sticky run header | Not done | Phase 5 |
-| Effort per role, progressive skills, provider retries | Partial: retries are built, and a model selection can name the Claude CLI's reasoning effort, checked on the request the pinned CLI builds. No effort for the API providers or Codex, and no progressive skills | [14](specs/14-context-economy.md) |
+| Effort per role, progressive skills, provider retries | Partial: retries are built, and a model selection can name the reasoning effort of either CLI, checked on the request each pinned CLI builds. No effort for the API providers, and no progressive skills | [14](specs/14-context-economy.md) |
 | Streaming to the console | Not done | After G1 and G2 |
 
 ## Documentation that did not match the code

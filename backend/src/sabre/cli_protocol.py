@@ -44,7 +44,7 @@ class InvocationRequest(StrictContract):
     segments: list[str] = Field(default_factory=list, max_length=MAX_SEGMENTS)
     model: str = Field(default="", max_length=128, pattern=r"^[A-Za-z0-9._:/-]*$")
     # The reasoning effort for this call, where the CLI takes one. Empty leaves the CLI's own default.
-    effort: str = Field(default="", pattern=r"^(low|medium|high|xhigh|max)?$")
+    effort: str = Field(default="", pattern=r"^(none|minimal|low|medium|high|xhigh|max)?$")
 
     @model_validator(mode="after")
     def one_form(self):

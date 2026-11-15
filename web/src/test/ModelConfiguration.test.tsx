@@ -105,18 +105,32 @@ describe('models per specialty', () => {
     await user.click(screen.getByRole('checkbox', { name: 'Inherit the default model' }));
     const role = () => screen.getByText('Development', { selector: 'summary strong' }).closest('details')!;
     const effort = () => within(role()).getByLabelText('Reasoning effort');
-    // The copy of the default is a Codex session: the factory sets no effort for it.
-    expect(within(role()).queryByLabelText('Reasoning effort')).not.toBeInTheDocument();
+    const levels = () =>
+      within(effort())
+        .getAllByRole('option')
+        .map((option) => option.textContent);
+    // The copy of the default is a Codex session: the provider's levels, which that CLI passes on unchecked.
+    expect(effort()).toHaveValue('');
+    expect(levels()).toEqual([
+      'Provider default',
+      'No reasoning',
+      'Minimal',
+      'Low',
+      'Medium',
+      'High',
+      'Extra high',
+      'Maximum',
+    ]);
+    expect(effort()).toHaveAccessibleDescription(/fails the call with CODEX_REQUEST_REJECTED/);
+    await user.selectOptions(effort(), 'minimal');
+    expect(selector).toHaveTextContent('Minimal effort');
+    // The other CLI has its own levels and does something else with them; the level chosen before is not carried over.
     await user.selectOptions(within(role()).getByLabelText('Provider'), 'claude_cli');
     expect(effort()).toHaveValue('');
     expect(effort()).toHaveAccessibleDescription(/the Claude CLI chooses by model/);
-    expect(
-      within(effort())
-        .getAllByRole('option')
-        .map((option) => option.textContent),
-    ).toEqual(['Provider default', 'Low', 'Medium', 'High', 'Extra high', 'Maximum']);
+    expect(levels()).toEqual(['Provider default', 'Low', 'Medium', 'High', 'Extra high', 'Maximum']);
     await user.selectOptions(effort(), 'high');
-    // The levels are the provider's: another provider drops the level, and coming back does not restore it.
+    // An API provider has no such control here: the field goes, and coming back does not restore the level.
     await user.selectOptions(within(role()).getByLabelText('Provider'), 'anthropic');
     expect(within(role()).queryByLabelText('Reasoning effort')).not.toBeInTheDocument();
     await user.selectOptions(within(role()).getByLabelText('Provider'), 'claude_cli');
@@ -152,8 +166,14 @@ describe('models per specialty', () => {
     expect(unset).not.toHaveProperty('effort');
     expect(JSON.stringify(unset)).toBe(JSON.stringify(session));
     expect([effortSummary(unset), effortNote(unset)]).toEqual(['Provider default', '']);
+    // The Codex session of the fixture takes a level too, down to none.
+    expect([effortSummary(plain), effortNote(withEffort(plain, 'none'))]).toEqual([
+      'Provider default',
+      ' · No reasoning',
+    ]);
     // A provider where the factory sets no effort has no summary at all.
-    expect([effortSummary(plain), effortNote(plain)]).toEqual([null, '']);
+    const api = { ...plain, provider: 'openai' as const, destination: 'https://api.openai.com/v1' };
+    expect([effortSummary(api), effortNote(api)]).toEqual([null, '']);
   });
   it('distinguishes the connection from the selection and requires approving the destinations before the CAS change', async () => {
     const { writes, onChanged } = setup();

@@ -27,7 +27,7 @@ def chat_model(config):
         if config.model_base_url:
             raise DomainError("PROVIDER_POLICY", "Codex CLI requires the authorized isolated runner")
         return CodexChatModel(model_name=config.model_name, runner_url=config.codex_cli_url,
-            token_file=config.codex_cli_token_file)
+            token_file=config.codex_cli_token_file, effort=getattr(config, "model_effort", None) or "")
     if provider not in {"openai", "local", "anthropic", "google"}:
         raise DomainError("PROVIDER_UNSUPPORTED", "This provider requires an enabled integration")
     if provider != "local" and config.model_base_url:

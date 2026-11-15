@@ -195,8 +195,8 @@ async def test_http_boundary_auth_limits_and_sanitized_errors(token_file):
         oversized = {"segments": ["x" * (claude_model.MAX_INPUT_BYTES // 2), "y" * (claude_model.MAX_INPUT_BYTES // 2 + 1)]}
         assert (await client.post("/invoke", headers=headers, json=oversized)).status_code == 413
         runner.invoke.assert_not_awaited()
-        # An effort is one of the CLI's levels or absent: anything else never reaches a command line.
-        for level in ("extreme", "high --model other", "HIGH"):
+        # An effort is one of this CLI's levels or absent: anything else, another CLI's levels included, never reaches a command line.
+        for level in ("extreme", "high --model other", "HIGH", "minimal", "none"):
             assert (await client.post("/invoke", headers=headers, json={"segments": ["turn"], "effort": level})).status_code == 422
         runner.invoke.assert_not_awaited()
         response = await client.post("/invoke", headers=headers, json={"segments": ["header\n", "turn\n"], "effort": "xhigh"})

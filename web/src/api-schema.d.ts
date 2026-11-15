@@ -5051,7 +5051,7 @@ export interface components {
              */
             max_output_tokens: number;
             /** Effort */
-            effort?: ("low" | "medium" | "high" | "xhigh" | "max") | null;
+            effort?: ("none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max") | null;
         };
         /** ModelSelection */
         "ModelSelection-Output": {
@@ -5087,7 +5087,7 @@ export interface components {
              */
             max_output_tokens: number;
             /** Effort */
-            effort?: ("low" | "medium" | "high" | "xhigh" | "max") | null;
+            effort?: ("none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max") | null;
         };
         /** NumberSetting */
         NumberSetting: {
