@@ -206,6 +206,35 @@ async def test_runner_passes_prompt_only_on_stdin(monkeypatch, tmp_path):
     assert capture.call_args.kwargs["stdin"] == b"synthetic-private-prompt"
     assert "-m" not in args
     assert "--ignore-user-config" in args and "--strict-config" in args and "--ephemeral" in args
+    # Every call runs in the same directory, which holds the schema of the answer and does not outlive the call.
+    fixed = str(codex_runner.TURN_DIRECTORY)
+    assert capture.call_args.kwargs["cwd"] == fixed and args[args.index("-C") + 1] == fixed
+    assert args[args.index("--output-schema") + 1] == str(codex_runner.TURN_DIRECTORY / "response-schema.json")
+    assert any(value.startswith("permissions.sabre.filesystem=") and json.dumps(fixed) + '="read"' in value for value in args)
+    assert not codex_runner.TURN_DIRECTORY.exists()
+    await runner.invoke(InvocationRequest(prompt="synthetic-private-prompt", model="fixture-model"))
+    named = capture.call_args.args[0]
+    assert named[named.index("-m") + 1] == "fixture-model" and named[-1] == "-"
+
+
+def test_the_working_directory_of_a_call_is_one_empty_path_that_does_not_outlive_it(tmp_path, monkeypatch):
+    monkeypatch.setattr(codex_runner, "TURN_DIRECTORY", tmp_path / "turn")
+    for _ in range(2):
+        with codex_runner.turn_directory() as directory:
+            assert directory == str(tmp_path / "turn") and list((tmp_path / "turn").iterdir()) == []
+            (tmp_path / "turn" / "left-behind").write_text("synthetic")
+        assert not (tmp_path / "turn").exists()
+    # Something left at that path by an interrupted call is removed before the next one starts.
+    (tmp_path / "turn").mkdir()
+    (tmp_path / "turn" / "stale").write_text("synthetic")
+    with codex_runner.turn_directory():
+        assert list((tmp_path / "turn").iterdir()) == []
+    # A path that cannot be made into an empty directory stops the call instead of running it somewhere else.
+    (tmp_path / "target").mkdir()
+    (tmp_path / "turn").symlink_to(tmp_path / "target", target_is_directory=True)
+    with pytest.raises(DomainError) as refused, codex_runner.turn_directory():
+        pass
+    assert refused.value.code == "CODEX_PROCESS_UNAVAILABLE" and (tmp_path / "target").exists()
 
 
 async def test_process_timeout_kills_child_and_does_not_leak_stderr(tmp_path):

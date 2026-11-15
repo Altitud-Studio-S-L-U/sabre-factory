@@ -11,9 +11,19 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
+from sabre.cli_protocol import serialize_turn
 from sabre.codex_model import AssistantEnvelope
-from sabre.codex_runner import BINARY, capture_process, cli_arguments, parse_events
+from sabre.codex_runner import (
+    BINARY,
+    SCHEMA_FILE,
+    capture_process,
+    cli_arguments,
+    parse_events,
+    turn_arguments,
+    turn_directory,
+)
 
 PINNED_BINARY_SHA256 = {"x86_64": "b93f6811d3f653f0fb83be4050d857fb9abbb111dfa2ce160563327daff7f306", "aarch64": "8813c8d8a4cea2eeba271b72ab22f49628b184b24ab18dbef06b4ce41e9a8d39"}[platform.machine()]
 
@@ -193,3 +203,113 @@ async def test_pinned_cli_cannot_read_or_write_synthetic_private_files(tmp_path,
     else:
         assert "Failed to find expected lines" in outputs
         assert public_text.read_text() == "SYNTHETIC_PUBLIC_MATERIAL\n"
+
+
+def fixture_conversation(turns: int):
+    messages = [SystemMessage(content="You are the analyst of a synthetic project. " * 40), HumanMessage(content='{"objective":"Audit the synthetic package"}')]
+    for turn in range(turns):
+        calls = [{"name": "read_file", "args": {"path": f"module_{turn}_{index}.py"}, "id": f"call-{turn}-{index}", "type": "tool_call"} for index in range(3)]
+        messages.append(AIMessage(content="", tool_calls=calls))
+        messages += [ToolMessage(content=f"def function_{turn}_{index}():\n    return {index}\n" * 20, tool_call_id=call["id"]) for index, call in enumerate(calls)]
+    return messages
+
+
+async def test_a_conversation_that_grew_reaches_the_provider_with_the_same_beginning(tmp_path):
+    """What a provider that caches a shared beginning needs, shown on the request the pinned CLI builds. No provider is asked whether it hit."""
+    home, bridge = tmp_path / "private", tmp_path / "bridge"
+    home.mkdir(mode=0o700)
+    bridge.mkdir(mode=0o700)
+    tools = [{"type": "function", "function": {"name": "read_file", "parameters": {"type": "object", "properties": {"path": {"type": "string"}}}}}]
+
+    async def call(prompt, directory=None):
+        # Each call is a new process, as nothing is kept between calls.
+        requests = []
+
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, format, *args):
+                pass
+
+            def do_POST(self):
+                requests.append(json.loads(self.rfile.read(int(self.headers["Content-Length"]))))
+                answer = AssistantEnvelope(content="synthetic completed", tool_calls=[]).model_dump_json()
+                item = {"type": "message", "id": "msg_synthetic", "role": "assistant", "status": "completed",
+                        "content": [{"type": "output_text", "text": answer, "annotations": []}]}
+                base = {"id": "resp_synthetic", "object": "response"}
+                usage = {"input_tokens": 100, "output_tokens": 20, "total_tokens": 120, "input_tokens_details": {"cached_tokens": 0},
+                         "output_tokens_details": {"reasoning_tokens": 0}}
+                events = [
+                    ("response.created", {"type": "response.created", "response": {**base, "status": "in_progress", "output": []}}),
+                    ("response.output_item.added", {"type": "response.output_item.added", "output_index": 0, "item": {**item, "status": "in_progress", "content": []}}),
+                    ("response.output_text.delta", {"type": "response.output_text.delta", "item_id": item["id"], "output_index": 0, "content_index": 0, "delta": answer}),
+                    ("response.output_item.done", {"type": "response.output_item.done", "output_index": 0, "item": item}),
+                    ("response.completed", {"type": "response.completed", "response": {**base, "status": "completed", "output": [item], "usage": usage}}),
+                ]
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.end_headers()
+                for event, data in events:
+                    self.wfile.write(f"event: {event}\ndata: {json.dumps(data)}\n\n".encode())
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        overrides = {
+            "model_provider": "sabredouble", "model_providers.sabredouble.name": "Synthetic offline test",
+            "model_providers.sabredouble.base_url": f"http://127.0.0.1:{server.server_port}/v1",
+            "model_providers.sabredouble.wire_api": "responses", "model_providers.sabredouble.env_key": "SABRE_SYNTHETIC_KEY",
+            "model_providers.sabredouble.requires_openai_auth": False,
+        }
+        environment = {"PATH": "/usr/local/bin:/usr/bin:/bin", "HOME": str(home), "CODEX_HOME": str(home), "SABRE_SYNTHETIC_KEY": "synthetic-not-a-credential"}
+
+        async def run(where: str):
+            # The command line the bridge builds for a call, with the provider replaced by the local stand-in.
+            (Path(where) / SCHEMA_FILE).write_text(json.dumps(AssistantEnvelope.model_json_schema()))
+            args = turn_arguments(where, home=home, model="gpt-6.1-sol", secrets_dir=bridge)
+            for key, value in overrides.items():
+                args.extend(["-c", f"{key}={json.dumps(value)}"])
+            return await capture_process([*args, "-"], env=environment, cwd=where, stdin=prompt.encode(), timeout=30)
+
+        try:
+            if directory is None:
+                with turn_directory() as fixed:
+                    code, stdout, _ = await run(fixed)
+            else:
+                directory.mkdir()
+                code, stdout, _ = await run(str(directory))
+        finally:
+            server.shutdown()
+            thread.join(timeout=2)
+            server.server_close()
+        assert code == 0 and len(requests) == 1
+        assert parse_events(stdout).result.content == "synthetic completed"
+        return requests[0]
+
+    def prompt_of(request):
+        # The factory's prompt is the last item the CLI sends, a user message of one text.
+        last = request["input"][-1]
+        assert last["role"] == "user" and len(last["content"]) == 1
+        return last["content"][0]["text"]
+
+    def written_by_the_cli(request):
+        # Everything before the prompt, without the identifiers the CLI gives its own items, which are new on every call.
+        def bare(value):
+            if isinstance(value, list):
+                return [bare(item) for item in value]
+            return {key: bare(item) for key, item in value.items() if key != "id"} if isinstance(value, dict) else value
+        return bare(request["input"][:-1])
+
+    earlier, later = serialize_turn(fixture_conversation(2), tools, "auto", "Codex"), serialize_turn(fixture_conversation(3), tools, "auto", "Codex")
+    first, second = await call(earlier), await call(later)
+    # The CLI sends the prompt as it is, after what it writes itself.
+    assert prompt_of(first) == earlier and prompt_of(second) == later
+    # The factory's prompt grows at its end: the later one begins as the earlier one did, up to where its conversation closes.
+    assert earlier.endswith("]}") and later.startswith(earlier[:-2] + ",")
+    # What the CLI writes before the prompt is the same on both calls, so the two requests begin alike up to that point.
+    assert written_by_the_cli(first) == written_by_the_cli(second)
+    assert "instructions" not in first and "tools" not in first and first["text"] == second["text"] and first["reasoning"] == second["reasoning"]
+    # Why the directory is fixed: the CLI names it before the prompt, and another path changes what comes first.
+    elsewhere = await call(earlier, directory=tmp_path / "another-directory")
+    assert written_by_the_cli(elsewhere) != written_by_the_cli(first) and prompt_of(elsewhere) == earlier
+    assert str(tmp_path / "another-directory") in json.dumps(written_by_the_cli(elsewhere))
+    # A limit the factory cannot move: the CLI names a cache key of its own, new for every process.
+    assert len({request["prompt_cache_key"] for request in (first, second, elsewhere)}) == 3

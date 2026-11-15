@@ -4,9 +4,11 @@ import asyncio
 import hmac
 import json
 import os
+import shutil
 import signal
 import stat
 import tempfile
+from contextlib import contextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -33,6 +35,11 @@ STATUS_WAIT_TIMEOUT_S = 12
 _PROC_ROOT = Path("/proc")
 _PROCESS_CLEANUP_TIMEOUT_S = 5
 _PROCESS_CLEANUP_POLL_S = 0.01
+# Where every call runs. The CLI writes its working directory, and the paths its permission profile
+# names, into a message that comes before the prompt. A new directory for each call changed the
+# request before the conversation began, so no call started the way the one before it did.
+TURN_DIRECTORY = Path(tempfile.gettempdir()) / "sabre-codex-turn"
+SCHEMA_FILE = "response-schema.json"
 POLICY = {
     "approval_policy": "never", "default_permissions": "sabre", "web_search": "disabled",
     "cli_auth_credentials_store": "file", "forced_login_method": "chatgpt", "check_for_update_on_startup": False,
@@ -61,6 +68,29 @@ def cli_arguments(command: str = "exec", *, home: Path = CODEX_HOME, workspace: 
     filesystem = "{ " + ", ".join(f"{json.dumps(path)}={json.dumps(permission)}" for path, permission in paths.items()) + " }"
     args.extend(["-c", "permissions.sabre.filesystem=" + filesystem, "-c", "permissions.sabre.network.enabled=false"])
     return args
+
+
+def turn_arguments(directory: str, *, home: Path = CODEX_HOME, model: str = "", secrets_dir: Path = Path("/run/secrets")) -> list[str]:
+    """The command line of one call run in ``directory``, which also holds the schema of the answer."""
+    args = [*cli_arguments(home=home, workspace=Path(directory), secrets_dir=secrets_dir), "--ignore-rules", "--ephemeral", "--json",
+        "--skip-git-repo-check", "-C", directory, "--output-schema", str(Path(directory) / SCHEMA_FILE)]
+    if model:
+        args.extend(["-m", model])
+    return args
+
+
+@contextmanager
+def turn_directory():
+    """An empty working directory for one call, at a path that never changes. Calls are serialized by the invocation lock."""
+    shutil.rmtree(TURN_DIRECTORY, ignore_errors=True)
+    try:
+        TURN_DIRECTORY.mkdir(mode=0o700)
+    except OSError:
+        raise DomainError("CODEX_PROCESS_UNAVAILABLE", "Could not start the configured Codex runner", 503) from None
+    try:
+        yield str(TURN_DIRECTORY)
+    finally:
+        shutil.rmtree(TURN_DIRECTORY, ignore_errors=True)
 
 
 def _group_running(group: int) -> bool:
@@ -255,13 +285,9 @@ class CodexRunner:
     async def _invoke_locked(self, request: InvocationRequest):
         if not (await self._login_status())["authenticated"]:
             raise DomainError("CODEX_LOGIN_REQUIRED", "Connect a separate ChatGPT session for SABRE using the CLI", 503)
-        with tempfile.TemporaryDirectory(prefix="sabre-codex-") as directory:
-            schema = Path(directory) / "response-schema.json"
-            schema.write_text(json.dumps(AssistantEnvelope.model_json_schema()), encoding="utf-8")
-            args = [*cli_arguments(home=self.home, workspace=Path(directory)), "--ignore-rules", "--ephemeral", "--json",
-                "--skip-git-repo-check", "-C", directory, "--output-schema", str(schema)]
-            if request.model:
-                args.extend(["-m", request.model])
+        with turn_directory() as directory:
+            (Path(directory) / SCHEMA_FILE).write_text(json.dumps(AssistantEnvelope.model_json_schema()), encoding="utf-8")
+            args = turn_arguments(directory, home=self.home, model=request.model)
             code, raw, _ = await capture_process([*args, "-"], env=self.environment(), cwd=directory, stdin=request.prompt.encode())
         if code:
             raise DomainError("CODEX_PROCESS_FAILED", "The Codex process ended without a valid result", 503)
