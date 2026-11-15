@@ -15,6 +15,9 @@ import ToolsConsole from '../ToolsConsole';
 import { configuration } from './modelConfigurationFixture';
 import BudgetFields, { defaultBudgetPolicy } from '../components/BudgetFields';
 
+/** The token a save sends back: the saved revision (3) and the model revision (7) in one number. */
+const SAVE_TOKEN = 3 * 2 ** 32 + 7;
+
 const project = {
   id: 'synthetic-project',
   name: 'Synthetic project',
@@ -64,7 +67,9 @@ function factory(): ConfigurationView {
   };
   return {
     version: 1,
-    revision: 7,
+    // What the application answers after three saves and seven model edits: a token, and the revision.
+    revision: SAVE_TOKEN,
+    saved_revision: 3,
     configuration: value,
     yaml: JSON.stringify(value, null, 2),
     readiness: [
@@ -77,6 +82,38 @@ function factory(): ConfigurationView {
     ],
   };
 }
+
+it('marks the saved revision as current in the history, whatever the save token is', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: string) => {
+      if (input.includes('/configuration/history'))
+        return Response.json({
+          truncated: false,
+          items: [3, 2, 1].map((revision) => ({
+            revision,
+            created_at: `2026-11-1${revision}T09:00:00Z`,
+            changed_paths: ['flows.patch.repair_cycles'],
+            changed_paths_truncated: false,
+            summary: 'Changed flows.patch.repair_cycles',
+          })),
+        });
+      if (input.endsWith('/model-configuration')) return Response.json(configuration());
+      if (input.endsWith('/integrations')) return Response.json([]);
+      return Response.json(factory());
+    }),
+  );
+  const user = userEvent.setup();
+  render(
+    <MemoryRouter>
+      <ConfigConsole api={createApi('synthetic-csrf')} projects={[project]} />
+    </MemoryRouter>,
+  );
+  await user.click(await screen.findByRole('button', { name: 'History' }));
+  const current = await screen.findByText('current');
+  expect(current.closest('li')).toHaveTextContent('Revision 3');
+  expect(screen.getAllByText('current')).toHaveLength(1);
+});
 
 it('validates the same configuration document and retains the model draft after a revision conflict', async () => {
   const user = userEvent.setup();
@@ -131,7 +168,10 @@ it('validates the same configuration document and retains the model draft after 
   expect(await screen.findByRole('alert')).toHaveTextContent('Draft retained');
   expect(name).toHaveValue('synthetic-draft-model');
   expect(writes).toHaveLength(1);
-  expect(writes[0].expected_revision).toBe(7);
+  // The save carries the token; the page shows the revision an owner can find in the history.
+  expect(writes[0].expected_revision).toBe(SAVE_TOKEN);
+  expect(screen.getByText('Revision 3')).toBeVisible();
+  expect(screen.queryByText(new RegExp(String(SAVE_TOKEN)))).not.toBeInTheDocument();
   expect(String(writes[0].document)).toContain('synthetic-draft-model');
   expect(writes[0]).not.toHaveProperty('api_key');
 });

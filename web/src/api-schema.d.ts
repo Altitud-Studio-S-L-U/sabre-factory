@@ -3046,6 +3046,8 @@ export interface components {
             version: 1;
             /** Revision */
             revision: number;
+            /** Saved Revision */
+            saved_revision: number;
             configuration: components["schemas"]["FactoryConfiguration"];
             /** Readiness */
             readiness: components["schemas"]["ReadinessItem"][];

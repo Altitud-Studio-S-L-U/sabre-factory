@@ -69,6 +69,7 @@ export function factoryConfiguration(): ConfigurationView {
   return {
     version: 1,
     revision: 0,
+    saved_revision: 0,
     configuration: value,
     yaml: JSON.stringify(value, null, 2),
     readiness: [

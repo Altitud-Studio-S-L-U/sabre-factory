@@ -117,7 +117,11 @@ class ReadinessItem(StrictContract):
 
 class ConfigurationView(StrictContract):
     version: Literal[1] = 1
+    # The token a save sends back as expected_revision. It joins the saved factory revision and the
+    # model revision, so a change to either makes a stale draft fail. It is not a number to show.
     revision: int
+    # The saved factory configuration this view holds, numbered as the history numbers it; 0 before the first save.
+    saved_revision: int
     configuration: FactoryConfiguration
     readiness: list[ReadinessItem]
     yaml: str
@@ -246,7 +250,7 @@ class ConsoleConfigurationService:
             ReadinessItem(id="project", status="ready" if projects else "missing", message=f"{len(projects)} registered projects", action="Register a repository and executable checks"),
             ReadinessItem(id="delivery", status="unavailable" if publisher and publisher.enabled and publisher.credential_configured else "missing", message="Delivery credential configured; repository access has not been verified" if publisher and publisher.credential_configured else "Draft PR delivery requires a GitHub connection", action="Configure and diagnose GitHub deliveries in Tools; audit flows can run without publication"),
         ]
-        return ConfigurationView(revision=revision, configuration=configuration, readiness=readiness, yaml=document(configuration))
+        return ConfigurationView(revision=revision, saved_revision=revision >> 32, configuration=configuration, readiness=readiness, yaml=document(configuration))
 
     async def preview(self, value):
         try:

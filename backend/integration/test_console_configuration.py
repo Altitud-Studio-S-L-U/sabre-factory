@@ -8,6 +8,7 @@ from psycopg import sql
 from sabre.console_configuration import (
     ConfigurationSave,
     ConsoleConfigurationService,
+    configuration_history_page,
     document,
     pinned_models,
     prepare_run_configuration,
@@ -65,6 +66,36 @@ async def test_concurrent_configuration_cas_persists_models_and_document_as_one_
     async with service.repository.connection() as conn:
         assert (await (await conn.execute("SELECT count(*) AS count FROM factory_configuration_events")).fetchone())["count"] == 1
         assert (await (await conn.execute("SELECT count(*) AS count FROM model_configuration_events")).fetchone())["count"] == 1
+
+
+async def test_a_view_names_the_saved_revision_as_the_history_does_and_keeps_the_save_token_apart(configuration_service):
+    service, models, owner = configuration_service
+    owner.repository.projects = AsyncMock(return_value=[])
+    fresh = await service.get()
+    assert (fresh.saved_revision, fresh.revision) == (0, 0)
+    changed = fresh.configuration.model_copy(deep=True)
+    changed.flows["patch"].repair_cycles = 1
+    first = await service.save(save_request(fresh.revision, changed))
+    # The token joins both counters; the number an owner reads is the one the history lists.
+    assert first.revision == (1 << 32) | 1
+    assert first.saved_revision == 1
+    history = await configuration_history_page(service.repository, 5)
+    assert [item.revision for item in history.items] == [first.saved_revision]
+    # A model edit through its own editor moves the token, so a stale draft still fails, and not the saved revision.
+    model_revision, data = await models.snapshot()
+    edited = data.model_copy(deep=True)
+    edited.default.name = "edited-elsewhere"
+    await models.change(ModelConfigurationChange(**edited.model_dump(), expected_revision=model_revision, approved_destinations=[edited.default.destination]))
+    after = await service.get()
+    assert after.saved_revision == 1 and after.revision == (1 << 32) | 2
+    with pytest.raises(DomainError) as stale:
+        await service.save(save_request(first.revision, changed))
+    assert stale.value.code == "MODEL_CONFIGURATION_CHANGED"
+    changed.models = after.configuration.models
+    changed.flows["patch"].repair_cycles = 0
+    second = await service.save(save_request(after.revision, changed))
+    assert second.saved_revision == 2
+    assert [item.revision for item in (await configuration_history_page(service.repository, 5)).items] == [2, 1]
 
 
 async def test_model_write_is_rolled_back_if_atomic_configuration_save_fails(configuration_service, monkeypatch):

@@ -63,9 +63,11 @@ test('five console sections keep inspection compact and modal drafts keyboard ac
       return;
     }
     expect(body.expected_revision).toBe(saved.revision);
+    // As the application answers: the next saved revision, and a token that is not that number.
     saved = {
       ...saved,
-      revision: saved.revision + 1,
+      revision: (saved.saved_revision + 1) * 2 ** 32 + 1,
+      saved_revision: saved.saved_revision + 1,
       configuration: next,
       yaml: JSON.stringify(next, null, 2),
     };
@@ -146,6 +148,8 @@ test('five console sections keep inspection compact and modal drafts keyboard ac
   await expect(
     page.getByRole('status').filter({ hasText: 'Configuration saved for future runs' }),
   ).toBeVisible();
+  // The page names the revision the history will list, not the token the save sent.
+  await expect(page.getByText('Revision 1', { exact: true })).toBeVisible();
   await captureSource(page, 'config-contract');
   expect(mutations.filter((path) => path === '/api/v1/configuration')).toHaveLength(1);
   expect(
