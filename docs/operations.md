@@ -165,7 +165,7 @@ New deliveries use `feat/sabre-<work-id>/r<revision>` for CREATE, `fix/` for PAT
 
 ## Security decisions
 
-Daily watch records prioritized remediation proposals in its work order; it never starts those development tasks. Scanner failures and secrets block review. New high/critical findings block delivery unless the owner explicitly accepts that exact risk.
+Daily watch records prioritized remediation proposals in its work order; it never starts those development tasks. It runs for every registered project at 08:00 UTC, calls no model, and its record appears in Runs as Monitoring, not as a run: it counts as no delivery and offers no pause or resume. The newest review of a project is the current one. Earlier ones are kept and open by their address, but the run list, the attention inbox and Security findings leave them out, so a review that could not finish asks for attention only until the next one runs, and a finding is listed once, not once per day. Scanner failures and secrets block review. New high/critical findings block delivery unless the owner explicitly accepts that exact risk.
 
 In a paused or blocked development order, review the finding and use the panel, or file the request over MCP with `sabre_approve_security_exception` and confirm it in the console, with its fingerprint, justification, future expiry (at most thirty days), snapshot digest, rules version and plan revision. Then resume the order for a new security review. Secrets and incomplete scanners cannot be waived. `sabre_security_exceptions` lists the audit history; `sabre_revoke_security_exception` revokes an approval at a safe boundary. No specialist or autonomous Slack tool can grant an exception.
 
