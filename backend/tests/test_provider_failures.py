@@ -1,5 +1,6 @@
 """Provider failures: what class each one is, which are tried again, and what a failed call leaves behind."""
 
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -10,12 +11,15 @@ import pytest
 from langchain_core.messages import AIMessage
 from langgraph.errors import GraphInterrupt
 
-from sabre import claude_runner
+from sabre import claude_runner, codex_runner
 from sabre.agents import GuardedCalls
 from sabre.claude_model import RUNNER_ERRORS
+from sabre.codex_model import RUNNER_ERRORS as CODEX_RUNNER_ERRORS
+from sabre.codex_model import InvocationRequest
 from sabre.models import DomainError
 from sabre.provider_failures import (
     MAX_PROVIDER_RETRIES,
+    by_status,
     call_with_retries,
     classify,
     failure_code,
@@ -71,6 +75,11 @@ def sdk_error(kind, status: int, headers: dict | None = None):
     (DomainError("CLAUDE_LOGIN_REQUIRED", "login", 503), "authentication"),
     (DomainError("CODEX_INPUT_LIMIT", "large", 413), "invalid_request"),
     (DomainError("CLAUDE_EXECUTION_FAILED", "failed", 503), "other"),
+    (DomainError("CODEX_RATE_LIMITED", "limit", 503), "rate_limit"),
+    (DomainError("CODEX_OVERLOADED", "busy", 503), "overloaded"),
+    (DomainError("CODEX_ACCESS_DENIED", "refused", 503), "authentication"),
+    (DomainError("CODEX_REQUEST_REJECTED", "rejected", 503), "invalid_request"),
+    (DomainError("CODEX_PROCESS_FAILED", "failed", 503), "other"),
     # A domain error that is not a provider failure is never worth another call.
     (DomainError("BUDGET_EXHAUSTED", "no budget"), "other"),
     (DomainError("PAUSE_REQUESTED", "pause"), "other"),
@@ -250,6 +259,78 @@ def test_the_claude_runner_names_a_limit_or_an_overload_when_the_cli_result_says
     assert error.value.code == code and code in RUNNER_ERRORS and RUNNER_ERRORS[code][0] == error.value.status_code
     # The CLI's text is searched, never repeated.
     assert "API Error" not in str(error.value) and "usage limit reached" not in str(error.value)
+
+
+def failed_turn(message) -> bytes:
+    """What the Codex CLI prints for a turn that failed: the error, then the turn's failure with the same message."""
+    lines = [{"type": "thread.started", "thread_id": "synthetic"}, {"type": "turn.started"},
+             {"type": "error", "message": message}, {"type": "turn.failed", "error": {"message": message}}]
+    return b"\n".join(json.dumps(line).encode() for line in lines)
+
+
+@pytest.mark.parametrize("message, code, failure", [
+    # The lines the pinned CLI was seen to write. What a provider says follows the CLI's own beginning.
+    ("exceeded retry limit, last status: 429 Too Many Requests", "CODEX_RATE_LIMITED", "rate_limit"),
+    ("You\u2019ve hit your usage limit. Try again later.", "CODEX_RATE_LIMITED", "rate_limit"),
+    (f"unexpected status 503 Service Unavailable: {SECRET}, url: http://provider.invalid/v1/responses", "CODEX_OVERLOADED", "overloaded"),
+    ("We\u2019re currently experiencing high demand, which may cause temporary errors.", "CODEX_OVERLOADED", "overloaded"),
+    (f"unexpected status 401 Unauthorized: {SECRET}, url: http://provider.invalid/v1/responses", "CODEX_ACCESS_DENIED", "authentication"),
+    (f"unexpected status 403 Forbidden: {SECRET}, url: http://provider.invalid/v1/responses", "CODEX_ACCESS_DENIED", "authentication"),
+    (f"unexpected status 404 Not Found: {SECRET}, url: http://provider.invalid/v1/responses", "CODEX_REQUEST_REJECTED", "invalid_request"),
+    (f"unexpected status 422 Unprocessable Entity: {SECRET}, url: http://provider.invalid/v1/responses", "CODEX_REQUEST_REJECTED", "invalid_request"),
+    (f"unexpected status 408 Request Timeout: {SECRET}", "CODEX_TIMEOUT", "timeout"),
+    # A request refused outright arrives as the provider's own error document.
+    (json.dumps({"error": {"message": SECRET, "type": "invalid_request_error", "param": "reasoning.effort", "code": "unsupported_value"}}),
+     "CODEX_REQUEST_REJECTED", "invalid_request"),
+])
+async def test_the_codex_runner_names_the_failure_the_cli_reports_for_its_turn(monkeypatch, tmp_path, message, code, failure):
+    error = codex_runner.turn_failure(failed_turn(message))
+    assert error is not None and error.code == code and classify(error) == failure
+    assert code in CODEX_RUNNER_ERRORS and CODEX_RUNNER_ERRORS[code][0] == error.status_code
+    # What the provider said is never repeated.
+    assert SECRET not in str(error) and SECRET not in error.message
+    # The bridge raises it for the call, whatever the process returned.
+    tmp_path.chmod(0o700)
+    runner = codex_runner.CodexRunner(tmp_path)
+    monkeypatch.setattr(runner, "_login_status", AsyncMock(return_value={"authenticated": True}))
+    for exit_code in (1, 0):
+        monkeypatch.setattr(codex_runner, "capture_process", AsyncMock(return_value=(exit_code, failed_turn(message), b"")))
+        with pytest.raises(DomainError) as raised:
+            await runner.invoke(InvocationRequest(prompt="fixture"))
+        assert raised.value.code == code
+
+
+@pytest.mark.parametrize("message", [
+    "The model returned an unexpected message",
+    # Only the beginning counts. Text that merely contains the CLI's words, as a provider's could, names nothing.
+    "stream disconnected: exceeded retry limit, last status: 429 Too Many Requests",
+    " unexpected status 429 Too Many Requests",
+    "Note: You\u2019ve hit your usage limit.",
+    "unexpected status 200 OK: ",
+    "unexpected status 4290 Too Many Requests",
+    json.dumps({"message": "a document without an error object"}),
+    json.dumps({"error": "not an object"}),
+    "{not json",
+    ["not", "text"],
+    None,
+])
+async def test_a_failed_turn_the_codex_bridge_cannot_name_keeps_the_generic_code(monkeypatch, tmp_path, message):
+    assert codex_runner.turn_failure(failed_turn(message)) is None
+    tmp_path.chmod(0o700)
+    runner = codex_runner.CodexRunner(tmp_path)
+    monkeypatch.setattr(runner, "_login_status", AsyncMock(return_value={"authenticated": True}))
+    monkeypatch.setattr(codex_runner, "capture_process", AsyncMock(return_value=(1, failed_turn(message), b"")))
+    with pytest.raises(DomainError) as raised:
+        await runner.invoke(InvocationRequest(prompt="fixture"))
+    assert raised.value.code == "CODEX_PROCESS_FAILED"
+
+
+def test_the_codex_bridge_classes_a_status_as_the_factory_does_for_any_provider():
+    assert all(codex_runner.failure_of(status) == by_status(status) for status in range(400, 600))
+    assert codex_runner.failure_of(399) is None and codex_runner.failure_of(200) is None
+    # Output that is not the CLI's event lines, and a turn that did not fail, name no failure.
+    assert codex_runner.turn_failure(b"not json") is None and codex_runner.turn_failure(b"") is None
+    assert codex_runner.turn_failure(b'{"type":"turn.failed"}') is None and codex_runner.turn_failure(b'{"type":"turn.failed","error":"text"}') is None
 
 
 def test_the_failure_class_and_the_attempts_pass_the_telemetry_allowlist():

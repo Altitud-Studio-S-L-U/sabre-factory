@@ -29,8 +29,9 @@ BRIDGE_CLASSES: dict[str, FailureClass] = {
     "BUSY": "overloaded", "RUNNER_UNAVAILABLE": "overloaded", "PROCESS_UNAVAILABLE": "overloaded", "OVERLOADED": "overloaded",
     "TIMEOUT": "timeout", "RATE_LIMITED": "rate_limit",
     "LOGIN_REQUIRED": "authentication", "HOME_INVALID": "authentication", "POLICY_UNSUPPORTED": "authentication",
-    "BRIDGE_CONFIGURATION": "authentication",
+    "BRIDGE_CONFIGURATION": "authentication", "ACCESS_DENIED": "authentication",
     "INPUT_LIMIT": "invalid_request", "INPUT_INVALID": "invalid_request", "UNSUPPORTED_OPTION": "invalid_request",
+    "REQUEST_REJECTED": "invalid_request",
 }
 # What a failure of an API provider is called once it leaves the call. "other" keeps the boundary's generic code.
 FINAL_ERRORS: dict[str, tuple[str, str]] = {

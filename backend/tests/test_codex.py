@@ -164,6 +164,26 @@ def test_protocol_rejects_unsupported_incomplete_or_invalid_events(mutator):
     assert "sensitive" not in str(error.value)
 
 
+def test_a_turn_the_cli_completed_after_reconnecting_is_an_answer():
+    lines = [json.loads(line) for line in events().splitlines()]
+    note = {"type": "error", "message": "Reconnecting... 1/5 (unexpected status 503 Service Unavailable: sensitive, url: http://provider.invalid)"}
+
+    def joined(sequence):
+        return b"\n".join(json.dumps(line).encode() for line in sequence)
+
+    # The provider failed, the CLI said it was reconnecting, and then completed the turn: that is the answer.
+    recovered = joined([*lines[:2], note, {**note, "message": "Reconnecting... 2/5 (stream closed)"}, *lines[2:]])
+    assert codex_runner.parse_events(recovered) == codex_runner.parse_events(events())
+    assert codex_runner.turn_failure(recovered) is None
+    # Any other error line, a note outside the turn, and a note that is not text are still not an answer.
+    for sequence in ([*lines[:2], {"type": "error", "message": "unexpected status 503 Service Unavailable"}, *lines[2:]],
+                     [lines[0], note, *lines[1:]], [*lines, note], [*lines[:2], {"type": "error", "message": ["Reconnecting... "]}, *lines[2:]],
+                     [*lines[:2], {"type": "error"}, *lines[2:]]):
+        with pytest.raises(DomainError) as invalid:
+            codex_runner.parse_events(joined(sequence))
+        assert invalid.value.code == "CODEX_PROTOCOL_INVALID" and "sensitive" not in str(invalid.value)
+
+
 async def test_runner_auth_input_limits_and_error_redaction(token_file):
     runner = SimpleNamespace(invoke=AsyncMock(return_value=response()), status=AsyncMock(return_value={"authenticated": False}))
     app = codex_runner.create_app(runner, token_file)

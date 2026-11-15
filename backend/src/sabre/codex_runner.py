@@ -4,6 +4,7 @@ import asyncio
 import hmac
 import json
 import os
+import re
 import shutil
 import signal
 import stat
@@ -40,6 +41,22 @@ _PROCESS_CLEANUP_POLL_S = 0.01
 # request before the conversation began, so no call started the way the one before it did.
 TURN_DIRECTORY = Path(tempfile.gettempdir()) / "sabre-codex-turn"
 SCHEMA_FILE = "response-schema.json"
+# How the pinned CLI says that a turn failed, read from the beginning of its message only. The CLI
+# writes that beginning itself: the status it met, or one of two sentences of its own. What the
+# provider said comes after it and is never read, kept, logged or returned. The native check holds
+# each of these against the pinned binary.
+FAILED_STATUS = re.compile(r"(?:unexpected status|exceeded retry limit, last status:) ([1-5][0-9]{2}) ")
+USAGE_LIMIT = "You\u2019ve hit your usage limit"
+HIGH_DEMAND = "We\u2019re currently experiencing high demand"
+# While it reconnects after a failure it may still recover from, the CLI writes one of these and goes on.
+RECONNECTING = "Reconnecting... "
+TURN_FAILURES = {
+    "rate_limit": ("CODEX_RATE_LIMITED", "Codex reported a rate or usage limit"),
+    "overloaded": ("CODEX_OVERLOADED", "Codex reported that the service is overloaded"),
+    "authentication": ("CODEX_ACCESS_DENIED", "The provider refused the Codex session or its access"),
+    "invalid_request": ("CODEX_REQUEST_REJECTED", "The provider rejected the request Codex sent"),
+    "timeout": ("CODEX_TIMEOUT", "The Codex invocation timed out"),
+}
 POLICY = {
     "approval_policy": "never", "default_permissions": "sabre", "web_search": "disabled",
     "cli_auth_credentials_store": "file", "forced_login_method": "chatgpt", "check_for_update_on_startup": False,
@@ -190,6 +207,54 @@ async def capture_process(args: list[str], *, env: dict[str, str], cwd: str, std
             raise asyncio.CancelledError
 
 
+def failure_of(status: int) -> str | None:
+    """The class of an HTTP status, as the factory classifies any provider's."""
+    if status == 429:
+        return "rate_limit"
+    if status in (401, 403):
+        return "authentication"
+    if status == 408:
+        return "timeout"
+    if status >= 500:
+        return "overloaded"
+    return "invalid_request" if status >= 400 else None
+
+
+def turn_failure(raw: bytes) -> DomainError | None:
+    """The failure the CLI reported for its turn, as an error of the bridge; None when it named none this bridge knows."""
+    message = None
+    for line in raw.splitlines():
+        try:
+            event = json.loads(line)
+        except (ValueError, RecursionError):
+            return None
+        if isinstance(event, dict) and event.get("type") == "turn.failed":
+            error = event.get("error")
+            message = error.get("message") if isinstance(error, dict) else None
+    if not isinstance(message, str):
+        return None
+    failure = None
+    status = FAILED_STATUS.match(message)
+    if status:
+        failure = failure_of(int(status.group(1)))
+    elif message.startswith(USAGE_LIMIT):
+        failure = "rate_limit"
+    elif message.startswith(HIGH_DEMAND):
+        failure = "overloaded"
+    elif message.startswith("{"):
+        # A request the provider refuses outright reaches the CLI's output as the provider's own error document.
+        try:
+            document = json.loads(message)
+        except (ValueError, RecursionError):
+            document = None
+        if isinstance(document, dict) and isinstance(document.get("error"), dict):
+            failure = "invalid_request"
+    if failure not in TURN_FAILURES:
+        return None
+    code, text = TURN_FAILURES[failure]
+    return DomainError(code, text, 503)
+
+
 def parse_events(raw: bytes) -> InvocationResponse:
     final = None
     usage = None
@@ -224,6 +289,11 @@ def parse_events(raw: bytes) -> InvocationResponse:
                     if final is None or usage is not None:
                         raise ValueError
                     usage = event["usage"]
+                case "error":
+                    # A note that the CLI is reconnecting, written before a turn it then completes. Any other error is not an answer.
+                    message = event.get("message")
+                    if not turn_started or usage is not None or not isinstance(message, str) or not message.startswith(RECONNECTING):
+                        raise ValueError
                 case _:
                     raise ValueError
         if final is None or usage is None:
@@ -232,6 +302,16 @@ def parse_events(raw: bytes) -> InvocationResponse:
             output_tokens=usage["output_tokens"], cached_input_tokens=usage["cached_input_tokens"])
     except (ValueError, TypeError, KeyError, ValidationError):
         raise DomainError("CODEX_PROTOCOL_INVALID", "Codex returned events incompatible with the adapter", 503) from None
+
+
+def turn_result(code: int, raw: bytes) -> InvocationResponse:
+    """What a finished process means: the failure the CLI named for its turn, a process that failed, or its answer."""
+    failure = turn_failure(raw)
+    if failure is not None:
+        raise failure
+    if code:
+        raise DomainError("CODEX_PROCESS_FAILED", "The Codex process ended without a valid result", 503)
+    return parse_events(raw)
 
 
 class CodexRunner:
@@ -289,9 +369,7 @@ class CodexRunner:
             (Path(directory) / SCHEMA_FILE).write_text(json.dumps(AssistantEnvelope.model_json_schema()), encoding="utf-8")
             args = turn_arguments(directory, home=self.home, model=request.model)
             code, raw, _ = await capture_process([*args, "-"], env=self.environment(), cwd=directory, stdin=request.prompt.encode())
-        if code:
-            raise DomainError("CODEX_PROCESS_FAILED", "The Codex process ended without a valid result", 503)
-        return parse_events(raw)
+        return turn_result(code, raw)
 
 
 def create_app(runner: CodexRunner | None = None, token_file: Path = TOKEN_FILE):
