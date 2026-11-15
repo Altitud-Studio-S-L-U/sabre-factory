@@ -23,6 +23,7 @@ from sabre.codex_runner import (
     parse_events,
     turn_arguments,
     turn_directory,
+    turn_result,
 )
 from sabre.models import DomainError
 
@@ -109,7 +110,11 @@ def final_message() -> dict:
 
 
 def synthetic_provider(requests: list, answer=None):
-    """A local stand-in for the provider. ``answer(number)`` gives the output item of that request; by default the final message."""
+    """A local stand-in for the provider.
+
+    ``answer(number)`` gives the output item of that request, or (status, body, headers) to refuse it;
+    by default every request gets the final message.
+    """
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, format, *args):
@@ -119,6 +124,15 @@ def synthetic_provider(requests: list, answer=None):
             requests.append(json.loads(self.rfile.read(int(self.headers["Content-Length"]))))
             number = len(requests)
             item = answer(number) if answer else final_message()
+            if isinstance(item, tuple):
+                status, body, headers = item
+                payload = json.dumps(body).encode()
+                self.send_response(status)
+                for key, value in {"Content-Type": "application/json", "Content-Length": str(len(payload)), **headers}.items():
+                    self.send_header(key, value)
+                self.end_headers()
+                self.wfile.write(payload)
+                return
             base = {"id": f"resp_synthetic_{number}", "object": "response"}
             events = [
                 ("response.created", {"type": "response.created", "response": {**base, "status": "in_progress", "output": []}}),
@@ -388,3 +402,65 @@ async def test_a_conversation_that_grew_reaches_the_provider_with_the_same_begin
     assert str(tmp_path / "another-directory") in json.dumps(written_by_the_cli(elsewhere))
     # A limit the factory cannot move: the CLI names a cache key of its own, new for every process.
     assert len({request["prompt_cache_key"] for request in (first, second, elsewhere)}) == 3
+
+
+# What a provider says in a refusal. None of it may leave the bridge.
+PROVIDER_TEXT = "SYNTHETIC_PROVIDER_TEXT"
+REFUSALS = {
+    "invalid": {"error": {"message": f"{PROVIDER_TEXT}: unsupported value.", "type": "invalid_request_error", "param": "reasoning.effort", "code": "unsupported_value"}},
+    "key": {"error": {"message": f"{PROVIDER_TEXT}: incorrect credential.", "type": "invalid_request_error", "param": None, "code": "invalid_api_key"}},
+    "missing": {"error": {"message": f"{PROVIDER_TEXT}: the model does not exist.", "type": "invalid_request_error", "param": None, "code": "model_not_found"}},
+    "rate": {"error": {"message": f"{PROVIDER_TEXT}: rate limit reached.", "type": "requests", "param": None, "code": "rate_limit_exceeded"}},
+    "usage": {"error": {"message": f"{PROVIDER_TEXT}: usage limit.", "type": "usage_limit_reached", "resets_in_seconds": 3600}},
+    "server": {"error": {"message": f"{PROVIDER_TEXT}: overloaded.", "type": "server_error", "param": None, "code": None}},
+}
+
+
+async def answered_by(tmp_path, answer, model=CODE_TOOL_MODEL, timeout=90):
+    """One call as the bridge makes it, from the fixed directory, against a provider that answers as ``answer`` says."""
+    home, bridge = tmp_path / "private", tmp_path / "bridge"
+    home.mkdir(mode=0o700)
+    bridge.mkdir(mode=0o700)
+    requests: list = []
+    server, thread = synthetic_provider(requests, answer)
+    try:
+        with turn_directory() as where:
+            (Path(where) / SCHEMA_FILE).write_text(json.dumps(AssistantEnvelope.model_json_schema()))
+            args = [*turn_arguments(where, home=home, model=model, secrets_dir=bridge), *provider_arguments(server), "-"]
+            code, stdout, _ = await capture_process(args, env=environment(home), cwd=where, stdin=b"Return the synthetic envelope", timeout=timeout)
+    finally:
+        server.shutdown()
+        thread.join(timeout=2)
+        server.server_close()
+    return code, stdout, requests
+
+
+@pytest.mark.parametrize("status, refusal, headers, expected", [
+    (400, "invalid", {}, "CODEX_REQUEST_REJECTED"),
+    (404, "missing", {}, "CODEX_REQUEST_REJECTED"),
+    (401, "key", {}, "CODEX_ACCESS_DENIED"),
+    (403, "key", {}, "CODEX_ACCESS_DENIED"),
+    (429, "rate", {}, "CODEX_RATE_LIMITED"),
+    (429, "rate", {"Retry-After": "1"}, "CODEX_RATE_LIMITED"),
+    (429, "usage", {}, "CODEX_RATE_LIMITED"),
+    (500, "server", {}, "CODEX_OVERLOADED"),
+    (503, "server", {}, "CODEX_OVERLOADED"),
+])
+async def test_the_bridge_names_what_the_pinned_cli_reports_when_the_provider_fails(tmp_path, status, refusal, headers, expected):
+    code, stdout, requests = await answered_by(tmp_path, lambda number: (status, REFUSALS[refusal], headers))
+    # The CLI tries again by itself for some failures, and stops: it never asks without end.
+    assert code != 0 and 1 <= len(requests) <= 40
+    with pytest.raises(DomainError) as failure:
+        turn_result(code, stdout)
+    assert failure.value.code == expected
+    # The CLI prints what the provider said; the bridge's error carries none of it.
+    assert PROVIDER_TEXT not in str(failure.value) and PROVIDER_TEXT not in failure.value.message
+
+
+async def test_a_turn_the_pinned_cli_completes_after_the_provider_failed_is_kept(tmp_path):
+    # Enough failures for the CLI to say that it is reconnecting, and then an answer.
+    code, stdout, requests = await answered_by(tmp_path, lambda number: (503, REFUSALS["server"], {}) if number <= 7 else final_message())
+    assert code == 0 and len(requests) == 8
+    assert any(json.loads(line).get("type") == "error" for line in stdout.splitlines())
+    result = turn_result(code, stdout)
+    assert result.result.content == "synthetic completed" and (result.input_tokens, result.output_tokens) == (100, 20)
