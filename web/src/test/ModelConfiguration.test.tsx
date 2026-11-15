@@ -2,7 +2,7 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { createApi, type ModelConfigurationChange } from '../api';
-import ModelConfiguration from '../ModelConfiguration';
+import ModelConfiguration, { effortNote, effortSummary, withEffort } from '../ModelConfiguration';
 import { configuration } from './modelConfigurationFixture';
 
 function setup(conflict = false, scope: 'all' | 'default' | 'agents' = 'all') {
@@ -96,6 +96,64 @@ describe('models per specialty', () => {
       cache_read_usd_per_million: 0.3,
       cache_write_usd_per_million: null,
     });
+  });
+  it('offers a reasoning effort where the provider takes one, and sends none on the provider default', async () => {
+    const { writes } = setup(false, 'agents');
+    const user = userEvent.setup();
+    const selector = await screen.findByLabelText('Runtime specialists');
+    await user.click(within(selector).getByRole('button', { name: /Development/ }));
+    await user.click(screen.getByRole('checkbox', { name: 'Inherit the default model' }));
+    const role = () => screen.getByText('Development', { selector: 'summary strong' }).closest('details')!;
+    const effort = () => within(role()).getByLabelText('Reasoning effort');
+    // The copy of the default is a Codex session: the factory sets no effort for it.
+    expect(within(role()).queryByLabelText('Reasoning effort')).not.toBeInTheDocument();
+    await user.selectOptions(within(role()).getByLabelText('Provider'), 'claude_cli');
+    expect(effort()).toHaveValue('');
+    expect(effort()).toHaveAccessibleDescription(/the Claude CLI chooses by model/);
+    expect(
+      within(effort())
+        .getAllByRole('option')
+        .map((option) => option.textContent),
+    ).toEqual(['Provider default', 'Low', 'Medium', 'High', 'Extra high', 'Maximum']);
+    await user.selectOptions(effort(), 'high');
+    // The levels are the provider's: another provider drops the level, and coming back does not restore it.
+    await user.selectOptions(within(role()).getByLabelText('Provider'), 'anthropic');
+    expect(within(role()).queryByLabelText('Reasoning effort')).not.toBeInTheDocument();
+    await user.selectOptions(within(role()).getByLabelText('Provider'), 'claude_cli');
+    expect(effort()).toHaveValue('');
+    await user.selectOptions(effort(), 'max');
+    await user.type(within(role()).getByLabelText('Model'), 'synthetic-implementation-model');
+    expect(selector).toHaveTextContent('synthetic-implementation-model · Maximum effort');
+    await user.click(screen.getByRole('checkbox', { name: /I authorize sending/ }));
+    await user.click(screen.getByRole('button', { name: 'Save models' }));
+    await screen.findByText(/Configuration saved/);
+    expect(writes[0].roles.developer).toMatchObject({ provider: 'claude_cli', effort: 'max' });
+    // The default never named one and is sent as it was.
+    expect(writes[0].default).not.toHaveProperty('effort');
+    // Back on the provider default, the selection is sent without the key, not with an empty one.
+    await user.selectOptions(effort(), '');
+    expect(selector).not.toHaveTextContent('effort');
+    await user.click(screen.getByRole('checkbox', { name: /I authorize sending/ }));
+    await user.click(screen.getByRole('button', { name: 'Save models' }));
+    await waitFor(() => expect(writes).toHaveLength(2));
+    expect(writes[1].roles.developer).toMatchObject({
+      provider: 'claude_cli',
+      name: 'synthetic-implementation-model',
+    });
+    expect(writes[1].roles.developer).not.toHaveProperty('effort');
+  });
+  it('leaves a selection without an effort as the API returned it, so an untouched form is not a change', () => {
+    const plain = configuration().default;
+    const session = { ...plain, provider: 'claude_cli' as const, destination: 'http://claude-runner:8092' };
+    const levelled = withEffort(session, 'high');
+    expect(levelled).toEqual({ ...session, effort: 'high' });
+    expect([effortSummary(levelled), effortNote(levelled)]).toEqual(['High', ' · High effort']);
+    const unset = withEffort(levelled, '');
+    expect(unset).not.toHaveProperty('effort');
+    expect(JSON.stringify(unset)).toBe(JSON.stringify(session));
+    expect([effortSummary(unset), effortNote(unset)]).toEqual(['Provider default', '']);
+    // A provider where the factory sets no effort has no summary at all.
+    expect([effortSummary(plain), effortNote(plain)]).toEqual([null, '']);
   });
   it('distinguishes the connection from the selection and requires approving the destinations before the CAS change', async () => {
     const { writes, onChanged } = setup();

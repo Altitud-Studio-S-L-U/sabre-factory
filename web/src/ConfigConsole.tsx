@@ -16,7 +16,15 @@ import {
   type Project,
   type SecretMetadata,
 } from './api';
-import { CachePriceFields, providers, SelectionFields } from './ModelConfiguration';
+import {
+  CachePriceFields,
+  EffortField,
+  effortNote,
+  effortSummary,
+  providers,
+  SelectionFields,
+  withEffort,
+} from './ModelConfiguration';
 import Credentials from './Credentials';
 import PairedBrowsers from './PairedBrowsers';
 import About from './About';
@@ -502,16 +510,22 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
                             value={selection.provider}
                             onChange={(event) => {
                               const provider = event.target.value as ModelSelection['provider'];
-                              changeDefault({
-                                ...selection,
-                                provider,
-                                name: '',
-                                destination: providers[provider].destination,
-                                input_usd_per_million: 0,
-                                output_usd_per_million: 0,
-                                cache_read_usd_per_million: null,
-                                cache_write_usd_per_million: null,
-                              });
+                              // The levels are the provider's: an effort chosen for one is not carried to another.
+                              changeDefault(
+                                withEffort(
+                                  {
+                                    ...selection,
+                                    provider,
+                                    name: '',
+                                    destination: providers[provider].destination,
+                                    input_usd_per_million: 0,
+                                    output_usd_per_million: 0,
+                                    cache_read_usd_per_million: null,
+                                    cache_write_usd_per_million: null,
+                                  },
+                                  '',
+                                ),
+                              );
                             }}
                           >
                             <optgroup label="Recommended connection methods">
@@ -636,6 +650,7 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
                               }
                             />
                           </Field>
+                          <EffortField value={selection} onChange={changeDefault} />
                           {!cli && (
                             <div className="grid gap-4 @md:grid-cols-2">
                               <Field label="USD per million input tokens">
@@ -678,8 +693,8 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
                                   {roleNames[name] ?? name}
                                   <Secondary>
                                     {value
-                                      ? `${providers[value.provider].title} · ${value.name || 'Model required'}`
-                                      : `Inherits default · ${selection.name || 'Model required'}`}
+                                      ? `${providers[value.provider].title} · ${value.name || 'Model required'}${effortNote(value)}`
+                                      : `Inherits default · ${selection.name || 'Model required'}${effortNote(selection)}`}
                                   </Secondary>
                                 </div>
                                 <Button variant="secondary" size="sm" onClick={() => setRole(name)}>
@@ -706,6 +721,8 @@ export default function ConfigConsole({ api, projects, connected = true, onRefre
                         items={[
                           ['Provider', providers[selection.provider].title],
                           ['Model', selection.name || 'Not selected'],
+                          // Shown for a provider where the factory sets it; null leaves the row out.
+                          ['Effort', effortSummary(selection)],
                           [
                             'Team',
                             `${Object.values(draft.models.roles).filter(Boolean).length} overrides · ${

@@ -17,6 +17,42 @@ export const providers: Record<ModelSelection['provider'], { title: string; dest
   google: { title: 'Google · API', destination: 'https://generativelanguage.googleapis.com' },
   local: { title: 'Compatible endpoint', destination: '' },
 };
+export type Effort = NonNullable<ModelSelection['effort']>;
+// Every level the contract names has a label: one added to the API fails the type check here until it has its own.
+const effortLabels: Record<Effort, string> = {
+  low: 'Low',
+  medium: 'Medium',
+  high: 'High',
+  xhigh: 'Extra high',
+  max: 'Maximum',
+};
+/** The levels each provider takes, for the providers where the factory sets one. The API refuses any other. */
+export const effortLevels: Partial<Record<ModelSelection['provider'], readonly Effort[]>> = {
+  claude_cli: ['low', 'medium', 'high', 'xhigh', 'max'],
+};
+
+/**
+ * The selection with this effort, or with none. Unset, the key is absent, as in what the API returns,
+ * so a form nobody touched is not a change.
+ */
+export function withEffort(value: ModelSelection, effort: Effort | ''): ModelSelection {
+  const next = { ...value };
+  if (effort) next.effort = effort;
+  else delete next.effort;
+  return next;
+}
+
+/** How a selection's effort reads, or null where the provider has no such setting. */
+export function effortSummary(value: ModelSelection): string | null {
+  if (!effortLevels[value.provider]) return null;
+  return value.effort ? effortLabels[value.effort] : 'Provider default';
+}
+
+/** What follows a model's name when its selection names an effort; nothing when the provider decides. */
+export function effortNote(value: ModelSelection): string {
+  return value.effort ? ` · ${effortLabels[value.effort]} effort` : '';
+}
+
 const roles: Record<string, string> = {
   supervisor: 'Supervisor',
   analyst: 'Analyst',
@@ -49,16 +85,22 @@ export function SelectionFields({
             value={value.provider}
             onChange={(event) => {
               const provider = event.target.value as ModelSelection['provider'];
-              onChange({
-                ...value,
-                provider,
-                destination: providers[provider].destination,
-                name: '',
-                input_usd_per_million: 0,
-                output_usd_per_million: 0,
-                cache_read_usd_per_million: null,
-                cache_write_usd_per_million: null,
-              });
+              // The levels are the provider's: an effort chosen for one is not carried to another.
+              onChange(
+                withEffort(
+                  {
+                    ...value,
+                    provider,
+                    destination: providers[provider].destination,
+                    name: '',
+                    input_usd_per_million: 0,
+                    output_usd_per_million: 0,
+                    cache_read_usd_per_million: null,
+                    cache_write_usd_per_million: null,
+                  },
+                  '',
+                ),
+              );
             }}
           >
             {Object.entries(providers).map(([id, provider]) => (
@@ -116,6 +158,7 @@ export function SelectionFields({
             onChange={(event) => onChange({ ...value, max_output_tokens: Number(event.target.value) })}
           />
         </Field>
+        <EffortField value={value} onChange={onChange} />
         {!cli && (
           <>
             <Field label="USD per million input tokens">
@@ -147,6 +190,36 @@ export function SelectionFields({
         )}
       </div>
     </div>
+  );
+}
+
+/** The reasoning effort of a selection, for a provider where the factory sets one; nothing for the others. */
+export function EffortField({
+  value,
+  onChange,
+}: {
+  value: ModelSelection;
+  onChange: (value: ModelSelection) => void;
+}) {
+  const levels = effortLevels[value.provider];
+  if (!levels) return null;
+  return (
+    <Field
+      label="Reasoning effort"
+      hint="How thoroughly the model works on each call; higher levels spend more tokens. On the provider default, the Claude CLI chooses by model. It lowers or ignores a level the model does not take."
+    >
+      <Select
+        value={value.effort ?? ''}
+        onChange={(event) => onChange(withEffort(value, event.target.value as Effort | ''))}
+      >
+        <option value="">Provider default</option>
+        {levels.map((level) => (
+          <option key={level} value={level}>
+            {effortLabels[level]}
+          </option>
+        ))}
+      </Select>
+    </Field>
   );
 }
 
@@ -382,8 +455,8 @@ export default function ModelConfiguration({
                   <strong className="font-semibold">{roles[role.role] ?? role.role}</strong>
                   <small className="text-xs text-muted-foreground [overflow-wrap:anywhere]">
                     {overrides[role.role]
-                      ? `${providers[overrides[role.role]!.provider].title} · ${overrides[role.role]!.name || 'Not selected'}`
-                      : `Inherits factory default · ${general.name || 'Not selected'}`}
+                      ? `${providers[overrides[role.role]!.provider].title} · ${overrides[role.role]!.name || 'Not selected'}${effortNote(overrides[role.role]!)}`
+                      : `Inherits factory default · ${general.name || 'Not selected'}${effortNote(general)}`}
                   </small>
                 </button>
               ))}
@@ -401,6 +474,7 @@ export default function ModelConfiguration({
                     <strong className="font-semibold">Default model</strong>
                     <span className="text-xs font-normal text-muted-foreground">
                       {providers[general.provider].title} · {general.name || 'Not selected'}
+                      {effortNote(general)}
                     </span>
                   </span>
                 }
@@ -430,6 +504,7 @@ export default function ModelConfiguration({
                             <span className="text-xs font-normal text-muted-foreground">
                               {value ? providers[effective.provider].title : 'Inherits the default model'} ·{' '}
                               {effective.name || 'Not selected'}
+                              {effortNote(effective)}
                             </span>
                           </span>
                         }

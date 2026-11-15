@@ -176,6 +176,70 @@ it('validates the same configuration document and retains the model draft after 
   expect(writes[0]).not.toHaveProperty('api_key');
 });
 
+it('writes the effort of the default model into the document, only for a provider that takes one', async () => {
+  const user = userEvent.setup();
+  const previews: string[] = [];
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: string, request: RequestInit = {}) => {
+      if (input.endsWith('/model-configuration')) return Response.json(models);
+      if (input.endsWith('/integrations')) return Response.json([]);
+      if (input.endsWith('/configuration/preview')) {
+        const body = JSON.parse(String(request.body));
+        previews.push(body.document);
+        const next = JSON.parse(body.document);
+        return Response.json({
+          version: 1,
+          valid: true,
+          configuration: next,
+          yaml: JSON.stringify(next),
+          diagnostics: [],
+          safe_diff: [],
+        });
+      }
+      return Response.json(factory());
+    }),
+  );
+  render(
+    <MemoryRouter>
+      <ConfigConsole api={createApi('synthetic-csrf')} projects={[project]} />
+    </MemoryRouter>,
+  );
+  await user.click(await screen.findByRole('button', { name: 'Models' }));
+  await user.click(screen.getByText('Advanced model settings'));
+  const effective = screen.getByRole('complementary', { name: 'What the factory will use' });
+  // A Codex session is the default here: the factory sets no effort for it, and says nothing about one.
+  expect(screen.queryByLabelText('Reasoning effort')).not.toBeInTheDocument();
+  expect(within(effective).queryByText('Effort')).not.toBeInTheDocument();
+
+  await user.selectOptions(screen.getByRole('combobox', { name: 'Model provider' }), 'claude_cli');
+  await user.type(screen.getByRole('textbox', { name: 'Model identifier' }), 'claude-fixture');
+  expect(screen.getByLabelText('Reasoning effort')).toHaveValue('');
+  expect(within(effective).getByText('Effort').nextElementSibling).toHaveTextContent('Provider default');
+  await user.selectOptions(screen.getByLabelText('Reasoning effort'), 'xhigh');
+  expect(within(effective).getByText('Effort').nextElementSibling).toHaveTextContent('Extra high');
+  await user.click(screen.getByRole('button', { name: 'Validate & preview' }));
+  await waitFor(() => expect(previews).toHaveLength(1));
+  expect(JSON.parse(previews[0]).models.default).toMatchObject({
+    provider: 'claude_cli',
+    name: 'claude-fixture',
+    effort: 'xhigh',
+  });
+
+  // Another provider: the level is not carried along, and the document names none.
+  await user.selectOptions(screen.getByRole('combobox', { name: 'Model provider' }), 'anthropic');
+  await user.type(screen.getByRole('textbox', { name: 'Model identifier' }), 'api-fixture');
+  expect(screen.queryByLabelText('Reasoning effort')).not.toBeInTheDocument();
+  expect(within(effective).queryByText('Effort')).not.toBeInTheDocument();
+  await user.click(screen.getByRole('button', { name: 'Validate & preview' }));
+  await waitFor(() => expect(previews).toHaveLength(2));
+  expect(JSON.parse(previews[1]).models.default).toMatchObject({
+    provider: 'anthropic',
+    name: 'api-fixture',
+  });
+  expect(JSON.parse(previews[1]).models.default).not.toHaveProperty('effort');
+});
+
 it.each(['models', 'provider'])('a link to %s opens the Models view of Config', async (section) => {
   vi.stubGlobal(
     'fetch',
