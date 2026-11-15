@@ -93,7 +93,7 @@ async def test_compact_cli_serialization_preserves_complete_json_contract(monkey
 
 @pytest.mark.parametrize("provider", ["Codex", "Claude"])
 def test_cli_transport_exposes_invisible_source_controls_without_changing_content(provider):
-    from sabre.cli_protocol import serialize_turn
+    from sabre.cli_protocol import read_lines, serialize_turn
 
     original = '/^"[!#-~\x80-\xff]*"$/u; Línea é 😀\x7f\x85\x9f\\u0080'
     history = [HumanMessage(content=original), ToolMessage(content=original, tool_call_id="read-source")]
@@ -101,7 +101,7 @@ def test_cli_transport_exposes_invisible_source_controls_without_changing_conten
     assert all(chr(codepoint) not in wire for codepoint in range(0x7f, 0xa0))
     assert all(escape in wire for escape in (r"\u007f", r"\u0080", r"\u0085", r"\u009f"))
     assert "Línea é 😀" in wire and "\xff" in wire
-    decoded = json.loads(wire)
+    decoded = json.loads(wire) if provider == "Codex" else read_lines(wire)
     assert [entry["content"] for entry in decoded["conversation"]] == [original, original]
     assert decoded["conversation"][1]["tool_call_id"] == "read-source"
     assert [message.content for message in history] == [original, original]

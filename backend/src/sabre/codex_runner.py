@@ -104,7 +104,8 @@ async def _terminate_process_group(process):
         raise DomainError("CODEX_CLEANUP_FAILED", "Could not confirm that the invocation's process group stopped", 503) from None
 
 
-async def capture_process(args: list[str], *, env: dict[str, str], cwd: str, stdin: bytes = b"", timeout: int = INVOCATION_TIMEOUT_S):
+async def capture_process(args: list[str], *, env: dict[str, str], cwd: str, stdin: bytes = b"", timeout: int = INVOCATION_TIMEOUT_S,
+                          maximum_output: int = MAX_OUTPUT_BYTES):
     try:
         process = await asyncio.create_subprocess_exec(*args, cwd=cwd, env=env,
             stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
@@ -126,7 +127,7 @@ async def capture_process(args: list[str], *, env: dict[str, str], cwd: str, std
         process.stdin.write(stdin)
         await process.stdin.drain()
         process.stdin.close()
-        readers = [asyncio.create_task(read(process.stdout, MAX_OUTPUT_BYTES)), asyncio.create_task(read(process.stderr, 32768))]
+        readers = [asyncio.create_task(read(process.stdout, maximum_output)), asyncio.create_task(read(process.stderr, 32768))]
         try:
             stdout, stderr = await asyncio.gather(*readers)
         finally:
@@ -304,6 +305,9 @@ def create_app(runner: CodexRunner | None = None, token_file: Path = TOKEN_FILE)
             payload = InvocationRequest.model_validate_json(raw)
         except ValidationError:
             raise DomainError("CODEX_INPUT_INVALID", "The Codex request is invalid", 422) from None
+        if payload.segments:
+            # Codex takes its prompt as one text; blocks are the Claude runner's form.
+            raise DomainError("CODEX_INPUT_INVALID", "The Codex request is invalid", 422)
         if len(payload.prompt.encode()) > MAX_INPUT_BYTES:
             raise DomainError("CODEX_INPUT_LIMIT", "Codex context exceeds the limit", 413)
         return await selected.invoke(payload)

@@ -9,8 +9,19 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
-from sabre.claude_runner import BINARY, ClaudeRunner, capture_process, cli_arguments, parse_result
+from sabre.claude_runner import (
+    BINARY,
+    STREAM_OUTPUT_BYTES,
+    ClaudeRunner,
+    capture_process,
+    cli_arguments,
+    cli_input,
+    parse_result,
+    turn_directory,
+)
+from sabre.cli_protocol import serialize_segments
 from sabre.codex_model import AssistantEnvelope
 from sabre.models import DomainError
 
@@ -110,7 +121,7 @@ async def test_no_native_tools_or_customizations_run(tmp_path, attack):
     environment.update({"ANTHROPIC_API_KEY": "synthetic-not-a-credential", "ANTHROPIC_BASE_URL": f"http://127.0.0.1:{server.server_port}"})
     try:
         code, stdout, stderr = await capture_process([*cli_arguments(), "--model", "claude-sonnet-4-6"], env=environment,
-            cwd=str(workspace), stdin=b"Return the synthetic envelope", timeout=45)
+            cwd=str(workspace), stdin=cli_input(["Return the synthetic envelope"]), timeout=45)
     finally:
         server.shutdown()
         thread.join(timeout=2)
@@ -128,7 +139,7 @@ async def test_no_native_tools_or_customizations_run(tmp_path, attack):
     assert b"SYNTHETIC_CLAUDE_PRIVATE_CANARY" not in stdout
     if attack in {"StructuredOutput", "text_then_structured", "invalid_then_structured"}:
         assert code == 0
-        assert json.loads(stdout).get("permission_denials") == []
+        assert json.loads(stdout.splitlines()[-1]).get("permission_denials") == []
         result = parse_result(stdout, exit_code=code)
         assert result.result.content == "synthetic completed"
         assert result.input_tokens == 150 * len(requests) and result.output_tokens == 15 * len(requests)
@@ -140,3 +151,104 @@ async def test_no_native_tools_or_customizations_run(tmp_path, attack):
     else:
         with pytest.raises(DomainError):
             parse_result(stdout, exit_code=code)
+
+
+def synthetic_provider(requests):
+    """A local stand-in for the provider that records each request and answers with the structured envelope."""
+    envelope = AssistantEnvelope(content="synthetic completed", tool_calls=[]).model_dump()
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, format, *args):
+            pass
+
+        def do_GET(self):
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"synthetic")
+
+        def do_POST(self):
+            body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            requests.append(body)
+            usage = {"input_tokens": 100, "output_tokens": 0, "cache_creation_input_tokens": 20, "cache_read_input_tokens": 30}
+            message = {"id": "msg_synthetic", "type": "message", "role": "assistant", "model": "claude-sonnet-4-6", "content": [], "stop_reason": None, "stop_sequence": None, "usage": usage}
+            block = {"type": "tool_use", "id": f"toolu_synthetic_{len(requests)}", "name": "StructuredOutput", "input": {}}
+            events = [("message_start", {"type": "message_start", "message": message}),
+                ("content_block_start", {"type": "content_block_start", "index": 0, "content_block": block}),
+                ("content_block_delta", {"type": "content_block_delta", "index": 0, "delta": {"type": "input_json_delta", "partial_json": json.dumps(envelope)}}),
+                ("content_block_stop", {"type": "content_block_stop", "index": 0}),
+                ("message_delta", {"type": "message_delta", "delta": {"stop_reason": "tool_use", "stop_sequence": None}, "usage": {"output_tokens": 15}}),
+                ("message_stop", {"type": "message_stop"})]
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.end_headers()
+            for name, event in events:
+                self.wfile.write(f"event: {name}\ndata: {json.dumps(event)}\n\n".encode())
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    return server, thread
+
+
+def fixture_conversation(turns: int):
+    messages = [SystemMessage(content="You are the analyst of a synthetic project. " * 40), HumanMessage(content='{"objective":"Audit the synthetic package"}')]
+    for turn in range(turns):
+        calls = [{"name": "read_file", "args": {"path": f"module_{turn}_{index}.py"}, "id": f"call-{turn}-{index}", "type": "tool_call"} for index in range(3)]
+        messages.append(AIMessage(content="", tool_calls=calls))
+        messages += [ToolMessage(content=f"def function_{turn}_{index}():\n    return {index}\n" * 20, tool_call_id=call["id"]) for index, call in enumerate(calls)]
+    return messages
+
+
+async def test_a_conversation_that_grew_reaches_the_provider_as_the_same_blocks_and_one_more(tmp_path):
+    """What the provider's cache needs, shown on the request the pinned CLI builds. No provider is asked whether it hit."""
+    tools = [{"type": "function", "function": {"name": "read_file", "parameters": {"type": "object", "properties": {"path": {"type": "string"}}}}}]
+
+    async def call(name, segments, directory=None):
+        # Each call is a new process with a new, empty login directory, as nothing is kept between calls.
+        home = tmp_path / f"home-{name}"
+        home.mkdir(mode=0o700)
+        requests = []
+        server, thread = synthetic_provider(requests)
+        environment = ClaudeRunner(home).environment()
+        environment.update({"ANTHROPIC_API_KEY": "synthetic-not-a-credential", "ANTHROPIC_BASE_URL": f"http://127.0.0.1:{server.server_port}"})
+        try:
+            if directory is None:
+                with turn_directory() as fixed:
+                    code, stdout, _ = await capture_process([*cli_arguments(), "--model", "claude-sonnet-4-6"], env=environment, cwd=fixed,
+                        stdin=cli_input(segments), timeout=45, maximum_output=STREAM_OUTPUT_BYTES)
+            else:
+                directory.mkdir()
+                code, stdout, _ = await capture_process([*cli_arguments(), "--model", "claude-sonnet-4-6"], env=environment, cwd=str(directory),
+                    stdin=cli_input(segments), timeout=45, maximum_output=STREAM_OUTPUT_BYTES)
+        finally:
+            server.shutdown()
+            thread.join(timeout=2)
+            server.server_close()
+        assert code == 0 and len(requests) == 1
+        assert parse_result(stdout, exit_code=code).result.content == "synthetic completed"
+        return requests[0]
+
+    def blocks(request):
+        assert [message["role"] for message in request["messages"]] == ["user"]
+        return request["messages"][0]["content"]
+
+    def bare(block):
+        return {key: value for key, value in block.items() if key != "cache_control"}
+
+    earlier, later = serialize_segments(fixture_conversation(2), tools, "auto"), serialize_segments(fixture_conversation(3), tools, "auto")
+    first, second = await call("first", earlier), await call("second", later)
+    # The CLI sends the factory's blocks as they are, in order, after the few it writes itself.
+    own = len(blocks(first)) - len(earlier)
+    assert own >= 0 and [block["text"] for block in blocks(first)[own:]] == earlier
+    assert [block["text"] for block in blocks(second)[own:]] == later
+    # Everything the first call sent is the beginning of what the second sends: system, tools and every block.
+    assert json.dumps(first["system"]) == json.dumps(second["system"]) and first.get("tools") == second.get("tools")
+    assert [bare(block) for block in blocks(second)[:len(blocks(first))]] == [bare(block) for block in blocks(first)]
+    assert len(blocks(second)) == len(blocks(first)) + 1
+    # The cache point is the last block of each request, so the second call can be read back up to the first one's.
+    for request in (first, second):
+        assert [index for index, block in enumerate(blocks(request)) if block.get("cache_control")] == [len(blocks(request)) - 1]
+    # Why the directory is fixed: the CLI names it in its first block, and another path makes that block differ.
+    elsewhere = await call("elsewhere", earlier, directory=tmp_path / "another-directory")
+    assert bare(blocks(elsewhere)[0]) != bare(blocks(first)[0])
+    assert [bare(block) for block in blocks(elsewhere)[1:]] == [bare(block) for block in blocks(first)[1:]]

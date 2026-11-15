@@ -20,7 +20,7 @@ from sabre.cli_protocol import (
     InvocationResponse,
     StrictContract,
     read_private_bridge,
-    serialize_turn,
+    serialize_segments,
     validate_tool_calls,
 )
 from sabre.models import DomainError
@@ -133,8 +133,9 @@ class ClaudeChatModel(BaseChatModel):
         if stop:
             raise DomainError("CLAUDE_UNSUPPORTED_OPTION", "Claude CLI does not support provider stop sequences")
         tools = kwargs.get("tools", [])
-        prompt = serialize_turn(messages, tools, kwargs.get("tool_choice"), "Claude")
-        request = InvocationRequest(prompt=prompt, model=self.model_name)
+        # Blocks that only grow with the conversation, so the provider's cache can be read back.
+        segments = serialize_segments(messages, tools, kwargs.get("tool_choice"))
+        request = InvocationRequest(segments=segments, model=self.model_name)
         response = await self._invoke(request)
         calls = validate_tool_calls(response.result, tools, kwargs.get("tool_choice"), "Claude")
         message = AIMessage(content=response.result.content, tool_calls=calls,
@@ -143,7 +144,7 @@ class ClaudeChatModel(BaseChatModel):
                 "input_token_details": {"cache_read": response.cached_input_tokens,
                     "cache_creation": getattr(response, "cache_creation_input_tokens", 0)}},
             response_metadata={"usage_kind": "cli_invocation", "model_name": self.model_name or "automatic",
-                "protocol": "claude_schema_v1",
+                "protocol": "claude_lines_v1",
                 **({"reported_cost_usd": response.reported_cost_usd} if getattr(response, "reported_cost_usd", None) is not None else {})})
         return ChatResult(generations=[ChatGeneration(message=message)])
 

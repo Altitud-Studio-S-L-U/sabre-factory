@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 from sabre import claude_model, claude_runner
 from sabre.claude_model import ClaudeChatModel, ClaudeInvocationResponse, read_bridge_token
-from sabre.cli_protocol import serialize_turn
+from sabre.cli_protocol import read_lines, serialize_turn
 from sabre.codex_model import AssistantEnvelope, InvocationRequest, InvocationResponse, RequestedTool
 from sabre.models import DomainError
 
@@ -47,7 +47,9 @@ async def test_langchain_retains_its_tool_loop_and_structured_result(monkeypatch
     requests = []
 
     async def invoke(self, request):
-        prompt = json.loads(request.prompt)
+        # The adapter sends blocks; together they are the prompt.
+        assert not request.prompt and request.segments
+        prompt = read_lines("".join(request.segments))
         requests.append(prompt)
         assert "output_schema" not in prompt
         requested = RequestedTool(name="fixture_status", arguments_json="{}") if len(requests) == 1 else RequestedTool(name="Result", arguments_json='{"status":"ready"}')
@@ -62,13 +64,13 @@ async def test_langchain_retains_its_tool_loop_and_structured_result(monkeypatch
     assert any(item["role"] == "tool" and item["content"] == "ready" for item in requests[1]["conversation"])
     assert output["messages"][-2].usage_metadata["input_tokens"] == 170
     assert output["messages"][-2].usage_metadata["input_token_details"] == {"cache_read": 30, "cache_creation": 40}
-    assert output["messages"][-2].response_metadata["protocol"] == "claude_schema_v1"
+    assert output["messages"][-2].response_metadata["protocol"] == "claude_lines_v1"
 
 
 def test_claude_instruction_separates_native_formatting_from_authorized_sabre_actions():
     history = [HumanMessage(content="Conserva la decisión"), ToolMessage(content="unchanged evidence", tool_call_id="read-1")]
     original = [message.model_dump() for message in history]
-    payload = json.loads(serialize_turn(history, [], "none", "Claude"))
+    payload = read_lines(serialize_turn(history, [], "none", "Claude"))
     instruction = payload["instruction"]
     assert "native StructuredOutput tool" in instruction
     assert "tool_choice governs that array, not the formatting tool" in instruction
@@ -124,7 +126,7 @@ async def test_organizational_or_unknown_subscriptions_fail_closed(monkeypatch, 
     raw = json.dumps({"loggedIn": True, "authMethod": "claude.ai", "apiProvider": "firstParty", "subscriptionType": subscription}).encode()
     monkeypatch.setattr(claude_runner, "capture_process", AsyncMock(return_value=(0, raw, b"")))
     with pytest.raises(DomainError, match="personal Claude"):
-        await claude_runner.ClaudeRunner(tmp_path).invoke(InvocationRequest(prompt="fixture"))
+        await claude_runner.ClaudeRunner(tmp_path).invoke(InvocationRequest(segments=["fixture"]))
     assert claude_runner.capture_process.await_count == 1
 
 
@@ -149,10 +151,19 @@ async def test_runner_stdin_closed_environment_and_default_model(monkeypatch, tm
     monkeypatch.setattr(runner, "_login_status", AsyncMock(return_value={"authenticated": True}))
     capture = AsyncMock(return_value=(0, result_bytes(), b"synthetic-private-error"))
     monkeypatch.setattr(claude_runner, "capture_process", capture)
-    await runner.invoke(InvocationRequest(prompt="synthetic-private-prompt"))
+    await runner.invoke(InvocationRequest(segments=["synthetic-private-header\n", "synthetic-private-prompt\n"]))
     arguments = capture.call_args.args[0]
-    assert "synthetic-private-prompt" not in str(arguments)
-    assert capture.call_args.kwargs["stdin"] == b"synthetic-private-prompt"
+    assert "synthetic-private" not in str(arguments)
+    # The prompt reaches the CLI on standard input only, as one user message whose blocks are the segments in order.
+    sent = json.loads(capture.call_args.kwargs["stdin"])
+    assert capture.call_args.kwargs["stdin"].endswith(b"\n") and capture.call_args.kwargs["stdin"].count(b"\n") == 1
+    assert sent == {"type": "user", "message": {"role": "user", "content": [
+        {"type": "text", "text": "synthetic-private-header\n"}, {"type": "text", "text": "synthetic-private-prompt\n"}]}}
+    assert [arguments[arguments.index(flag) + 1] for flag in ("--input-format", "--output-format")] == ["stream-json", "stream-json"]
+    assert "--verbose" in arguments and "--no-session-persistence" in arguments
+    # Every call runs in the same empty directory, which is gone afterwards: the CLI names it in each request.
+    assert capture.call_args.kwargs["cwd"] == str(claude_runner.TURN_DIRECTORY) and not claude_runner.TURN_DIRECTORY.exists()
+    assert capture.call_args.kwargs["maximum_output"] == claude_runner.STREAM_OUTPUT_BYTES
     assert "--model" not in arguments
     assert json.loads(arguments[arguments.index("--json-schema") + 1]) == AssistantEnvelope.model_json_schema()
     assert arguments[arguments.index("--max-turns") + 1] == "2"
@@ -171,9 +182,16 @@ async def test_http_boundary_auth_limits_and_sanitized_errors(token_file):
         response = await client.post("/invoke", headers=headers, json={"prompt": "fixture", "extra": "synthetic-private-value"})
         assert response.status_code == 422 and "synthetic-private-value" not in response.text
         assert (await client.post("/invoke", headers=headers, content=b"x" * (claude_model.MAX_INPUT_BYTES * 2 + 1))).status_code == 413
-        response = await client.post("/invoke", headers=headers, json={"prompt": "fixture"})
+        # This bridge takes the prompt as blocks. One text, both forms or an empty block are refused before the runner.
+        for refused in ({"prompt": "fixture"}, {"prompt": "fixture", "segments": ["fixture"]}, {"segments": []}, {"segments": ["fixture", ""]}):
+            assert (await client.post("/invoke", headers=headers, json=refused)).status_code == 422
+        oversized = {"segments": ["x" * (claude_model.MAX_INPUT_BYTES // 2), "y" * (claude_model.MAX_INPUT_BYTES // 2 + 1)]}
+        assert (await client.post("/invoke", headers=headers, json=oversized)).status_code == 413
+        runner.invoke.assert_not_awaited()
+        response = await client.post("/invoke", headers=headers, json={"segments": ["header\n", "turn\n"]})
         assert response.status_code == 200 and response.headers["cache-control"] == "no-store"
         runner.invoke.assert_awaited_once()
+        assert runner.invoke.await_args.args[0].segments == ["header\n", "turn\n"]
 
 
 async def test_busy_status_is_unknown_not_disconnected(monkeypatch, token_file):
@@ -236,12 +254,12 @@ async def test_status_probe_does_not_reject_or_overlap_an_invocation(monkeypatch
     monkeypatch.setattr(claude_runner, "capture_process", process)
     status_task = asyncio.create_task(runner.status())
     await status_entered.wait()
-    invocation = asyncio.create_task(runner.invoke(InvocationRequest(prompt="fixture")))
+    invocation = asyncio.create_task(runner.invoke(InvocationRequest(segments=["fixture"])))
     try:
         await asyncio.sleep(0)
         assert not invocation.done(), "An admitted invocation must wait for the status probe"
         with pytest.raises(DomainError) as error:
-            await runner.invoke(InvocationRequest(prompt="competing"))
+            await runner.invoke(InvocationRequest(segments=["competing"]))
         assert error.value.code == "CLAUDE_BUSY"
         release_status.set()
         await asyncio.wait_for(inference_entered.wait(), 1)
@@ -249,7 +267,7 @@ async def test_status_probe_does_not_reject_or_overlap_an_invocation(monkeypatch
             await runner.status()
         assert error.value.code == "CLAUDE_BUSY"
         with pytest.raises(DomainError) as error:
-            await runner.invoke(InvocationRequest(prompt="competing"))
+            await runner.invoke(InvocationRequest(segments=["competing"]))
         assert error.value.code == "CLAUDE_BUSY"
         release_inference.set()
         assert (await invocation).result.content == "done"
@@ -294,7 +312,7 @@ async def test_interrupted_status_wait_does_not_start_a_model_or_leak_admission(
         monkeypatch.setattr(claude_runner, "STATUS_WAIT_TIMEOUT_S", 0.01)
     status_task = asyncio.create_task(runner.status())
     await entered.wait()
-    invocation = asyncio.create_task(runner.invoke(InvocationRequest(prompt="fixture")))
+    invocation = asyncio.create_task(runner.invoke(InvocationRequest(segments=["fixture"])))
     try:
         await asyncio.sleep(0)
         if mode == "cancel":
@@ -309,5 +327,45 @@ async def test_interrupted_status_wait_does_not_start_a_model_or_leak_admission(
     finally:
         release.set()
         await asyncio.gather(status_task, invocation, return_exceptions=True)
-    assert (await runner.invoke(InvocationRequest(prompt="after interruption"))).result.content == "done"
+    assert (await runner.invoke(InvocationRequest(segments=["after interruption"]))).result.content == "done"
     capture.assert_awaited_once()
+
+
+def stream(*lines) -> bytes:
+    """What the CLI prints in stream-json mode: one JSON value per line, the result last."""
+    return b"".join(json.dumps(line).encode() + b"\n" for line in lines)
+
+
+def test_the_result_is_read_from_the_last_line_of_the_stream():
+    result = json.loads(result_bytes(total_cost_usd=0.0123))
+    printed = stream({"type": "system", "subtype": "init", "cwd": "/tmp/sabre-claude-turn"},
+                     {"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "StructuredOutput", "input": {"content": "not the result"}}]}},
+                     {"type": "user", "message": {"content": [{"type": "tool_result"}]}}, result)
+    parsed = claude_runner.parse_result(printed)
+    assert parsed.result.content == "done" and parsed.reported_cost_usd == 0.0123
+    assert (parsed.input_tokens, parsed.output_tokens, parsed.cached_input_tokens, parsed.cache_creation_input_tokens) == (170, 20, 30, 40)
+    # A stream that never reached its result is a failed process when it exited so, and a broken protocol otherwise.
+    unfinished = stream({"type": "system", "subtype": "init"}, {"type": "assistant", "message": {"content": []}})
+    for raw, exit_code, code in ((unfinished, 1, "CLAUDE_PROCESS_FAILED"), (unfinished, 0, "CLAUDE_PROTOCOL_INVALID"),
+                                 (b"", 0, "CLAUDE_PROTOCOL_INVALID"), (printed + b"not json\n", 0, "CLAUDE_PROTOCOL_INVALID")):
+        with pytest.raises(DomainError) as error:
+            claude_runner.parse_result(raw, exit_code=exit_code)
+        assert error.value.code == code
+    # What the provider refused still arrives as a result, in the stream as in a single document.
+    with pytest.raises(DomainError) as limited:
+        claude_runner.parse_result(stream({"type": "system", "subtype": "init"}, {**result, "is_error": True, "api_error_status": 429}), exit_code=1)
+    assert limited.value.code == "CLAUDE_RATE_LIMITED"
+
+
+def test_the_working_directory_of_a_call_is_one_empty_path_that_does_not_outlive_it(tmp_path, monkeypatch):
+    monkeypatch.setattr(claude_runner, "TURN_DIRECTORY", tmp_path / "turn")
+    for _ in range(2):
+        with claude_runner.turn_directory() as directory:
+            assert directory == str(tmp_path / "turn") and list((tmp_path / "turn").iterdir()) == []
+            (tmp_path / "turn" / "left-behind").write_text("synthetic")
+        assert not (tmp_path / "turn").exists()
+    # Something left at that path by an interrupted call is removed before the next one starts.
+    (tmp_path / "turn").mkdir()
+    (tmp_path / "turn" / "stale").write_text("synthetic")
+    with claude_runner.turn_directory() as directory:
+        assert list((tmp_path / "turn").iterdir()) == []

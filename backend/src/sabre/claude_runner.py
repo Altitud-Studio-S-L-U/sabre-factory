@@ -4,8 +4,10 @@ import asyncio
 import hmac
 import json
 import os
+import shutil
 import stat
 import tempfile
+from contextlib import contextmanager
 from math import isfinite
 from pathlib import Path
 
@@ -16,6 +18,7 @@ from pydantic import ValidationError
 from sabre.claude_model import (
     INVOCATION_TIMEOUT_S,
     MAX_INPUT_BYTES,
+    MAX_OUTPUT_BYTES,
     TOKEN_FILE,
     ClaudeInvocationResponse,
     read_bridge_token,
@@ -32,12 +35,57 @@ STATUS_WAIT_TIMEOUT_S = 12
 POLICY = {"disableAllHooks": True, "disableWorkflows": True}
 
 
+# The CLI prints the assistant's message and then the result, each carrying the structured output,
+# and it may take a second turn: its output can be three times the envelope the bridge returns.
+STREAM_OUTPUT_BYTES = MAX_OUTPUT_BYTES * 3 + 65536
+# The same path for every call. The CLI names its working directory in the first block of each
+# request, and a new temporary directory per call made that block differ every time, so nothing
+# after it could be read from the provider's cache.
+TURN_DIRECTORY = Path(tempfile.gettempdir()) / "sabre-claude-turn"
+
+
 def cli_arguments() -> list[str]:
     # StructuredOutput may need one follow-up after prose or schema validation failure.
+    # The prompt goes in as blocks, which the CLI accepts only as stream-json and only with stream-json out.
     return [BINARY, "--safe-mode", "--restricted", "--setting-sources", "", "--settings", json.dumps(POLICY),
         "--tools", "", "--json-schema", json.dumps(AssistantEnvelope.model_json_schema()),
         "--disable-slash-commands", "--no-session-persistence", "--permission-mode", "dontAsk",
-        "--permission-prompts", "none", "--no-chrome", "--max-turns", "2", "--output-format", "json", "--print"]
+        "--permission-prompts", "none", "--no-chrome", "--max-turns", "2",
+        "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--print"]
+
+
+def cli_input(segments: list[str]) -> bytes:
+    """One user message whose content is the prompt's blocks, in order, as the CLI reads it from standard input."""
+    content = [{"type": "text", "text": segment} for segment in segments]
+    return (json.dumps({"type": "user", "message": {"role": "user", "content": content}}, ensure_ascii=False) + "\n").encode()
+
+
+@contextmanager
+def turn_directory():
+    """An empty working directory for one call, at a path that never changes. Calls are serialized by the invocation lock."""
+    shutil.rmtree(TURN_DIRECTORY, ignore_errors=True)
+    try:
+        TURN_DIRECTORY.mkdir(mode=0o700)
+    except OSError:
+        raise DomainError("CLAUDE_PROCESS_UNAVAILABLE", "Could not start the Claude process", 503) from None
+    try:
+        yield str(TURN_DIRECTORY)
+    finally:
+        shutil.rmtree(TURN_DIRECTORY, ignore_errors=True)
+
+
+def result_line(raw: bytes) -> dict | None:
+    """The result the CLI ends its stream with, or None when it printed none."""
+    for line in reversed(raw.splitlines()):
+        if not line.strip():
+            continue
+        try:
+            value = json.loads(line)
+        except (ValueError, RecursionError):
+            return None
+        if isinstance(value, dict) and value.get("type") == "result":
+            return value
+    return None
 
 
 async def capture_process(args, **kwargs):
@@ -73,14 +121,11 @@ def reported_cost(result: dict) -> float | None:
 
 
 def parse_result(raw: bytes, *, exit_code: int = 0) -> ClaudeInvocationResponse:
-    try:
-        result = json.loads(raw)
-        if not isinstance(result, dict) or result.get("type") != "result":
-            raise ValueError
-    except (ValueError, TypeError, RecursionError):
+    result = result_line(raw)
+    if result is None:
         if exit_code:
-            raise DomainError("CLAUDE_PROCESS_FAILED", "The Claude process ended without a valid result", 503) from None
-        raise DomainError("CLAUDE_PROTOCOL_INVALID", "Claude returned a result incompatible with the adapter", 503) from None
+            raise DomainError("CLAUDE_PROCESS_FAILED", "The Claude process ended without a valid result", 503)
+        raise DomainError("CLAUDE_PROTOCOL_INVALID", "Claude returned a result incompatible with the adapter", 503)
     if result.get("permission_denials"):
         raise DomainError("CLAUDE_NATIVE_TOOL_DENIED", "Claude requested an unauthorized native tool", 503)
     if result.get("subtype") == "error_max_turns":
@@ -170,11 +215,14 @@ class ClaudeRunner:
     async def _invoke_locked(self, request: InvocationRequest):
         if not (await self._login_status())["authenticated"]:
             raise DomainError("CLAUDE_LOGIN_REQUIRED", "Connect a separate Claude session for SABRE using the CLI", 503)
-        with tempfile.TemporaryDirectory(prefix="sabre-claude-") as directory:
+        if not request.segments:
+            raise DomainError("CLAUDE_INPUT_INVALID", "The Claude request is invalid", 422)
+        with turn_directory() as directory:
             args = cli_arguments()
             if request.model:
                 args.extend(["--model", request.model])
-            code, raw, _ = await capture_process(args, env=self.environment(), cwd=directory, stdin=request.prompt.encode())
+            code, raw, _ = await capture_process(args, env=self.environment(), cwd=directory, stdin=cli_input(request.segments),
+                                                 maximum_output=STREAM_OUTPUT_BYTES)
         return parse_result(raw, exit_code=code)
 
 
@@ -215,7 +263,10 @@ def create_app(runner: ClaudeRunner | None = None, token_file: Path = TOKEN_FILE
             payload = InvocationRequest.model_validate_json(raw)
         except ValidationError:
             raise DomainError("CLAUDE_INPUT_INVALID", "The Claude request is invalid", 422) from None
-        if len(payload.prompt.encode()) > MAX_INPUT_BYTES:
+        if not payload.segments:
+            # This bridge sends blocks; a prompt as one text is the Codex runner's form.
+            raise DomainError("CLAUDE_INPUT_INVALID", "The Claude request is invalid", 422)
+        if payload.size() > MAX_INPUT_BYTES:
             raise DomainError("CLAUDE_INPUT_LIMIT", "Claude context exceeds the limit", 413)
         return await selected.invoke(payload)
 
