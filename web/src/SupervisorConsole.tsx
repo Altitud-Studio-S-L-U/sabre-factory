@@ -335,7 +335,8 @@ export default function SupervisorConsole({
   onChanged,
 }: {
   api: Api;
-  orders: Pick<WorkOrder, 'id' | 'objective' | 'questions' | 'plan_revision' | 'status' | 'error_code'>[];
+  orders: (Pick<WorkOrder, 'id' | 'objective' | 'questions' | 'plan_revision' | 'status' | 'error_code'> &
+    Partial<Pick<WorkOrder, 'phase'>>)[];
   selectedId: string | null;
   disconnected: boolean;
   /** Requests agents filed for the owner, and their recent outcomes. Decided here, in the inbox. */

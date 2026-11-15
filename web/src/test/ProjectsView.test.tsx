@@ -52,6 +52,14 @@ const run = (id: string, project: Project, status = 'completed') =>
     created_at: '2026-11-13T09:00:00Z',
   }) as unknown as WorkOrder;
 
+/** The record of a scheduled security review, as the application lists it. */
+const review = (id: string, status: string): WorkOrder => ({
+  ...run(id, base, status),
+  mode: 'maintain',
+  phase: 'security_watch',
+  objective: 'Security review scheduled',
+});
+
 type Call = { method: string; path: string; body: unknown };
 
 /** A synthetic control service whose answers a test can replace per request. */
@@ -266,6 +274,58 @@ it('leaves the runs of an archived project out of the list until that project is
   await user.selectOptions(filter, 'project-two');
   expect(screen.getByText('Audit Reference audit')).toBeVisible();
   expect(screen.queryByText('Audit Altimeter')).not.toBeInTheDocument();
+});
+
+it('shows the daily security review as monitoring: no delivery, no pause, and its own label', () => {
+  service();
+  render(
+    <MemoryRouter>
+      <RunsTable
+        api={createApi('synthetic-csrf')}
+        orders={[
+          run('delivered', base, 'completed'),
+          review('review-done', 'completed'),
+          review('review-now', 'running'),
+        ]}
+        projects={[base]}
+        onNew={() => undefined}
+        onChanged={async () => undefined}
+        now={new Date('2026-11-13T12:00:00Z').getTime()}
+      />
+    </MemoryRouter>,
+  );
+  const summary = screen.getByRole('region', { name: 'Runs summary' });
+  // One run delivered this week. The review that finished delivered nothing.
+  expect(within(summary).getByText('Delivered · 7 days').closest('div')).toHaveTextContent(
+    /^Delivered · 7 days1/,
+  );
+  const rows = screen.getAllByTestId('run-row');
+  expect(rows).toHaveLength(3);
+  const [, done, running] = rows;
+  expect(within(done).getByText('Monitoring')).toBeVisible();
+  expect(within(done).queryByText('Maintain')).not.toBeInTheDocument();
+  // A review cannot be paused: the application refuses, so the list does not offer it.
+  expect(within(running).queryByRole('button', { name: /^Pause run/ })).not.toBeInTheDocument();
+  // The owner has launched a run, so the page no longer offers the first one.
+  expect(screen.queryByRole('button', { name: 'Create your first run' })).not.toBeInTheDocument();
+});
+
+it("keeps the way to a first run in view while the only records are the factory's own reviews", () => {
+  service();
+  render(
+    <MemoryRouter>
+      <RunsTable
+        api={createApi('synthetic-csrf')}
+        orders={[review('review-only', 'completed')]}
+        projects={[base]}
+        onNew={() => undefined}
+        onChanged={async () => undefined}
+        now={new Date('2026-11-13T12:00:00Z').getTime()}
+      />
+    </MemoryRouter>,
+  );
+  expect(screen.getByRole('button', { name: 'Create your first run' })).toBeVisible();
+  expect(screen.getAllByTestId('run-row')).toHaveLength(1);
 });
 
 /** The view with the Add project dialog its parent opens and closes. */

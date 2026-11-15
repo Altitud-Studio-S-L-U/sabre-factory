@@ -115,7 +115,7 @@ The independent graph collects scanner evidence, applies the owner-approved base
 
 Findings bind the source snapshot and rules configuration. Baselines are explicit owner configuration. Expiring exceptions require an owner justification and bind one finding, work order, plan revision, snapshot and rules version. The independent graph validates them; neither scanners nor agents can supply an accepted exception id. Secrets and scanner failures remain blocking. Delivery evidence records the policy digest and exception ids; expiry or revocation invalidates pending publication.
 
-The daily watch scans registered projects and records prioritized remediation tasks; it never launches a patch order by itself. Recommendations retain scanner references, source locations and fixed dependency versions when available.
+The daily watch scans registered projects and records prioritized remediation tasks; it never launches a patch order by itself. Lists show the newest watch record of a project and the findings of that one; the records before it stay stored and readable by id. Recommendations retain scanner references, source locations and fixed dependency versions when available.
 
 ## Memory and diagnostics
 

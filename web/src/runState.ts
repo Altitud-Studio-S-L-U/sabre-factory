@@ -22,6 +22,15 @@ export const ATTENTION_STATUSES: readonly WorkOrder['status'][] = [
 /** Owner pause/cancel requests are control outcomes, not errors (older rows stored them as error codes). */
 const CONTROL_CODES = new Set(['PAUSE_REQUESTED', 'CANCEL_REQUESTED']);
 
+/**
+ * A scheduled security review: the factory scans each project once a day and records what it found.
+ * It is not a run the owner launched. It delivers nothing, it cannot be paused or resumed, and the
+ * application lists only the newest one of a project.
+ */
+export function isMonitoring(order: Pick<WorkOrder, 'phase'>): boolean {
+  return order.phase === 'security_watch';
+}
+
 export function isClosed(order: Pick<WorkOrder, 'status'>): boolean {
   return CLOSED_STATUSES.includes(order.status);
 }

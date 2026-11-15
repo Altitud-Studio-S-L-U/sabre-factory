@@ -2,6 +2,7 @@
 
 import asyncio
 from contextlib import AsyncExitStack
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -24,6 +25,7 @@ from sabre.models import (
     MemoryCreate,
     Project,
     ScopeChange,
+    SecurityFinding,
     Status,
     Task,
     WorkOrder,
@@ -605,6 +607,53 @@ async def test_repeated_idle_pause_records_a_single_event(repository):
     assert (await service.control(work.id, "pause")).status == Status.PAUSED
     assert (await service.control(work.id, "pause")).status == Status.PAUSED
     assert [event["kind"] for event in await repo.events(work.id)].count("paused") == 1
+
+
+async def test_lists_show_the_current_scheduled_security_review_of_a_project_and_keep_the_earlier_ones(repository):
+    repo, project, run = await fixture_work(repository)
+    _, created = repository
+    other = Project(name="Another fixture", repository=f"https://github.com/fixture/{new_id()}", profile="python", gate_commands=[["python", "-m", "unittest"]])
+    await repo.create_project(other)
+    created.append(other.id)
+
+    async def no_enqueue(conn, work_id):
+        return None
+
+    def finding(title):
+        return SecurityFinding(fingerprint=new_id(), scanner="synthetic-scanner", category="vulnerability", severity="high", title=title)
+
+    async def watch(owner, day, status, title):
+        review = WorkOrder(project_id=owner.id, mode="maintain", objective="Security review scheduled", acceptance=["Propose remediations; do not start patches"],
+                           budget=Budget(max_cost_usd=0.01), idempotency_key=f"security:{owner.id}:{day}", phase="security_watch",
+                           created_at=datetime(2026, 11, day, 8, tzinfo=UTC))
+        review = await repo.admit(review, no_enqueue)
+        review.status, review.findings = status, [finding(title)]
+        await repo.report_security(review)
+        await repo.save(review)
+        return review
+
+    # Three mornings on one project (the middle one could not finish), one on another, and a run with its own finding.
+    first = await watch(project, 10, Status.COMPLETED, "Seen on the first morning")
+    second = await watch(project, 11, Status.BLOCKED, "Seen on the second morning")
+    third = await watch(project, 12, Status.COMPLETED, "Seen on the third morning")
+    elsewhere = await watch(other, 10, Status.BLOCKED, "Seen in the other project")
+    run.findings = [finding("Found by a run")]
+    await repo.report_security(run)
+
+    listed = {item.id for item in await repo.works()} & {run.id, first.id, second.id, third.id, elsewhere.id}
+    # The run, the newest review of its project and the only review of the other one. The blocked
+    # second morning no longer asks for attention: a newer review answered it.
+    assert listed == {run.id, third.id, elsewhere.id}
+    titles = {item["title"] for item in await repo.security(project.id)}
+    assert titles == {"Seen on the third morning", "Found by a run"}
+    assert {item["title"] for item in await repo.security(other.id)} == {"Seen in the other project"}
+    assert {"Seen on the first morning", "Seen on the second morning"}.isdisjoint(item["title"] for item in await repo.security())
+    # History is kept: an earlier review is still read by its id, with what it found.
+    kept = await repo.work(second.id)
+    assert kept.status == Status.BLOCKED and [item.title for item in kept.findings] == ["Seen on the second morning"]
+    async with repo.connection() as conn:
+        stored = await (await conn.execute("SELECT count(*) AS count FROM security_reports WHERE project_id=%s", (project.id,))).fetchone()
+    assert stored["count"] == 4
 
 
 async def test_the_run_list_reports_a_pending_pause_or_cancel_like_the_detail(repository):
