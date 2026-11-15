@@ -26,9 +26,12 @@ node --test infra/*.test.mjs
 node bin/sabre.mjs bench                    # harness bench, reference policy, no provider
 cd web && pnpm typecheck && pnpm lint && pnpm format:check && pnpm test && pnpm build
 cd web && pnpm test:browser                 # Playwright, desktop and mobile, with axe WCAG A/AA checks
+node bin/sabre.mjs build api && node infra/qa.mjs up && node infra/qa.mjs check; node infra/qa.mjs down
+                                            # the console against the real API and PostgreSQL, no model provider
 ```
 
-`pnpm` comes from Corepack (`corepack pnpm ...`). Two Playwright suites must not share a port or a results
+`pnpm test:browser` answers every request from a mock; `node infra/qa.mjs check` is the one that sees the console
+and the API disagree. `pnpm` comes from Corepack (`corepack pnpm ...`). Two Playwright suites must not share a port or a results
 folder: set `SABRE_BROWSER_PORT` and `SABRE_BROWSER_RESULTS`. `SABRE_GALLERY=<label> pnpm test:browser gallery`
 captures every section under `work/gallery/<label>/`.
 
