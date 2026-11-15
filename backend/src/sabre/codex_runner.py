@@ -305,8 +305,8 @@ def create_app(runner: CodexRunner | None = None, token_file: Path = TOKEN_FILE)
             payload = InvocationRequest.model_validate_json(raw)
         except ValidationError:
             raise DomainError("CODEX_INPUT_INVALID", "The Codex request is invalid", 422) from None
-        if payload.segments:
-            # Codex takes its prompt as one text; blocks are the Claude runner's form.
+        if payload.segments or payload.effort:
+            # Codex takes its prompt as one text; blocks, and an effort this bridge does not set, are the Claude runner's.
             raise DomainError("CODEX_INPUT_INVALID", "The Codex request is invalid", 422)
         if len(payload.prompt.encode()) > MAX_INPUT_BYTES:
             raise DomainError("CODEX_INPUT_LIMIT", "Codex context exceeds the limit", 413)

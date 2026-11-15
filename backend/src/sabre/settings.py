@@ -8,6 +8,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from sabre.model_selection import Effort
 from sabre.models import DomainError
 from sabre.notifications import WebhookDestination
 
@@ -98,6 +99,7 @@ class RoleModelSettings(BaseModel):
     model_cache_read_usd_per_million: float | None = Field(default=None, ge=0)
     model_cache_write_usd_per_million: float | None = Field(default=None, ge=0)
     model_max_output_tokens: int | None = Field(default=None, ge=128, le=32768)
+    model_effort: Effort | None = None
     supports_tools: bool = True
     supports_structured_output: bool = True
 
@@ -130,6 +132,8 @@ class Settings(BaseSettings):
     # Prices of cached input; unset, cached tokens are charged at the input price.
     model_cache_read_usd_per_million: float | None = Field(default=None, ge=0)
     model_cache_write_usd_per_million: float | None = Field(default=None, ge=0)
+    # The provider's reasoning effort for the default model; unset, the provider decides.
+    model_effort: Effort | None = None
     monthly_budget_usd: float = Field(default=0, ge=0)
     model_max_output_tokens: int = Field(default=4096, ge=128, le=32768)
     context_dedup_enabled: bool = True
@@ -193,6 +197,8 @@ class Settings(BaseSettings):
             # Cache prices belong to the model they were set for: a role that names its own never inherits the default's.
             updates["model_cache_read_usd_per_million"] = override.model_cache_read_usd_per_million
             updates["model_cache_write_usd_per_million"] = override.model_cache_write_usd_per_million
+            # So does the effort: its levels are the provider's, and its cost is that model's.
+            updates["model_effort"] = override.model_effort
         return self.model_copy(update=updates)
 
     @field_validator("trace_viewer_url")

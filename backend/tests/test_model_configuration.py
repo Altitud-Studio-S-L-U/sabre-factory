@@ -215,3 +215,43 @@ def test_cache_prices_travel_between_the_selection_and_the_settings_and_are_not_
     # An override that only bounds the output keeps the model, and with it the model's prices.
     bounded = cfg.model_copy(update={"role_models": {"qa": RoleModelSettings(model_max_output_tokens=1024)}})
     assert (bounded.for_role("qa").model_cache_read_usd_per_million, bounded.for_role("qa").model_max_output_tokens) == (0.3, 1024)
+
+
+def test_effort_is_optional_named_by_the_provider_and_leaves_an_unset_selection_as_it_was():
+    from sabre.model_selection import EFFORT_LEVELS
+
+    plain = choice("claude_cli", name="claude-fixture")
+    # A selection without an effort is stored exactly as before the field existed, so what a run pinned still matches.
+    assert "effort" not in plain.model_dump(mode="json") and plain.effort is None
+    for level in EFFORT_LEVELS["claude_cli"]:
+        chosen = choice("claude_cli", name="claude-fixture", effort=level)
+        stored = chosen.model_dump(mode="json")
+        assert stored["effort"] == level and ModelSelection.model_validate(stored) == chosen
+    # A level the provider does not have, and a provider where the factory does not set one, are refused.
+    for provider, level in (("claude_cli", "minimal"), ("claude_cli", "HIGH"), ("claude_cli", ""), ("codex_cli", "high"),
+                            ("openai", "low"), ("anthropic", "high"), ("google", "low"), ("local", "low")):
+        with pytest.raises(ValidationError):
+            choice(provider, name="fixture", effort=level)
+
+
+def test_effort_travels_between_the_selection_and_the_settings_and_is_not_inherited_by_an_override():
+    from sabre.model_configuration import selection, selection_updates
+    from sabre.model_providers import chat_model
+    from sabre.settings import RoleModelSettings
+
+    careful = choice("claude_cli", name="claude-fixture", effort="max")
+    updates = selection_updates(careful)
+    assert updates["model_effort"] == "max"
+    cfg = config(model_provider="claude_cli", model_name="claude-fixture").model_copy(update=updates)
+    assert selection(cfg) == careful and chat_model(cfg).effort == "max"
+    # Unset, the CLI is given no effort and uses its own.
+    unset = cfg.model_copy(update=selection_updates(choice("claude_cli", name="claude-fixture")))
+    assert unset.model_effort is None and chat_model(unset).effort == ""
+    # A role with its own selection has that selection's effort, or none: never the default's.
+    for own, expected in ((choice("claude_cli", name="claude-other", effort="low"), "low"), (choice("claude_cli", name="claude-other"), None)):
+        role = cfg.model_copy(update={"role_models": {"qa": RoleModelSettings(**selection_updates(own))}})
+        assert role.for_role("qa").model_effort == expected and chat_model(role.for_role("qa")).effort == (expected or "")
+        assert role.for_role("developer").model_effort == "max"
+    # An override that only bounds the output keeps the model, and with it the model's effort.
+    bounded = cfg.model_copy(update={"role_models": {"qa": RoleModelSettings(model_max_output_tokens=1024)}})
+    assert bounded.for_role("qa").model_effort == "max"

@@ -21,7 +21,7 @@ def chat_model(config):
         if config.model_base_url:
             raise DomainError("PROVIDER_POLICY", "Claude CLI requires the authorized isolated runner")
         return ClaudeChatModel(model_name=config.model_name, runner_url=config.claude_cli_url,
-            token_file=config.claude_cli_token_file)
+            token_file=config.claude_cli_token_file, effort=getattr(config, "model_effort", None) or "")
     if provider == "codex_cli":
         from sabre.codex_model import CodexChatModel
         if config.model_base_url:

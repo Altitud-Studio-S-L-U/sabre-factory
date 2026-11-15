@@ -47,8 +47,8 @@ async def test_langchain_retains_its_tool_loop_and_structured_result(monkeypatch
     requests = []
 
     async def invoke(self, request):
-        # The adapter sends blocks; together they are the prompt.
-        assert not request.prompt and request.segments
+        # The adapter sends blocks; together they are the prompt. It names no effort unless one is configured.
+        assert not request.prompt and request.segments and request.effort == ""
         prompt = read_lines("".join(request.segments))
         requests.append(prompt)
         assert "output_schema" not in prompt
@@ -172,6 +172,11 @@ async def test_runner_stdin_closed_environment_and_default_model(monkeypatch, tm
     assert arguments[arguments.index("--tools") + 1] == ""
     assert "ANTHROPIC_API_KEY" not in capture.call_args.kwargs["env"]
     assert "--bare" not in arguments
+    # No effort is named unless the request carries one; then it is the CLI's own flag.
+    assert "--effort" not in arguments
+    await runner.invoke(InvocationRequest(segments=["fixture"], model="claude-fixture", effort="low"))
+    named = capture.call_args.args[0]
+    assert named[named.index("--effort") + 1] == "low" and named[named.index("--model") + 1] == "claude-fixture"
 
 
 async def test_http_boundary_auth_limits_and_sanitized_errors(token_file):
@@ -190,10 +195,15 @@ async def test_http_boundary_auth_limits_and_sanitized_errors(token_file):
         oversized = {"segments": ["x" * (claude_model.MAX_INPUT_BYTES // 2), "y" * (claude_model.MAX_INPUT_BYTES // 2 + 1)]}
         assert (await client.post("/invoke", headers=headers, json=oversized)).status_code == 413
         runner.invoke.assert_not_awaited()
-        response = await client.post("/invoke", headers=headers, json={"segments": ["header\n", "turn\n"]})
+        # An effort is one of the CLI's levels or absent: anything else never reaches a command line.
+        for level in ("extreme", "high --model other", "HIGH"):
+            assert (await client.post("/invoke", headers=headers, json={"segments": ["turn"], "effort": level})).status_code == 422
+        runner.invoke.assert_not_awaited()
+        response = await client.post("/invoke", headers=headers, json={"segments": ["header\n", "turn\n"], "effort": "xhigh"})
         assert response.status_code == 200 and response.headers["cache-control"] == "no-store"
         runner.invoke.assert_awaited_once()
         assert runner.invoke.await_args.args[0].segments == ["header\n", "turn\n"]
+        assert runner.invoke.await_args.args[0].effort == "xhigh"
 
 
 async def test_busy_status_is_unknown_not_disconnected(monkeypatch, token_file):
