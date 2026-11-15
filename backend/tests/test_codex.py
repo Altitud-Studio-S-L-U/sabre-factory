@@ -176,6 +176,9 @@ async def test_runner_auth_input_limits_and_error_redaction(token_file):
         assert bad.status_code == 422 and "synthetic-private-value" not in bad.text
         too_large = await client.post("/invoke", headers=headers, content=b"a" * (codex_model.MAX_INPUT_BYTES * 2 + 1))
         assert too_large.status_code == 413
+        # Codex takes its prompt as one text: blocks are the other runner's form.
+        assert (await client.post("/invoke", headers=headers, json={"segments": ["test"]})).status_code == 422
+        runner.invoke.assert_not_awaited()
         good = await client.post("/invoke", headers=headers, json={"prompt": "test"})
         assert good.status_code == 200 and good.headers["cache-control"] == "no-store"
         runner.invoke.assert_awaited_once()
