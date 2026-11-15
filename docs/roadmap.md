@@ -89,3 +89,5 @@ Each phase ends on evidence, and Phase 1 is the gate: what it measures decides t
 Corrected with this document: the operations and configuration guides named an Integrations section that no longer exists, the provider list omitted `claude_cli`, [spec 03](specs/03-configuration.md) described a setup wizard and [spec 05](specs/05-tools.md) did not describe the console.
 
 Corrected since, by changing the sentence to what the code does: where blur is used, what the console keeps in browser storage, the Supervisor's two own stylesheets, the order of the registered checks and independent QA, and the timeline collapsing idle time by default.
+
+Corrected by changing the code, after opening the console against a real instance: the list of built-in tools named eight of the fourteen a specialist is given (it now reads the registration a run uses), Config showed a save token as the revision, and the Supervisor read Ready with no model behind it.
