@@ -95,7 +95,9 @@ test('a reasoning effort is saved with the default model, read back and put back
   await advanced.click();
   await expect(provider).toHaveValue(original.provider);
   await expect(name).toHaveValue(original.name);
-  if (original.provider === 'claude_cli') await expect(effort).toHaveValue(original.effort);
+  // Both CLIs take a level; an API provider has no such field.
+  if (['claude_cli', 'codex_cli'].includes(original.provider))
+    await expect(effort).toHaveValue(original.effort);
   else await expect(effort).toHaveCount(0);
   watched.clean();
 });

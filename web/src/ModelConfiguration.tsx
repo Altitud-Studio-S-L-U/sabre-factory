@@ -20,6 +20,8 @@ export const providers: Record<ModelSelection['provider'], { title: string; dest
 export type Effort = NonNullable<ModelSelection['effort']>;
 // Every level the contract names has a label: one added to the API fails the type check here until it has its own.
 const effortLabels: Record<Effort, string> = {
+  none: 'No reasoning',
+  minimal: 'Minimal',
   low: 'Low',
   medium: 'Medium',
   high: 'High',
@@ -29,6 +31,14 @@ const effortLabels: Record<Effort, string> = {
 /** The levels each provider takes, for the providers where the factory sets one. The API refuses any other. */
 export const effortLevels: Partial<Record<ModelSelection['provider'], readonly Effort[]>> = {
   claude_cli: ['low', 'medium', 'high', 'xhigh', 'max'],
+  codex_cli: ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
+};
+// What each CLI does with a named level, which is not the same: one adjusts it, the other passes it on.
+const effortHints: Partial<Record<ModelSelection['provider'], string>> = {
+  claude_cli:
+    'How thoroughly the model works on each call; higher levels spend more tokens. On the provider default, the Claude CLI chooses by model. It lowers or ignores a level the model does not take.',
+  codex_cli:
+    'How thoroughly the model works on each call; higher levels spend more tokens. On the provider default, the Codex CLI chooses by model. It passes a named level on as it is: one the model does not take fails the call with CODEX_REQUEST_REJECTED.',
 };
 
 /**
@@ -50,7 +60,8 @@ export function effortSummary(value: ModelSelection): string | null {
 
 /** What follows a model's name when its selection names an effort; nothing when the provider decides. */
 export function effortNote(value: ModelSelection): string {
-  return value.effort ? ` · ${effortLabels[value.effort]} effort` : '';
+  if (!value.effort) return '';
+  return value.effort === 'none' ? ' · No reasoning' : ` · ${effortLabels[value.effort]} effort`;
 }
 
 const roles: Record<string, string> = {
@@ -204,10 +215,7 @@ export function EffortField({
   const levels = effortLevels[value.provider];
   if (!levels) return null;
   return (
-    <Field
-      label="Reasoning effort"
-      hint="How thoroughly the model works on each call; higher levels spend more tokens. On the provider default, the Claude CLI chooses by model. It lowers or ignores a level the model does not take."
-    >
+    <Field label="Reasoning effort" hint={effortHints[value.provider]}>
       <Select
         value={value.effort ?? ''}
         onChange={(event) => onChange(withEffort(value, event.target.value as Effort | ''))}
