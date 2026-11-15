@@ -8,7 +8,13 @@ import PageHeader, { Eyebrow } from '../../components/PageHeader';
 import SegmentedControl from '../../components/SegmentedControl';
 import StatTile, { StatGrid } from '../../components/StatTile';
 import { buttonVariants } from '../../components/ui/button';
-import { ACTIVE_STATUSES, ATTENTION_STATUSES, isClosed, pendingQuestions } from '../../runState';
+import {
+  ACTIVE_STATUSES,
+  ATTENTION_STATUSES,
+  isClosed,
+  isMonitoring,
+  pendingQuestions,
+} from '../../runState';
 import { cn } from '../../lib/utils';
 import StageStrip from './StageStrip';
 import { RunBadge, externalUrl, modeLabels, useAction } from './shared';
@@ -98,7 +104,7 @@ function RowActions({
   const action = useAction();
   const questions = pendingQuestions(order).length;
   const pr = externalUrl(order.evidence?.pr_url);
-  const canPause = ACTIVE_STATUSES.includes(order.status) && !order.control;
+  const canPause = ACTIVE_STATUSES.includes(order.status) && !order.control && !isMonitoring(order);
   return (
     <div className="flex flex-wrap items-center justify-end gap-1.5">
       {questions > 0 && (
@@ -226,7 +232,8 @@ export default function RunsTable({
       active: listed.filter((order) => ACTIVE_STATUSES.includes(order.status)).length,
       questions: listed.reduce((sum, order) => sum + pendingQuestions(order).length, 0),
       attention: listed.filter((order) => ATTENTION_STATUSES.includes(order.status)).length,
-      delivered: week.filter((order) => order.status === 'completed').length,
+      // A security review that finished delivered nothing.
+      delivered: week.filter((order) => order.status === 'completed' && !isMonitoring(order)).length,
       openPrs: week.filter((order) => order.status === 'completed' && externalUrl(order.evidence?.pr_url))
         .length,
       tokens: week.reduce((sum, order) => sum + order.tokens_used, 0),
@@ -260,9 +267,9 @@ export default function RunsTable({
           </Button>
         }
       />
-      {orders.length === 0 ? (
-        <FirstRun connected={connected} onNew={onNew} />
-      ) : (
+      {/* Until the owner launches a run, the way to start one stays above what the factory recorded by itself. */}
+      {!orders.some((order) => !isMonitoring(order)) && <FirstRun connected={connected} onNew={onNew} />}
+      {orders.length > 0 && (
         <>
           <StatGrid label="Runs summary">
             <StatTile
@@ -380,7 +387,7 @@ export default function RunsTable({
                           <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
                             <span className="truncate">{projectName(order)}</span>
                             <span aria-hidden="true">·</span>
-                            <span>{modeLabels[order.mode]}</span>
+                            <span>{isMonitoring(order) ? 'Monitoring' : modeLabels[order.mode]}</span>
                             <span aria-hidden="true">·</span>
                             <span className="font-mono">{order.id.slice(0, 8)}</span>
                           </span>

@@ -81,6 +81,23 @@ describe('attention model', () => {
     expect(runTransition(run('waiting_input'), 'running')).toMatchObject({ tone: 'warning' });
   });
 
+  it('does not call the daily security review a run of the owner', () => {
+    const review = (status: string, error_code: string | null = null) =>
+      ({ ...run(status, error_code), phase: 'security_watch' }) as Run & { phase: string };
+    // One that finished is the ordinary case, every morning: nothing to say.
+    expect(runTransition(review('completed'), 'queued')).toBeNull();
+    expect(runTransition(review('running'), 'queued')).toBeNull();
+    expect(runTransition(review('blocked', 'PROJECT_BUSY'), 'queued')).toMatchObject({
+      tone: 'warning',
+      title: 'Security monitoring could not finish · PROJECT_BUSY',
+      run: 'run-1',
+    });
+    expect(runTransition(review('failed'), 'running')).toMatchObject({
+      tone: 'danger',
+      title: 'Security monitoring could not finish',
+    });
+  });
+
   it('remembers ids across reloads and survives unusable storage', () => {
     remember('dismissed', ['a', 'b']);
     remember('dismissed', ['b', 'c']);

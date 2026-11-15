@@ -29,7 +29,8 @@ export function useAttentionToasts({
   ready,
   inboxOpen,
 }: {
-  orders: Pick<WorkOrder, 'id' | 'objective' | 'status' | 'error_code'>[];
+  orders: (Pick<WorkOrder, 'id' | 'objective' | 'status' | 'error_code'> &
+    Partial<Pick<WorkOrder, 'phase'>>)[];
   confirmations: OwnerConfirmation[];
   ready: boolean;
   inboxOpen: boolean;

@@ -7,6 +7,7 @@ from datetime import timedelta
 from typing import Any, Literal, TypedDict
 
 import psycopg
+from psycopg import sql
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 from psycopg_pool import AsyncConnectionPool
@@ -122,6 +123,16 @@ def payload(model) -> dict:
 
 def digest(value: Any) -> str:
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()).hexdigest()
+
+
+# A scheduled security review records the state of a project when it ran, once a day. The newest one
+# of a project is current and the ones before it are history: they stay stored and readable by their
+# id, and lists leave them out. Without this, one project fills the run list in 200 days, a review
+# that could not finish asks for attention again every morning with nothing to act on, and every
+# finding is listed once per day. Written for a row aliased `w`.
+SUPERSEDED_WATCH = sql.SQL("""w.data->>'phase'='security_watch' AND EXISTS (
+    SELECT 1 FROM work_orders newer WHERE newer.project_id=w.project_id AND newer.data->>'phase'='security_watch'
+    AND (newer.data->>'created_at')::timestamptz > (w.data->>'created_at')::timestamptz)""")
 
 
 class Repository(MemoryStore):
@@ -317,8 +328,10 @@ class Repository(MemoryStore):
         return work
 
     async def works(self) -> list[WorkOrder]:
+        """The 200 runs changed most recently. Of a project's scheduled security reviews, the current one only."""
         async with self.connection() as conn:
-            cursor = await conn.execute("SELECT data,control FROM work_orders ORDER BY updated_at DESC LIMIT 200")
+            cursor = await conn.execute(sql.SQL("SELECT data,control FROM work_orders w WHERE NOT ({superseded}) ORDER BY updated_at DESC LIMIT 200")
+                                        .format(superseded=SUPERSEDED_WATCH))
             works = []
             async for row in cursor:
                 work = WorkOrder.model_validate(row["data"])
@@ -921,8 +934,11 @@ class Repository(MemoryStore):
                 await conn.execute("INSERT INTO security_reports(id,project_id,work_id,data) VALUES(%s,%s,%s,%s) ON CONFLICT(id) DO UPDATE SET data=excluded.data", (key, work.project_id, work.id, Jsonb(data)))
 
     async def security(self, project_id: str | None = None):
+        """Recorded findings, newest first. A finding of a superseded scheduled review is the same finding seen again."""
         async with self.connection() as conn:
-            cursor = await conn.execute("SELECT data FROM security_reports WHERE (%s::text IS NULL OR project_id=%s) ORDER BY created_at DESC LIMIT 500", (project_id, project_id))
+            cursor = await conn.execute(sql.SQL("""SELECT r.data FROM security_reports r LEFT JOIN work_orders w ON w.id=r.work_id
+                WHERE (%s::text IS NULL OR r.project_id=%s) AND NOT coalesce(({superseded}), false)
+                ORDER BY r.created_at DESC LIMIT 500""").format(superseded=SUPERSEDED_WATCH), (project_id, project_id))
             return [r["data"] async for r in cursor]
 
     async def create_security_exception(self, work_id: str, request: SecurityExceptionCreate) -> SecurityException:

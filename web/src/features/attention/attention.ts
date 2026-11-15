@@ -80,12 +80,23 @@ export interface AttentionToast {
   review?: boolean;
 }
 
-type RunFacts = Pick<WorkOrder, 'id' | 'objective' | 'status' | 'error_code'>;
+type RunFacts = Pick<WorkOrder, 'id' | 'objective' | 'status' | 'error_code'> &
+  Partial<Pick<WorkOrder, 'phase'>>;
 
 /** What a run that changed state while the owner watched is worth saying. Most transitions say nothing. */
 export function runTransition(order: RunFacts, before: string | undefined): AttentionToast | null {
   if (before === undefined || before === order.status) return null;
   const base = { id: `run:${order.id}:${order.status}`, text: order.objective, run: order.id };
+  // The daily security review is not a run of the owner's: one that finished says nothing, and one
+  // that could not finish says what it is.
+  if (order.phase === 'security_watch')
+    return order.status === 'blocked' || order.status === 'failed'
+      ? {
+          ...base,
+          tone: order.status === 'failed' ? 'danger' : 'warning',
+          title: `Security monitoring could not finish${order.error_code ? ` · ${order.error_code}` : ''}`,
+        }
+      : null;
   if (order.status === 'completed') return { ...base, tone: 'success', title: 'Run completed' };
   if (order.status === 'failed')
     return {
