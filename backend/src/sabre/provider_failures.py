@@ -59,12 +59,36 @@ def by_status(status: int) -> FailureClass:
     return "other"
 
 
+# How far back the exception an integration was raised from is asked.
+MAX_CAUSES = 3
+
+
 def classify(error: BaseException) -> FailureClass:
+    """The class of a failed call, from the exception's type, its HTTP status or a bridge's code.
+
+    An integration may wrap its SDK's exception in one of its own that carries no status: the pinned
+    Google one does for every refusal below 500. The exception it says it was raised from is then
+    asked, a few steps back. A domain error is the factory's own statement: it is never traced back
+    to whatever was being handled when it was raised.
+    """
     if isinstance(error, DomainError):
         for prefix in ("CLAUDE_", "CODEX_"):
             if isinstance(error.code, str) and error.code.startswith(prefix):
                 return BRIDGE_CLASSES.get(error.code[len(prefix):], "other")
         return "other"
+    current: BaseException | None = error
+    for _ in range(MAX_CAUSES + 1):
+        if current is None or isinstance(current, DomainError):
+            break
+        failure = own_class(current)
+        if failure != "other":
+            return failure
+        current = current.__cause__
+    return "other"
+
+
+def own_class(error: BaseException) -> FailureClass:
+    """What one exception says by itself, without the one it was raised from."""
     for sdk in (openai, anthropic):
         if isinstance(error, sdk.RateLimitError):
             return "rate_limit"
@@ -94,7 +118,15 @@ def failure_code(error: BaseException, failure: str) -> str:
 
 def retry_delay(error: BaseException, attempt: int) -> float:
     """The provider's own Retry-After when it sends one within the bound, else a fixed step."""
-    headers = getattr(getattr(error, "response", None), "headers", None)
+    headers = None
+    current: BaseException | None = error
+    for _ in range(MAX_CAUSES + 1):
+        if current is None:
+            break
+        headers = getattr(getattr(current, "response", None), "headers", None)
+        if headers is not None:
+            break
+        current = current.__cause__
     try:
         requested = float(headers.get("retry-after")) if headers is not None and headers.get("retry-after") is not None else None
     except (TypeError, ValueError):

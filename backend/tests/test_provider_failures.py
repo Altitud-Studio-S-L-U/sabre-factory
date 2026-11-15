@@ -92,6 +92,41 @@ def test_a_failure_is_classified_by_its_type_status_or_bridge_code_never_by_its_
     assert SECRET not in failure_code(error, expected)
 
 
+def raised_from(outer: BaseException, cause: BaseException | None, *, explicit: bool = True) -> BaseException:
+    """``outer`` as it is after ``raise outer from cause``, or after being raised while ``cause`` was handled."""
+    try:
+        try:
+            if cause is not None:
+                raise cause
+        except BaseException:
+            if explicit:
+                raise outer from cause
+            raise outer  # noqa: B904 - the implicit chain is what this builds
+    except BaseException as error:
+        return error
+    return outer
+
+
+def test_an_exception_without_a_status_is_classed_from_the_one_it_says_it_was_raised_from():
+    limit = sdk_error(openai.RateLimitError, 429, {"retry-after": "5"})
+    wrapped = raised_from(RuntimeError("an integration's own exception, with no status"), limit)
+    assert classify(wrapped) == "rate_limit" and retry_delay(wrapped, 0) == 5.0
+    assert SECRET not in failure_code(wrapped, "rate_limit")
+    # An exception that says something itself is not asked about its cause.
+    assert classify(raised_from(sdk_error(openai.BadRequestError, 400), limit)) == "invalid_request"
+    # Only what the integration says it was raised from counts: an exception merely raised while another was handled is not traced.
+    assert classify(raised_from(RuntimeError("unrelated"), limit, explicit=False)) == "other"
+    # A domain error is the factory's own statement, wherever it was raised, and it also ends a chain.
+    assert classify(raised_from(DomainError("PAUSE_REQUESTED", "pause"), limit)) == "other"
+    assert classify(raised_from(RuntimeError("outer"), raised_from(DomainError("BUDGET_EXHAUSTED", "no budget"), limit))) == "other"
+    # The trace back is bounded.
+    chain: BaseException = limit
+    for depth in range(3):
+        chain = raised_from(RuntimeError(f"wrapper {depth}"), chain)
+    assert classify(chain) == "rate_limit"
+    assert classify(raised_from(RuntimeError("one wrapper too many"), chain)) == "other"
+
+
 def test_the_wait_follows_the_providers_retry_after_within_a_bound():
     assert retry_delay(sdk_error(openai.RateLimitError, 429, {"retry-after": "5"}), 0) == 5.0
     assert retry_delay(sdk_error(openai.RateLimitError, 429, {"retry-after": "120"}), 0) == 2.0
