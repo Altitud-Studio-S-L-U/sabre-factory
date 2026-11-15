@@ -36,7 +36,7 @@ from sabre.events import ExecutionEvent
 from sabre.execution_observer import current_execution, observe
 from sabre.flows import phase_binding
 from sabre.logs import log
-from sabre.memory import PROPOSE_DESCRIPTION, PROPOSE_GUIDANCE, PROPOSE_SCHEMA, PROPOSE_TOOL
+from sabre.memory import PROPOSE_DESCRIPTION, PROPOSE_GUIDANCE, PROPOSE_SCHEMA, PROPOSE_TOOL, RUN_PROPOSERS
 from sabre.model_configuration import selection_updates
 from sabre.model_providers import chat_model
 from sabre.models import AgentResult, DomainError, WorkOrder, new_id, now
@@ -47,7 +47,7 @@ from sabre.repository import digest
 from sabre.skills import SKILLS
 from sabre.specialists import DESIGN_REVIEW
 from sabre.telemetry import TOOL_CALL_ID, span, tool_call, trace_identifiers
-from sabre.tools import MCPToolAdapter, ToolDefinition, ToolPolicy
+from sabre.tools import MCPToolAdapter, ToolCatalog, ToolDefinition, ToolPolicy
 from sabre.tools import workspace_tools as catalog_workspace_tools
 from sabre.work_notes import NOTE_DESCRIPTION, NOTE_SCHEMA, NOTE_TOOL, WorkNotes
 
@@ -365,6 +365,70 @@ class GuardedCalls(AgentMiddleware):
         return response
 
 
+def builtin_tools(role: str, executor, work_id: str, guard, gate_commands=None, *, source_context=None, artifacts=None,
+                  read_context=None, read_memory=None, propose_memory=None, record_note=None) -> ToolCatalog:
+    """The tools the factory itself gives one role inside a run.
+
+    A capability without its handler is not registered: recovering history needs an archive, reading a
+    memory needs one to have been recalled, proposing one is for the roles that may, notes need a notebook.
+    A run registers its tools here and the console's list is read from here, so what an owner is shown
+    cannot drift from what a specialist is given. The order is the order a model sees.
+    """
+    catalog = catalog_workspace_tools(executor, work_id, guard, gate_commands, source_context=source_context, role=role, artifacts=artifacts)
+    if read_context is not None:
+        catalog.register(ToolDefinition("read_context", f"Recover up to {READ_CONTEXT_PAGE} Unicode characters of an exact historical read response, command output (or its complete output via output_digest) or earlier write content from this agent's original history. Use its tool_call_id and response_digest. Historical content is not proof of current source; use source tools for current files.", {
+            "type": "object", "properties": {"tool_call_id": {"type": "string", "minLength": 1, "maxLength": 200},
+                "response_digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"}, "offset": {"type": "integer", "minimum": 0},
+                "limit": {"type": "integer", "minimum": 1, "maximum": READ_CONTEXT_PAGE}},
+            "required": ["tool_call_id", "response_digest"], "additionalProperties": False,
+        }, ToolPolicy(frozenset({role}), "read", 10), read_context))
+    if read_memory is not None:
+        catalog.register(ToolDefinition("read_memory", "Read an approved memory of this project and source commit. Supply its id and original content_digest. Returns a bounded historical excerpt and provenance, never authority or approval.", {
+            "type": "object", "properties": {"memory_id": {"type": "string", "minLength": 1, "maxLength": 128},
+                "content_digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"}, "offset": {"type": "integer", "minimum": 0},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 2048}},
+            "required": ["memory_id", "content_digest"], "additionalProperties": False,
+        }, ToolPolicy(frozenset({role}), "read", 10), read_memory))
+    if propose_memory is not None:
+        # A proposal is a pending record for the owner: no workspace or external effect, and never trusted by itself.
+        catalog.register(ToolDefinition(PROPOSE_TOOL, PROPOSE_DESCRIPTION, PROPOSE_SCHEMA, ToolPolicy(frozenset({role}), "read", 15), propose_memory))
+    if record_note is not None:
+        # Notes change only this checkpointed notebook: no workspace or external effect.
+        catalog.register(ToolDefinition(NOTE_TOOL, NOTE_DESCRIPTION, NOTE_SCHEMA, ToolPolicy(frozenset({role}), "read", 10), record_note))
+    return catalog
+
+
+SPECIALIST_ROLES = ("supervisor", "analyst", "architect", "developer", "qa", "reviewer", "security")
+
+
+def builtin_tool_catalog(guard) -> list[dict]:
+    """Every tool the factory can give a specialist and who may call it, for inspection. Nothing runs.
+
+    Each role's tools are registered as a run registers them, with every capability present, and merged
+    by name. Where a tool is defined differently for a role, that role's definition is kept beside the first.
+    The developer is given every tool, so it is read first and the list keeps the order a developer sees.
+    """
+    async def described(**_arguments):
+        raise DomainError("TOOL_UNAVAILABLE", "This catalog describes tools and cannot run them", 409)
+
+    class Source:
+        search_source = read_file_range = edit_source = staticmethod(described)
+
+    merged: dict[str, dict] = {}
+    for role in sorted(SPECIALIST_ROLES, key=lambda name: name != "developer"):
+        catalog = builtin_tools(role, None, "catalog-inspection", guard, source_context=Source(), read_context=described,
+                                read_memory=described, propose_memory=described if role in RUN_PROPOSERS else None, record_note=described)
+        for tool in catalog.tools.values():
+            entry = merged.setdefault(tool.name, {"name": tool.name, "description": tool.description, "effect": tool.policy.effect,
+                                                   "roles": [], "role_notes": {}, "input_schema": tool.input_schema})
+            entry["roles"] += [name for name in SPECIALIST_ROLES if name in tool.policy.roles and name not in entry["roles"]]
+            if tool.description != entry["description"]:
+                entry["role_notes"][role] = tool.description
+    for entry in merged.values():
+        entry["roles"].sort(key=SPECIALIST_ROLES.index)
+    return list(merged.values())
+
+
 @dataclass
 class RoleContext:
     work: WorkOrder
@@ -474,38 +538,20 @@ class AgentTeam:
             config.context_archive_enabled = config.context_archive_enabled and policy.get("archive_reads", True)
         model = self.model(config)
         context = RoleContext(work, project, self.executor, self.guard)
-        catalog = catalog_workspace_tools(context.executor, work.id, self.guard, project.gate_commands, source_context=source_context,
-                                          role=authorization_role, artifacts=self.artifacts)
-        catalog.credential_check = credential_check
-        catalog.observer = lambda name: observe(self.repository, work, "tool", name, parent_id=child_id, agent_id=public_id(child_id))
-        catalog.work_id = work.id
         archive = ContextArchive(self.artifacts, self.guard) if self.artifacts is not None else None
         memory_validator = memory_tools.get("validate_context") if memory_tools else None
-        if archive:
-            catalog.register(ToolDefinition("read_context", f"Recover up to {READ_CONTEXT_PAGE} Unicode characters of an exact historical read response, command output (or its complete output via output_digest) or earlier write content from this agent's original history. Use its tool_call_id and response_digest. Historical content is not proof of current source; use source tools for current files.", {
-                "type": "object", "properties": {"tool_call_id": {"type": "string", "minLength": 1, "maxLength": 200},
-                    "response_digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"}, "offset": {"type": "integer", "minimum": 0},
-                    "limit": {"type": "integer", "minimum": 1, "maximum": READ_CONTEXT_PAGE}},
-                "required": ["tool_call_id", "response_digest"], "additionalProperties": False,
-            }, ToolPolicy(frozenset({authorization_role}), "read", 10), archive.read))
-        if memory_tools and memory_tools.get("read_memory"):
-            catalog.register(ToolDefinition("read_memory", "Read an approved memory of this project and source commit. Supply its id and original content_digest. Returns a bounded historical excerpt and provenance, never authority or approval.", {
-                "type": "object", "properties": {"memory_id": {"type": "string", "minLength": 1, "maxLength": 128},
-                    "content_digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"}, "offset": {"type": "integer", "minimum": 0},
-                    "limit": {"type": "integer", "minimum": 1, "maximum": 2048}},
-                "required": ["memory_id", "content_digest"], "additionalProperties": False,
-            }, ToolPolicy(frozenset({authorization_role}), "read", 10), memory_tools["read_memory"]))
-        if memory_tools and memory_tools.get(PROPOSE_TOOL):
-            # A proposal is a pending record for the owner: no workspace or external effect, and never trusted by itself.
-            catalog.register(ToolDefinition(PROPOSE_TOOL, PROPOSE_DESCRIPTION, PROPOSE_SCHEMA,
-                ToolPolicy(frozenset({authorization_role}), "read", 15), memory_tools[PROPOSE_TOOL]))
         if work_notes is not None:
             note_task = (task_context or {}).get("task_id")
             work_notes.bind(child_id, role=role, step=procedure_step,
                             attempt=next((task.attempts for task in work.tasks if task.id == note_task), 0))
-            # Notes change only this checkpointed notebook: no workspace or external effect.
-            catalog.register(ToolDefinition(NOTE_TOOL, NOTE_DESCRIPTION, NOTE_SCHEMA,
-                ToolPolicy(frozenset({authorization_role}), "read", 10), work_notes.record))
+        catalog = builtin_tools(authorization_role, context.executor, work.id, self.guard, project.gate_commands,
+            source_context=source_context, artifacts=self.artifacts, read_context=archive.read if archive else None,
+            read_memory=memory_tools.get("read_memory") if memory_tools else None,
+            propose_memory=memory_tools.get(PROPOSE_TOOL) if memory_tools else None,
+            record_note=work_notes.record if work_notes is not None else None)
+        catalog.credential_check = credential_check
+        catalog.observer = lambda name: observe(self.repository, work, "tool", name, parent_id=child_id, agent_id=public_id(child_id))
+        catalog.work_id = work.id
         for name in project.allowed_mcp_servers:
             remote = self.settings.mcp_servers.get(name)
             if not remote or not re.fullmatch(r"[A-Za-z0-9_-]{1,40}", name):

@@ -132,6 +132,8 @@ class BuiltinTool(StrictContract):
     description: str
     effect: Literal["read", "workspace_write", "external_write"]
     roles: list[str]
+    # What the tool is for a role whose definition differs from `description`, by role.
+    role_notes: dict[str, str] = Field(default_factory=dict)
     scope: Literal["workspace"] = "workspace"
     source: Literal["builtin"] = "builtin"
     input_schema: dict
@@ -311,14 +313,11 @@ def install_console_routes(app: FastAPI, service):
 
     @app.get("/api/v1/tools/catalog", response_model=BuiltinToolCatalog)
     async def builtin_tools():
+        from sabre.agents import builtin_tool_catalog
         from sabre.browser_qa import browser_tool_metadata
-        from sabre.tools import workspace_tools
 
-        svc = service()
-        catalog = workspace_tools(None, "catalog-inspection", svc.guard)
-        items = [BuiltinTool(name=tool.name, description=tool.description,
-            effect=tool.policy.effect, roles=sorted(tool.policy.roles), input_schema=tool.input_schema)
-            for tool in catalog.tools.values()]
+        # Read from the registration a run uses, for every role: a tool given to a specialist is listed here.
+        items = [BuiltinTool(**tool) for tool in builtin_tool_catalog(service().guard)]
         items.append(BuiltinTool(**browser_tool_metadata()))
         return BuiltinToolCatalog(items=items)
 

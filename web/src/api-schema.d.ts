@@ -2773,6 +2773,10 @@ export interface components {
             effect: "read" | "workspace_write" | "external_write";
             /** Roles */
             roles: string[];
+            /** Role Notes */
+            role_notes: {
+                [key: string]: string;
+            };
             /**
              * Scope
              * @default workspace

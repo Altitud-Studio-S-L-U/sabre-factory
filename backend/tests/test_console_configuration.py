@@ -76,6 +76,50 @@ async def test_builtin_catalog_describes_conditional_browser_capability_without_
     assert "Requires an owner-registered synthetic preview" in browser["description"]
 
 
+async def test_builtin_catalog_lists_every_tool_a_specialist_is_given_with_the_roles_that_may_call_it():
+    from sabre.agents import SPECIALIST_ROLES, builtin_tools
+    from sabre.memory import RUN_PROPOSERS
+    from sabre.tools import INTERNAL_TOOLS
+
+    service = SimpleNamespace(guard=SecretGuard())
+    cfg = SimpleNamespace(auth_token=SecretStr("synthetic-owner-authentication"), allowed_origins=["http://localhost:8000"])
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(create_app(service, cfg)), base_url="http://localhost:8000") as client:
+        result = await client.get("/api/v1/tools/catalog", headers={"Authorization": "Bearer synthetic-owner-authentication"})
+    assert result.status_code == 200
+    items = {item["name"]: item for item in result.json()["items"]}
+    # The set that telemetry and the audit name is the set an owner is shown, plus the browser check.
+    assert set(items) == INTERNAL_TOOLS | {"browser_verify"}
+    # In the order a developer is given them: the workspace first, then what a run adds.
+    assert list(items) == ["list_files", "read_file", "read_files", "search_source", "read_file_range", "write_file", "edit_source", "execute",
+                           "prepare_dependencies", "resolve_dependencies", "read_context", "read_memory", "propose_memory", "record_note", "browser_verify"]
+    everyone = list(SPECIALIST_ROLES)
+    for name in ("list_files", "read_file", "read_files", "search_source", "read_file_range", "read_context", "read_memory", "record_note"):
+        assert items[name]["roles"] == everyone and items[name]["effect"] == "read", name
+    for name in ("write_file", "edit_source", "prepare_dependencies", "resolve_dependencies"):
+        assert items[name]["roles"] == ["developer"] and items[name]["effect"] == "workspace_write", name
+    assert items["propose_memory"]["roles"] == [role for role in SPECIALIST_ROLES if role in RUN_PROPOSERS]
+    # One tool, two definitions: QA runs only an approved check, and the list says so beside the developer's.
+    execute = items["execute"]
+    assert execute["roles"] == ["developer", "qa"]
+    assert execute["description"].startswith("Run an argv command in the isolated workspace")
+    assert list(execute["role_notes"]) == ["qa"] and execute["role_notes"]["qa"].startswith("Run an approved check in a disposable copy")
+    assert all(item["role_notes"] == {} for name, item in items.items() if name != "execute")
+
+    # The list is read from what a run registers: for every role, with every capability present, nothing else appears.
+    async def handler(**_arguments):
+        return None
+
+    source = SimpleNamespace(search_source=handler, read_file_range=handler, edit_source=handler)
+    for role in SPECIALIST_ROLES:
+        catalog = builtin_tools(role, None, "synthetic-work", SecretGuard(), source_context=source, read_context=handler,
+                                read_memory=handler, propose_memory=handler, record_note=handler)
+        assert set(catalog.tools) <= INTERNAL_TOOLS
+        assert {name for name, tool in catalog.tools.items() if role in tool.policy.roles} >= {"list_files", "read_context", "record_note"}
+    # A capability without its handler is not offered.
+    bare = builtin_tools("developer", None, "synthetic-work", SecretGuard())
+    assert not {"read_context", "read_memory", "propose_memory", "record_note", "search_source", "edit_source"} & set(bare.tools)
+
+
 async def test_configuration_history_limit_is_bounded_and_owner_only():
     from types import SimpleNamespace
 

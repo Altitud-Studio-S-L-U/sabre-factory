@@ -81,6 +81,31 @@ test('a GitHub permission is switched off and on, and the application remembers 
   watched.clean();
 });
 
+test('Tools lists every tool the application gives a specialist, and what one is for QA', async ({
+  page,
+}) => {
+  const watched = watch(page);
+  await page.goto('/tools?tab=builtin');
+  await connected(page);
+  for (const name of [
+    'read_files',
+    'search_source',
+    'edit_source',
+    'execute',
+    'read_context',
+    'read_memory',
+    'record_note',
+    'propose_memory',
+    'browser_verify',
+  ])
+    await expect(page.getByRole('heading', { name, exact: true })).toBeVisible();
+  // QA is given fewer tools, and its `execute` runs only an approved check.
+  await page.getByRole('combobox', { name: 'Specialist' }).selectOption('qa');
+  await expect(page.getByRole('heading', { name: 'edit_source', exact: true })).toHaveCount(0);
+  await expect(page.getByText(/^Run an approved check in a disposable copy/)).toBeVisible();
+  watched.clean();
+});
+
 test('Memory opens on a project the factory has not read yet', async ({ page }) => {
   const watched = watch(page);
   const name = unique('Memory');
