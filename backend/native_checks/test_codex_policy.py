@@ -25,6 +25,7 @@ from sabre.codex_runner import (
     turn_directory,
     turn_result,
 )
+from sabre.model_selection import EFFORT_LEVELS
 from sabre.models import DomainError
 
 PINNED_BINARY_SHA256 = {"x86_64": "b93f6811d3f653f0fb83be4050d857fb9abbb111dfa2ce160563327daff7f306", "aarch64": "8813c8d8a4cea2eeba271b72ab22f49628b184b24ab18dbef06b4ce41e9a8d39"}[platform.machine()]
@@ -464,3 +465,57 @@ async def test_a_turn_the_pinned_cli_completes_after_the_provider_failed_is_kept
     assert any(json.loads(line).get("type") == "error" for line in stdout.splitlines())
     result = turn_result(code, stdout)
     assert result.result.content == "synthetic completed" and (result.input_tokens, result.output_tokens) == (100, 20)
+
+
+# What the pinned CLI asks for when the factory names no level: its own default for the model.
+DEFAULT_EFFORT = {CODE_TOOL_MODEL: "low", DIRECT_TOOL_MODEL: "medium"}
+
+
+@pytest.mark.parametrize("model", MODELS)
+@pytest.mark.parametrize("effort", [None, *EFFORT_LEVELS["codex_cli"]])
+async def test_the_effort_given_to_the_cli_is_what_the_provider_is_asked_for(tmp_path, model, effort):
+    """The factory's setting reaches the request as the CLI's own, and the rest of the request stays as it was."""
+    home, bridge = tmp_path / "private", tmp_path / "bridge"
+    home.mkdir(mode=0o700)
+    bridge.mkdir(mode=0o700)
+
+    async def call(level):
+        requests: list = []
+        server, thread = synthetic_provider(requests)
+        try:
+            with turn_directory() as where:
+                (Path(where) / SCHEMA_FILE).write_text(json.dumps(AssistantEnvelope.model_json_schema()))
+                args = [*turn_arguments(where, home=home, model=model, effort=level or "", secrets_dir=bridge), *provider_arguments(server), "-"]
+                code, stdout, _ = await capture_process(args, env=environment(home), cwd=where, stdin=b"Return the synthetic envelope", timeout=30)
+        finally:
+            server.shutdown()
+            thread.join(timeout=2)
+            server.server_close()
+        assert code == 0 and len(requests) == 1
+        assert turn_result(code, stdout).result.content == "synthetic completed"
+        return requests[0]
+
+    def bare(value):
+        # Without the identifiers the CLI gives its own items, which are new on every call.
+        if isinstance(value, list):
+            return [bare(item) for item in value]
+        return {key: bare(item) for key, item in value.items() if key != "id"} if isinstance(value, dict) else value
+
+    asked = await call(effort)
+    # The CLI passes a named level as it is: the provider decides whether the model takes it.
+    assert asked["model"] == model and asked["reasoning"]["effort"] == (effort or DEFAULT_EFFORT[model])
+    if effort:
+        # The level is the only thing that moves: the same items, tools and output format.
+        plain = await call(None)
+        assert {**asked["reasoning"], "effort": None} == {**plain["reasoning"], "effort": None}
+        for part in ("input", "tools", "text", "tool_choice", "instructions"):
+            assert bare(asked.get(part)) == bare(plain.get(part)), part
+
+
+async def test_a_level_the_provider_refuses_fails_the_call_with_a_code_that_says_so(tmp_path):
+    # The CLI does not check the level against the model. A provider that rejects it answers 400, and the call ends named.
+    code, stdout, requests = await answered_by(tmp_path, lambda number: (400, REFUSALS["invalid"], {}))
+    assert len(requests) == 1
+    with pytest.raises(DomainError) as refused:
+        turn_result(code, stdout)
+    assert refused.value.code == "CODEX_REQUEST_REJECTED"

@@ -42,6 +42,8 @@ STREAM_OUTPUT_BYTES = MAX_OUTPUT_BYTES * 3 + 65536
 # request, and a new temporary directory per call made that block differ every time, so nothing
 # after it could be read from the provider's cache.
 TURN_DIRECTORY = Path(tempfile.gettempdir()) / "sabre-claude-turn"
+# The values --effort takes in the pinned CLI, and none.
+CLI_EFFORTS = frozenset({"", "low", "medium", "high", "xhigh", "max"})
 
 
 def cli_arguments() -> list[str]:
@@ -274,8 +276,8 @@ def create_app(runner: ClaudeRunner | None = None, token_file: Path = TOKEN_FILE
             payload = InvocationRequest.model_validate_json(raw)
         except ValidationError:
             raise DomainError("CLAUDE_INPUT_INVALID", "The Claude request is invalid", 422) from None
-        if not payload.segments:
-            # This bridge sends blocks; a prompt as one text is the Codex runner's form.
+        if not payload.segments or payload.effort not in CLI_EFFORTS:
+            # This bridge sends blocks; a prompt as one text is the Codex runner's form, and so are the levels this CLI does not have.
             raise DomainError("CLAUDE_INPUT_INVALID", "The Claude request is invalid", 422)
         if payload.size() > MAX_INPUT_BYTES:
             raise DomainError("CLAUDE_INPUT_LIMIT", "Claude context exceeds the limit", 413)

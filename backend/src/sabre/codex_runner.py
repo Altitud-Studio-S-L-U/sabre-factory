@@ -87,12 +87,16 @@ def cli_arguments(command: str = "exec", *, home: Path = CODEX_HOME, workspace: 
     return args
 
 
-def turn_arguments(directory: str, *, home: Path = CODEX_HOME, model: str = "", secrets_dir: Path = Path("/run/secrets")) -> list[str]:
+def turn_arguments(directory: str, *, home: Path = CODEX_HOME, model: str = "", effort: str = "",
+                   secrets_dir: Path = Path("/run/secrets")) -> list[str]:
     """The command line of one call run in ``directory``, which also holds the schema of the answer."""
     args = [*cli_arguments(home=home, workspace=Path(directory), secrets_dir=secrets_dir), "--ignore-rules", "--ephemeral", "--json",
         "--skip-git-repo-check", "-C", directory, "--output-schema", str(Path(directory) / SCHEMA_FILE)]
     if model:
         args.extend(["-m", model])
+    if effort:
+        # The CLI passes the level to the provider as it is; without one it asks for its own default for the model.
+        args.extend(["-c", f"model_reasoning_effort={json.dumps(effort)}"])
     return args
 
 
@@ -367,7 +371,7 @@ class CodexRunner:
             raise DomainError("CODEX_LOGIN_REQUIRED", "Connect a separate ChatGPT session for SABRE using the CLI", 503)
         with turn_directory() as directory:
             (Path(directory) / SCHEMA_FILE).write_text(json.dumps(AssistantEnvelope.model_json_schema()), encoding="utf-8")
-            args = turn_arguments(directory, home=self.home, model=request.model)
+            args = turn_arguments(directory, home=self.home, model=request.model, effort=request.effort)
             code, raw, _ = await capture_process([*args, "-"], env=self.environment(), cwd=directory, stdin=request.prompt.encode())
         return turn_result(code, raw)
 
@@ -409,8 +413,8 @@ def create_app(runner: CodexRunner | None = None, token_file: Path = TOKEN_FILE)
             payload = InvocationRequest.model_validate_json(raw)
         except ValidationError:
             raise DomainError("CODEX_INPUT_INVALID", "The Codex request is invalid", 422) from None
-        if payload.segments or payload.effort:
-            # Codex takes its prompt as one text; blocks, and an effort this bridge does not set, are the Claude runner's.
+        if payload.segments:
+            # Codex takes its prompt as one text; blocks are the Claude runner's form.
             raise DomainError("CODEX_INPUT_INVALID", "The Codex request is invalid", 422)
         if len(payload.prompt.encode()) > MAX_INPUT_BYTES:
             raise DomainError("CODEX_INPUT_LIMIT", "Codex context exceeds the limit", 413)

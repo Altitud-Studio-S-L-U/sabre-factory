@@ -198,11 +198,14 @@ async def test_runner_auth_input_limits_and_error_redaction(token_file):
         assert too_large.status_code == 413
         # Codex takes its prompt as one text: blocks are the other runner's form.
         assert (await client.post("/invoke", headers=headers, json={"segments": ["test"]})).status_code == 422
-        assert (await client.post("/invoke", headers=headers, json={"prompt": "test", "effort": "high"})).status_code == 422
+        # An effort is one of the provider's levels or absent: anything else never reaches a command line.
+        for level in ("extreme", "high --model other", "HIGH", 'high"\nmodel="other'):
+            assert (await client.post("/invoke", headers=headers, json={"prompt": "test", "effort": level})).status_code == 422
         runner.invoke.assert_not_awaited()
-        good = await client.post("/invoke", headers=headers, json={"prompt": "test"})
+        good = await client.post("/invoke", headers=headers, json={"prompt": "test", "effort": "minimal"})
         assert good.status_code == 200 and good.headers["cache-control"] == "no-store"
         runner.invoke.assert_awaited_once()
+        assert runner.invoke.await_args.args[0].effort == "minimal"
 
 
 @pytest.mark.parametrize("status, expected", [(b"Logged in using ChatGPT\n", True), (b"Logged in using an API key\n", False), (b"Not logged in\n", False)])
@@ -226,6 +229,8 @@ async def test_runner_passes_prompt_only_on_stdin(monkeypatch, tmp_path):
     assert capture.call_args.kwargs["stdin"] == b"synthetic-private-prompt"
     assert "-m" not in args
     assert "--ignore-user-config" in args and "--strict-config" in args and "--ephemeral" in args
+    # No effort is named unless the request carries one; then it is the CLI's own setting, as a quoted value.
+    assert not any(value.startswith("model_reasoning_effort=") for value in args)
     # Every call runs in the same directory, which holds the schema of the answer and does not outlive the call.
     fixed = str(codex_runner.TURN_DIRECTORY)
     assert capture.call_args.kwargs["cwd"] == fixed and args[args.index("-C") + 1] == fixed
@@ -235,6 +240,9 @@ async def test_runner_passes_prompt_only_on_stdin(monkeypatch, tmp_path):
     await runner.invoke(InvocationRequest(prompt="synthetic-private-prompt", model="fixture-model"))
     named = capture.call_args.args[0]
     assert named[named.index("-m") + 1] == "fixture-model" and named[-1] == "-"
+    await runner.invoke(InvocationRequest(prompt="synthetic-private-prompt", effort="xhigh"))
+    levelled = capture.call_args.args[0]
+    assert levelled[levelled.index('model_reasoning_effort="xhigh"') - 1] == "-c" and levelled[-1] == "-"
 
 
 def test_the_working_directory_of_a_call_is_one_empty_path_that_does_not_outlive_it(tmp_path, monkeypatch):
