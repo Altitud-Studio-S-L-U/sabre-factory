@@ -86,7 +86,7 @@ This bounds the damage; it does not prevent a steered agent from writing bad cod
 - Secret values are not passed in the environment: services read protected bootstrap files, and the runtime check counts zero credential fields in the environment.
 - A secret guard checks material before it goes to a model, into memory, into an ordinary output or into the artifact store, against known factory secrets and documented token formats. GitHub tokens are recognised by prefix whatever their length.
 - With the GitHub connection, each operation gets a token for one repository with only the permissions it declares, held in memory for at most an hour and never stored. The app's private key stays in the vault.
-- Traces and operational logs pass an allowlist of identifiers, codes and counts. No prompt, response, code, command or output is exported, and no setting turns that on. The HTTP servers write no access log, so a query string cannot become one.
+- Traces and operational logs pass an allowlist of identifiers, codes and counts. No prompt, response, code, command or output is exported, and no setting turns that on. The HTTP servers write no access log, so a query string cannot become one, and they write no request span either: the factory's tracer provider is not the process-wide one and the web framework's own telemetry is off in every application, so only the spans the factory writes are exported.
 - Deactivating a credential removes its ciphertext. It does not revoke the upstream token, and the console says so.
 
 ### 4.5 The model or its provider misbehaves

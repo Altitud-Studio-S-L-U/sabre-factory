@@ -91,18 +91,31 @@ def remote_context(trace_id, span_id) -> SpanContext | None:
     return context if context.is_valid else None
 
 
+# The factory's own tracer provider, when traces are exported. It is deliberately not the process-wide
+# one: a library that instruments itself against the global provider exports through whatever is
+# registered there. FastAPI does, and its request spans carry the query string of every request and
+# one trace per health check. What leaves this process is the closed set of spans written here.
+_provider: TracerProvider | None = None
+
+
 def configure(endpoint: str | None):
+    global _provider
     if not endpoint:
         return None
     from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
     try:
         provider = TracerProvider(resource=Resource.create({"service.name": "sabre"}))
         provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(endpoint=endpoint, timeout=3)))
-        trace.set_tracer_provider(provider)
+        _provider = provider
         return provider
     except Exception:
         # Diagnostics must not change work admission or execution outcomes.
         return None
+
+
+def tracer():
+    """The tracer the factory's spans are written with: its own provider's, or the no-op one without an endpoint."""
+    return _provider.get_tracer("sabre") if _provider is not None else trace.get_tracer("sabre")
 
 
 class SpanRecorder:
@@ -179,7 +192,7 @@ def span(name, *, link: dict | None = None, parent: str | None = None, **attribu
         linked = remote_context(link.get("trace_id"), link.get("span_id")) if isinstance(link, dict) else None
         match = TRACEPARENT.fullmatch(parent) if isinstance(parent, str) else None
         upstream = remote_context(match.group(1), match.group(2)) if match else None
-        current = trace.get_tracer("sabre").start_span(
+        current = tracer().start_span(
             known, kind=SPAN_KINDS.get(known, SpanKind.INTERNAL),
             context=trace.set_span_in_context(NonRecordingSpan(upstream)) if upstream else None,
             links=[Link(linked)] if linked else None)

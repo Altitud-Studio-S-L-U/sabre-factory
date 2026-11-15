@@ -22,6 +22,7 @@ from sabre.claude_model import (
 )
 from sabre.codex_model import AssistantEnvelope, InvocationRequest
 from sabre.codex_runner import capture_process as capture_bounded_process
+from sabre.framework import TELEMETRY_OFF
 from sabre.models import DomainError
 from sabre.settings import reject_secret_environment
 
@@ -181,7 +182,7 @@ def create_app(runner: ClaudeRunner | None = None, token_file: Path = TOKEN_FILE
     reject_secret_environment()
     token = read_bridge_token(token_file)
     selected = runner or ClaudeRunner()
-    app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+    app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None, telemetry=TELEMETRY_OFF)
 
     @app.exception_handler(DomainError)
     async def domain_error(request, error):

@@ -27,6 +27,7 @@ from sabre.commands import CommandEnvelope, CommandResult, dispatch
 from sabre.create_flow import CreateFlowLaunch, launch_create
 from sabre.events import EventPage
 from sabre.flow_contracts import FlowConfiguration, FlowYamlRequest
+from sabre.framework import TELEMETRY_OFF
 from sabre.integrations import (
     GitHubRepositoryImport,
     GitHubRepositoryPage,
@@ -146,7 +147,7 @@ def create_app(service=None, config=None) -> FastAPI:
             async with mcp_app.router.lifespan_context(mcp_app), delegated_app.router.lifespan_context(delegated_app):
                 yield
 
-    application = FactoryAPI(title="SABRE", version=__version__, lifespan=lifespan)
+    application = FactoryAPI(title="SABRE", version=__version__, lifespan=lifespan, telemetry=TELEMETRY_OFF)
     application.state.service, application.state.config = service, config
 
     def panels():

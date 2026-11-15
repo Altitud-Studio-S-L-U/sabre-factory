@@ -23,6 +23,7 @@ from sabre.codex_model import (
     InvocationResponse,
     read_bridge_token,
 )
+from sabre.framework import TELEMETRY_OFF
 from sabre.models import DomainError
 from sabre.settings import reject_secret_environment
 
@@ -270,7 +271,7 @@ def create_app(runner: CodexRunner | None = None, token_file: Path = TOKEN_FILE)
     reject_secret_environment()
     token = read_bridge_token(token_file)
     selected = runner or CodexRunner()
-    app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+    app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None, telemetry=TELEMETRY_OFF)
 
     @app.exception_handler(DomainError)
     async def domain_error(request, error):
