@@ -18,7 +18,10 @@ if not re.search(r'^ID=ubuntu$', release, re.M) or not re.search(r'^VERSION_ID="
 
 sources = [Path('/etc/apt/sources.list'), *Path('/etc/apt/sources.list.d').glob('*.sources'),
            *Path('/etc/apt/sources.list.d').glob('*.list')]
-archive = re.compile(r'https?://(?:[a-z0-9-]+\.)*archive\.ubuntu\.com/ubuntu/?(?=\s|$)')
+archive = re.compile(
+    r'(?:https?://(?:[a-z0-9-]+\.)*archive\.ubuntu\.com/ubuntu/?'
+    r'|mirror\+file:/etc/apt/apt-mirrors\.txt)(?=\s|$)'
+)
 changed = 0
 for path in sources:
     if not path.exists():
