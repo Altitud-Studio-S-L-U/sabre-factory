@@ -8,6 +8,19 @@ SABRE runs on your machine with your credentials. LangGraph owns recoverable exe
 
 Experimental and unreleased. What is tested is the control plane: durable and resumable runs, budgets with reserves, the command sandbox, security gates, owner confirmations, and the console, which a browser suite exercises against the real API. What is not proven is the work itself: no run with a real model has delivered a pull request, and the GitHub connection has only met a synthetic GitHub. Only Windows with Docker Desktop has been exercised. [The roadmap](docs/roadmap.md) lists every gap and the bar for a public release, and [the threat model](docs/threat-model.md) says what is defended and what is not.
 
+## Console
+
+The console rendered with example data from its browser fixtures. Run outcomes and usage shown here are synthetic, not live-model delivery results.
+
+![Runs console showing example work, status, progress and token usage](docs/images/console-runs.png)
+
+<details>
+<summary>Agents and the production line</summary>
+
+![Agents console showing workflow stages and the versioned specialist team](docs/images/console-agents.png)
+
+</details>
+
 ## Start
 
 Use the complete source checkout or the source archive attached to a GitHub release. The Python wheel contains only the backend: it has no `sabre` command, panel, Compose services or bootstrap provisioning. `pip install sabre-factory` is not an installation of the product, and PyPI is not a distribution target for this first version.
