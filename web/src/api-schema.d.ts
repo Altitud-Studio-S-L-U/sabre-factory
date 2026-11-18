@@ -3705,13 +3705,13 @@ export interface components {
         "FlowPhase-Input": {
             model?: components["schemas"]["ModelSelection-Input"] | null;
             /** Skills */
-            skills?: ("engineering" | "verification" | "review" | "security")[];
+            skills?: ("engineering" | "verification" | "review" | "security" | "requirements" | "product_design" | "delivery")[];
         };
         /** FlowPhase */
         "FlowPhase-Output": {
             model: components["schemas"]["ModelSelection-Output"] | null;
             /** Skills */
-            skills: ("engineering" | "verification" | "review" | "security")[];
+            skills: ("engineering" | "verification" | "review" | "security" | "requirements" | "product_design" | "delivery")[];
         };
         /** FlowYamlRequest */
         FlowYamlRequest: {
@@ -6344,7 +6344,7 @@ export interface components {
              * Name
              * @enum {string}
              */
-            name: "engineering" | "verification" | "review" | "security";
+            name: "engineering" | "verification" | "review" | "security" | "requirements" | "product_design" | "delivery";
             /** Digest */
             digest: string;
         };

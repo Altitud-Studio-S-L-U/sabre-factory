@@ -13,16 +13,16 @@
         "qa": 1,
         "reviewer": 2
       },
-      "estimated_tokens": 30319,
-      "estimated_input_tokens": 29883,
+      "estimated_tokens": 30609,
+      "estimated_input_tokens": 30173,
       "estimated_tokens_by_role": {
         "analyst": 22034,
-        "qa": 2444,
-        "reviewer": 5841
+        "qa": 2438,
+        "reviewer": 6137
       },
-      "reserved_tokens": 119247,
-      "tokens_per_call": 4331,
-      "sent_bytes": 190593,
+      "reserved_tokens": 119727,
+      "tokens_per_call": 4373,
+      "sent_bytes": 191792,
       "sent_bytes_max": 46951,
       "tool_calls": {
         "list_files": 1,
@@ -64,16 +64,16 @@
         "qa": 1,
         "reviewer": 2
       },
-      "estimated_tokens": 97492,
-      "estimated_input_tokens": 96608,
+      "estimated_tokens": 97780,
+      "estimated_input_tokens": 96896,
       "estimated_tokens_by_role": {
         "analyst": 89208,
-        "qa": 2443,
-        "reviewer": 5841
+        "qa": 2437,
+        "reviewer": 6135
       },
-      "reserved_tokens": 285779,
-      "tokens_per_call": 7499,
-      "sent_bytes": 514753,
+      "reserved_tokens": 286259,
+      "tokens_per_call": 7522,
+      "sent_bytes": 515952,
       "sent_bytes_max": 56937,
       "tool_calls": {
         "list_files": 1,
@@ -116,16 +116,16 @@
         "qa": 1,
         "reviewer": 2
       },
-      "estimated_tokens": 9733,
-      "estimated_input_tokens": 9421,
+      "estimated_tokens": 10021,
+      "estimated_input_tokens": 9709,
       "estimated_tokens_by_role": {
         "analyst": 4335,
-        "qa": 1680,
-        "reviewer": 3718
+        "qa": 1674,
+        "reviewer": 4012
       },
-      "reserved_tokens": 66324,
-      "tokens_per_call": 1947,
-      "sent_bytes": 89004,
+      "reserved_tokens": 66802,
+      "tokens_per_call": 2004,
+      "sent_bytes": 90199,
       "sent_bytes_max": 19758,
       "tool_calls": {
         "list_files": 1,
@@ -137,7 +137,7 @@
       "recovery_ratio": 0,
       "prefix_turns": 2,
       "prefix_batch_turns": 0,
-      "prefix_min_share_without_batch": 0.9998,
+      "prefix_min_share_without_batch": 0.9999,
       "work_notes": 0,
       "stages": [
         "intake",
@@ -169,18 +169,18 @@
         "reviewer": 2,
         "supervisor": 1
       },
-      "estimated_tokens": 21288,
-      "estimated_input_tokens": 20582,
+      "estimated_tokens": 21577,
+      "estimated_input_tokens": 20871,
       "estimated_tokens_by_role": {
         "analyst": 3936,
         "developer": 9436,
-        "qa": 1801,
-        "reviewer": 3989,
+        "qa": 1796,
+        "reviewer": 4283,
         "supervisor": 2126
       },
-      "reserved_tokens": 144248,
-      "tokens_per_call": 2129,
-      "sent_bytes": 207008,
+      "reserved_tokens": 144726,
+      "tokens_per_call": 2158,
+      "sent_bytes": 208203,
       "sent_bytes_max": 26469,
       "tool_calls": {
         "execute": 1,
@@ -231,18 +231,18 @@
         "reviewer": 2,
         "supervisor": 1
       },
-      "estimated_tokens": 35588,
-      "estimated_input_tokens": 34493,
+      "estimated_tokens": 35877,
+      "estimated_input_tokens": 34782,
       "estimated_tokens_by_role": {
         "analyst": 3936,
         "developer": 23740,
-        "qa": 1801,
-        "reviewer": 3985,
+        "qa": 1796,
+        "reviewer": 4279,
         "supervisor": 2126
       },
-      "reserved_tokens": 228791,
-      "tokens_per_call": 2373,
-      "sent_bytes": 341560,
+      "reserved_tokens": 229269,
+      "tokens_per_call": 2392,
+      "sent_bytes": 342755,
       "sent_bytes_max": 29181,
       "tool_calls": {
         "execute": 2,
@@ -295,18 +295,18 @@
         "reviewer": 2,
         "supervisor": 1
       },
-      "estimated_tokens": 21341,
-      "estimated_input_tokens": 20631,
+      "estimated_tokens": 21629,
+      "estimated_input_tokens": 20919,
       "estimated_tokens_by_role": {
         "analyst": 4185,
         "developer": 9315,
-        "qa": 1787,
-        "reviewer": 3942,
+        "qa": 1781,
+        "reviewer": 4236,
         "supervisor": 2112
       },
-      "reserved_tokens": 144313,
-      "tokens_per_call": 2134,
-      "sent_bytes": 207170,
+      "reserved_tokens": 144791,
+      "tokens_per_call": 2163,
+      "sent_bytes": 208365,
       "sent_bytes_max": 26329,
       "tool_calls": {
         "execute": 1,
@@ -350,17 +350,17 @@
     "tasks": 6,
     "passed": 6,
     "calls": 60,
-    "estimated_tokens": 215761,
-    "tokens_per_call": 3596,
+    "estimated_tokens": 217493,
+    "tokens_per_call": 3625,
     "tool_failures": 0,
     "recovery_ratio": 0.0526,
     "rewritten_turn_share": 0.1714,
     "token_share_by_role": {
-      "analyst": 0.5916,
-      "developer": 0.1969,
-      "qa": 0.0554,
-      "reviewer": 0.1266,
-      "supervisor": 0.0295
+      "analyst": 0.5868,
+      "developer": 0.1954,
+      "qa": 0.0548,
+      "reviewer": 0.1337,
+      "supervisor": 0.0293
     }
   },
   "suite_digest": "e340fc868da4a4df2b2a17f9c932e8b365e65983310a69aa628db43005ef215b"

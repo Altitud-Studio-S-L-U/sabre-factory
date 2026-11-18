@@ -85,7 +85,7 @@ async def test_agent_or_scanner_cannot_forge_an_exception_identifier(monkeypatch
     monkeypatch.setattr("sabre.security.now", lambda: MOMENT)
     forged = finding().model_copy(update={"exception_id": "fabricated"})
 
-    async def analyst(work_id, findings):
+    async def analyst(work_id, findings, collection):
         return [finding(fingerprint="agent").model_copy(update={"exception_id": "fabricated"})]
 
     report = await SecurityService(Scanner([forged]), analyst=analyst).review("work", "a" * 64, [])
@@ -97,7 +97,7 @@ async def test_expiry_during_analyst_review_fails_closed(monkeypatch):
     moment = MOMENT
     monkeypatch.setattr("sabre.security.now", lambda: moment)
 
-    async def analyst(work_id, findings):
+    async def analyst(work_id, findings, collection):
         nonlocal moment
         moment += timedelta(days=2)
         return []
@@ -114,7 +114,7 @@ async def test_registered_role_key_is_blocked_before_finding_checkpoint(source):
     saver = InMemorySaver()
     scanner = Scanner([unsafe] if source == "scanner" else [])
 
-    async def analyst(work_id, findings):
+    async def analyst(work_id, findings, collection):
         return [unsafe]
 
     service = SecurityService(scanner, saver, analyst=analyst if source == "analyst" else None, guard=SecretGuard([secret]))

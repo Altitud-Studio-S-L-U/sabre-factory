@@ -164,6 +164,46 @@ def test_protocol_rejects_unsupported_incomplete_or_invalid_events(mutator):
     assert "sensitive" not in str(error.value)
 
 
+def test_protocol_diagnostics_name_the_failed_contract_without_event_content(capsys):
+    lines = [json.loads(line) for line in events().splitlines()]
+    lines[2]["item"]["text"] = "synthetic-private-event-content"
+    with pytest.raises(DomainError):
+        codex_runner.parse_events(b"\n".join(json.dumps(line).encode() for line in lines))
+    diagnostic = capsys.readouterr().err
+    # Only completion establishes that ordinary commentary was not followed by a structured answer.
+    assert json.loads(diagnostic)["kind"] == "assistant_envelope.json_invalid.turn.completed.unknown"
+    assert "synthetic-private-event-content" not in diagnostic
+
+
+def test_cli_commentary_before_its_structured_final_message_is_not_the_result():
+    lines = events().splitlines()
+    lines.insert(2, b'{"type":"item.completed","item":{"type":"agent_message","text":"Checking the registered verification evidence."}}')
+    assert codex_runner.parse_events(b"\n".join(lines)) == codex_runner.parse_events(events())
+
+
+@pytest.mark.parametrize("intermediate", [
+    {"type": "item.started", "item": {"type": "command_execution", "command": "synthetic-private-command"}},
+    {"type": "item.completed", "item": {"type": "file_change", "changes": []}},
+])
+def test_commentary_does_not_allow_native_actions_before_a_valid_final_message(intermediate):
+    lines = events().splitlines()
+    lines[2:2] = [
+        b'{"type":"item.completed","item":{"type":"agent_message","text":"Checking evidence."}}',
+        json.dumps(intermediate).encode(),
+    ]
+    with pytest.raises(DomainError) as error:
+        codex_runner.parse_events(b"\n".join(lines))
+    assert error.value.code == "CODEX_PROTOCOL_INVALID"
+
+
+def test_two_structured_answers_are_still_ambiguous():
+    lines = events().splitlines()
+    lines.insert(2, lines[2])
+    with pytest.raises(DomainError) as error:
+        codex_runner.parse_events(b"\n".join(lines))
+    assert error.value.code == "CODEX_PROTOCOL_INVALID"
+
+
 def test_a_turn_the_cli_completed_after_reconnecting_is_an_answer():
     lines = [json.loads(line) for line in events().splitlines()]
     note = {"type": "error", "message": "Reconnecting... 1/5 (unexpected status 503 Service Unavailable: sensitive, url: http://provider.invalid)"}

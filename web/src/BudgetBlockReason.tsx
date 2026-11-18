@@ -7,10 +7,12 @@ const explanation = 'max-w-[90ch] text-xs leading-relaxed text-muted-foreground'
 export default function BudgetBlockReason({
   denial,
   closed = false,
+  authorizationUpdated = false,
 }: {
   denial: NonNullable<BudgetView['denial']>;
   /** The run has closed: the denial is retained history, not the current stop reason. */
   closed?: boolean;
+  authorizationUpdated?: boolean;
 }) {
   const names: Record<string, string> = {
     tokens: 'Tokens',
@@ -20,7 +22,11 @@ export default function BudgetBlockReason({
     api_spend: 'Run API spend · USD',
     factory_spend: 'Factory API spend · USD',
   };
-  const closedNote = closed ? ' Recorded before the run closed; no budget decision is pending.' : '';
+  const closedNote = closed
+    ? ' Recorded before the run closed; no budget decision is pending.'
+    : authorizationUpdated
+      ? ' The saved authorization covers this recorded requirement. Resume will recheck current controls.'
+      : '';
   if (denial.basis === 'historical_unknown')
     return (
       <section className={frame} aria-label="Recorded budget block">
@@ -34,7 +40,7 @@ export default function BudgetBlockReason({
     );
   const heading =
     denial.basis === 'next_reservation'
-      ? closed
+      ? closed || authorizationUpdated
         ? 'Next step did not fit'
         : 'Next step does not fit'
       : 'Allowance already consumed or reserved';

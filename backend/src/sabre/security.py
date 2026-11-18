@@ -353,6 +353,16 @@ class SecurityReport(Contract):
     exception_ids: list[str] = Field(default_factory=list)
 
 
+class SecurityCollection(TypedDict):
+    """Completed collection is evidence of execution, not a security clearance."""
+
+    status: Literal["completed"]
+    snapshot_digest: str
+    rules_version: str
+    finding_count: int
+    scanner_errors: int
+
+
 class SecurityState(TypedDict):
     work_id: str
     snapshot_digest: str
@@ -428,7 +438,11 @@ class SecurityService:
             return {}
         await self._assert_current(state)
         original = [item.model_copy(deep=True) for item in state["findings"]]
-        additions = await self.analyst(state["work_id"], [item.model_copy(deep=True) for item in original])
+        collection = SecurityCollection(status="completed", snapshot_digest=state["snapshot_digest"],
+            rules_version=state["rules_version"], finding_count=len(original),
+            scanner_errors=sum(item.category == "scanner_error" for item in original))
+        self.guard.check(collection)
+        additions = await self.analyst(state["work_id"], [item.model_copy(deep=True) for item in original], collection)
         await self._assert_current(state)
         fingerprints = {item.fingerprint for item in original}
         for addition in additions:

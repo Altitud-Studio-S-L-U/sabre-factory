@@ -11,6 +11,9 @@ PINNED = {
     "verification": ("5452742a0843efad6a5088f9f1e330580e42ee209ebc26996935ff5a4d627610", {"qa", "developer"}),
     "review": ("ae878469e96b2596fb15a0274a1bc02a5c358ceeb6cf40870049af7ab8e85f63", {"reviewer"}),
     "security": ("439356fbceb13fefe658d69104cdb2a4dea99c992dcf24224a7653d2e1981407", {"security"}),
+    "requirements": ("15c4ddae8f219cb4e49e73d768d1310ce57099e5dc285387a349a3f51b989a3f", {"analyst"}),
+    "product_design": ("ab63f5d2b5103f4e5c1f9c58f41680f53243a087bc26254a80e12831c23fd29f", {"designer", "architect"}),
+    "delivery": ("33042f33c98135c16f3fc16611ca1a98b386c361edbc5766d53b38df40a09515", {"devops", "qa"}),
 }
 
 

@@ -16,7 +16,7 @@ async def test_nested_security_graph_sanitizes_failures_before_its_own_checkpoin
                 raise RuntimeError(SECRET)
             return []
 
-    async def analyst(work_id, findings):
+    async def analyst(work_id, findings, collection):
         if boundary == "analyst":
             raise RuntimeError(SECRET)
         return []

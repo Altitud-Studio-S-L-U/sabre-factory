@@ -11,7 +11,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-ROLES = frozenset({"analyst", "architect", "supervisor", "developer", "qa", "reviewer", "security"})
+ROLES = frozenset({"analyst", "architect", "supervisor", "developer", "qa", "reviewer", "security", "designer", "devops"})
 MAX_INSTRUCTION = 4000
 
 

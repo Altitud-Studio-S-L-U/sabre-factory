@@ -1,12 +1,12 @@
 import type { AgentCatalog, AgentCatalogEntry, AgentDefinition } from '../api';
 
 const skillDefaults: Record<AgentDefinition['id'], AgentDefinition['skills'][number]['name'][]> = {
-  pm: ['engineering'],
-  designer: [],
+  pm: ['engineering', 'requirements'],
+  designer: ['product_design'],
   developer: ['engineering', 'verification'],
   qa: ['verification'],
   manager: ['engineering', 'review'],
-  devops: [],
+  devops: ['delivery'],
   ciso: ['security'],
 };
 

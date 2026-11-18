@@ -89,6 +89,28 @@ async def test_failed_gate_skips_model_qa_and_feeds_a_bounded_repair(build_facto
     assert feedback[0]["failed_checks"][0]["output_tail"] == "Behavioral check result"
     assert "deterministic gates failed" in feedback[0]["qa"]
 
+async def test_review_receives_the_measured_gate_evidence(build_factory):  # noqa: F811
+    factory, repo, team, executor, *_ = build_factory()
+    seen = []
+    run = team.run
+
+    async def record(role, work, project, instruction, **kwargs):
+        if role == "reviewer":
+            seen.append((executor.gate_calls, kwargs["task_context"].get("evidence")))
+        return await run(role, work, project, instruction, **kwargs)
+
+    team.run = record
+    result = await factory.drive(repo.current.id)
+    assert result.status == Status.COMPLETED
+    gate_calls, evidence = seen[0]
+    assert gate_calls == 1
+    assert evidence["kind"] == "deterministic_gate_results"
+    gate = evidence["results"][0]
+    assert gate["exit_code"] == 0 and gate["output_tail"] == "Behavioral check result"
+    assert factory.artifacts.get(gate["output_digest"]).decode() == gate["output_tail"]
+    assert result.evidence is not None and result.evidence.snapshot_digest == evidence["snapshot_digest"]
+
+
 def test_repair_feedback_lists_only_blocking_findings_and_stays_bounded():
     findings = [{"fingerprint": f"f{index}", "scanner": "semgrep", "category": "code", "severity": "high", "title": "t" * 400,
                  "path": "app.py", "line": index + 1, "remediation": "r" * 3000, "baseline": False, "exception_id": None,
