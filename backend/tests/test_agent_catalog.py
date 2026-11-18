@@ -6,7 +6,13 @@ from langchain_core.messages import AIMessage
 from pydantic import ValidationError
 
 from sabre.agent_catalog import ROLE_ADAPTERS, SPECIALISTS, baseline, definition_errors
-from sabre.agent_contracts import AgentDefinition, AgentDefinitionSnapshot, ChainDefinition, StepResult
+from sabre.agent_contracts import (
+    AgentDefinition,
+    AgentDefinitionSnapshot,
+    ChainDefinition,
+    SkillReference,
+    StepResult,
+)
 from sabre.agents import AgentTeam
 from sabre.artifacts import ArtifactStore
 from sabre.audit import public_id
@@ -16,10 +22,11 @@ from sabre.flow_contracts import ResolvedFlow, ResolvedPhase
 from sabre.model_selection import ModelSelection
 from sabre.models import AgentResult, Budget, DomainError, Project, Task, WorkOrder
 from sabre.operator_contracts import OperatorContext
-from sabre.phase_results import ImplementationResult
+from sabre.phase_results import AnalysisResult, ImplementationResult
 from sabre.repository import digest
 from sabre.security import SecretGuard
 from sabre.settings import Settings
+from sabre.skills import SKILLS
 from sabre.supervisor import SupervisorConversation
 from sabre.tools import ToolCatalog, ToolDefinition, ToolPolicy
 
@@ -150,6 +157,44 @@ async def test_actual_agent_uses_pinned_instructions_and_tool_intersection(monke
     assert captured["middleware"][0].context_archive is None  # The pinned allowlist omitted recovery.
     recorded = [call.args[0] for call in repository.record_execution_event.await_args_list]
     assert all(event.agent_id == public_id(captured["middleware"][0].child_id) for event in recorded)
+
+
+async def test_pm_receives_its_requirements_method_and_registered_checks_without_execution_authority(monkeypatch):
+    definition = baseline("pm")
+    model = ModelSelection(provider="codex_cli", name="test", destination="http://codex-runner:8091")
+    binding = ResolvedPhase(role="analyst", model=model, credential_target=None,
+        skills={skill.name: skill.digest for skill in definition.skills},
+        definition=AgentDefinitionSnapshot(version=1, digest=digest(definition.model_dump(mode="json")), definition=definition))
+    work = WorkOrder(project_id="p", mode="audit", objective="Inspect the parser", acceptance=["Report actual registered test results"], budget=Budget(max_cost_usd=0), idempotency_key="pm-method-test")
+    work.resolved_flow = ResolvedFlow(model_revision=0, phases={"analysis": binding}, configuration_digest="0" * 64)
+    captured = {}
+    invoke = AsyncMock(return_value={"structured_response": AnalysisResult(version=1, status="completed",
+        summary="Requirements ready for deterministic verification", questions=[], evidence=["src/parser.py"],
+        decisions=["The registered test command will provide the measured result during verification."])})
+
+    def create(**kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(ainvoke=invoke)
+
+    monkeypatch.setattr("sabre.agents.create_agent", create)
+    cfg = Settings(database_url="postgresql://unused", auth_token="synthetic-test-token-000000", executor_token="synthetic-executor-token-000", model_provider="codex_cli")
+    project = Project(id="p", name="Project", repository="https://github.com/test/project", profile="python", gate_commands=[["python", "-m", "unittest"]])
+    team = AgentTeam(cfg, SimpleNamespace(record_execution_event=AsyncMock()), None, SecretGuard(), model_factory=lambda: object())
+    result = await team.run("analyst", work, project, "Inspect requirements")
+    assert result.accepted and invoke.await_count == 1
+    assert SKILLS["requirements"].instruction in captured["system_prompt"]
+    assert captured["response_format"] is AnalysisResult
+    assert "execute" not in {tool.name for tool in captured["tools"]}
+    assert "write_file" not in {tool.name for tool in captured["tools"]}
+    initial = invoke.await_args.args[0]["messages"][0].content
+    assert definition.chains[0].steps[0].instructions in initial
+    assert '"gate_commands": [["python", "-m", "unittest"]]' in initial
+
+
+def test_requirements_skill_cannot_be_attached_to_an_unrelated_specialist():
+    qa = baseline("qa")
+    qa.skills.append(SkillReference(name="requirements", digest=SKILLS["requirements"].digest))
+    assert "Skill requirements does not apply to this specialist" in definition_errors(qa)
 
 
 async def test_designer_and_devops_are_invoked_by_existing_graph_stages(build_factory):

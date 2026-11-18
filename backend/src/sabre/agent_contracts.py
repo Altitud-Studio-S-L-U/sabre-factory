@@ -9,7 +9,7 @@ from sabre.model_selection import ModelSelection
 from sabre.phase_results import AnalysisResult, ImplementationResult, PlanningResult, ReviewResult
 
 AgentId = Literal["pm", "designer", "developer", "qa", "manager", "devops", "ciso"]
-SkillName = Literal["engineering", "verification", "review", "security"]
+SkillName = Literal["engineering", "verification", "review", "security", "requirements", "product_design", "delivery"]
 Capability = Literal["requirements", "design", "architecture", "planning", "implementation", "verification", "review", "delivery", "security"]
 Identifier = Annotated[str, Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9._:/-]+$")]
 Digest = Annotated[str, Field(pattern=r"^[a-f0-9]{64}$")]

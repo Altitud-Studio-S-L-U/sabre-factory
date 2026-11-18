@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import Field, model_validator
 
-from sabre.agent_contracts import AgentDefinitionSnapshot
+from sabre.agent_contracts import AgentDefinitionSnapshot, SkillName
 from sabre.budget_contracts import BudgetPolicy
 from sabre.contracts import StrictContract
 from sabre.model_selection import ModelSelection
@@ -18,7 +18,7 @@ FLOW_VERSION: Literal["sabre-factory-v1"] = "sabre-factory-v1"
 
 class FlowPhase(StrictContract):
     model: ModelSelection | None = None
-    skills: list[Literal["engineering", "verification", "review", "security"]] = Field(default_factory=list, max_length=4)
+    skills: list[SkillName] = Field(default_factory=list, max_length=4)
 
 
 class FlowPermissions(StrictContract):
