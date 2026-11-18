@@ -8,7 +8,7 @@ The control plane is the strong part. Execution is durable and resumable, contra
 
 The part that delivers changes is unproven. No run with a real model has delivered a pull request. The audit measured before the November 14 reset needed three harness fixes, spent 43% of its tool calls recovering text it had already read, and read 5.5% of its input from cache. A later read-only Python audit completed with measured passing tests and independent QA, review and security stages. That proves one audit path, not an implementation success rate, context-economy improvement or delivery through GitHub. Implementation, repair, delivery, releases, model visual review and A2A still have synthetic evidence only.
 
-So it is not yet ready to show as a factory that delivers verified pull requests. It is ready when the bar below is met.
+So it is not yet ready to show as a factory that delivers verified pull requests. The bar below defines that outcome and a stable release. The initial 0.1.0 experimental source preview can share the code under [spec 09](specs/09-validation.md), with Windows-only local evidence and the missing platforms, change delivery and other interfaces explicitly identified. Publishing that preview does not close these gaps or establish model quality or efficiency.
 
 The instance was reset on 2026-11-14 at the owner's request: every project, run and record from that test period was removed, so the earlier recovery/cache figures describe a run that no longer exists on it. Subsequent release evidence is retained separately in the candidate and PR. These audits used the Codex CLI; the default provider is the Claude CLI.
 

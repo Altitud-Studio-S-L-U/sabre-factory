@@ -6,7 +6,9 @@ SABRE runs on your machine with your credentials. LangGraph owns recoverable exe
 
 ## Status
 
-Experimental and unreleased. What is tested is the control plane: durable and resumable runs, budgets with reserves, the command sandbox, security gates, owner confirmations, and the console, which a browser suite exercises against the real API. What is not proven is the work itself: no run with a real model has delivered a pull request, and the GitHub connection has only met a synthetic GitHub. Only Windows with Docker Desktop has been exercised. [The roadmap](docs/roadmap.md) lists every gap and the bar for a public release, and [the threat model](docs/threat-model.md) says what is defended and what is not.
+Experimental source preview 0.1.0. The tested scope is the control plane: durable and resumable runs, budgets with reserves, the command sandbox, security gates, owner confirmations, and the console, which a browser suite exercises against the real API. A real-model read-only Python audit has completed with measured passing tests. No run with a real model has delivered a pull request, and the GitHub connection has only met a synthetic GitHub. Local installation and recovery evidence is limited to Windows 11 x64 with Docker Desktop.
+
+This preview shares the complete source with those limits explicit; it does not establish production readiness or broader host support. [The roadmap](docs/roadmap.md) lists the remaining work and stable-release bar, [the threat model](docs/threat-model.md) describes trust boundaries, and [the operations guide](docs/operations.md#candidate-distribution) explains candidate evidence and image-advisory review.
 
 ## Console
 
@@ -104,7 +106,7 @@ node bin/sabre.mjs build api && node infra/qa.mjs up && node infra/qa.mjs check;
 
 Backend checks run in pinned containers. `pnpm test:browser` answers every request from a mock; `node infra/qa.mjs check` runs the console against the real API and a real PostgreSQL on an isolated fixture, without a model provider. PostgreSQL integration and recovery checks require the isolated development network; see the operations guide. Dependency updates retain a seven-day release-age policy. Required checks must pass against the exact candidate commit.
 
-The target host matrix is Windows 11 x64, Linux x64/arm64, and macOS Intel/Apple Silicon. These are validation targets, not a claim of support. Windows with Docker Desktop has local evidence; full installation, real-provider execution, restart and restore on Linux x64, Linux arm64, macOS Intel and macOS Apple Silicon remain pending. Images target Linux amd64/arm64. An image build, Linux container on Windows or launcher test alone does not establish full host compatibility. A public release requires installation, execution, restart and restore evidence on every advertised host; that validation is not yet complete.
+The target host matrix is Windows 11 x64, Linux x64/arm64, and macOS Intel/Apple Silicon. These are validation targets, not a claim of support. Windows with Docker Desktop has local evidence; full installation, real-provider execution, restart and restore on Linux x64, Linux arm64, macOS Intel and macOS Apple Silicon remain pending. Images target Linux amd64/arm64. An image build, Linux container on Windows or launcher test alone does not establish full host compatibility. The experimental source preview keeps these gaps visible. Broader host claims or a stable release require installation, execution, restart and restore evidence on every advertised host, plus the end-to-end scenarios in the [validation gate](docs/specs/09-validation.md).
 
 ## License and inspiration
 
