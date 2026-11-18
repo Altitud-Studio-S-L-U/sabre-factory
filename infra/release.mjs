@@ -33,6 +33,19 @@ export function webInventory(licenses, version) {
     metadata: { component: { type: 'application', name: 'sabre-factory-web', version } }, components };
 }
 
+export function backendInventory(inventory, distributions) {
+  const normalize = (name) => name.toLowerCase().replace(/[-_.]+/g, '-');
+  const installed = new Map(distributions.map((item) => [`${normalize(item.name)}@${item.version}`, item]));
+  return { ...inventory, components: inventory.components.map((component) => {
+    const item = installed.get(`${normalize(component.name)}@${component.version}`);
+    const licenses = item?.expression ? [{ expression: item.expression }]
+      : (item?.names ?? []).map((name) => ({ license: { name } }));
+    return { ...component, ...(licenses.length ? { licenses } : {
+      properties: [...(component.properties ?? []), { name: 'sabre:license-review', value: 'metadata unavailable on this platform' }],
+    }) };
+  }) };
+}
+
 async function main() {
   if (command('git', ['status', '--porcelain']).trim()) throw new Error('Commit the reviewed candidate before preparing release artifacts.');
   const commit = command('git', ['rev-parse', 'HEAD']).trim();
@@ -50,7 +63,15 @@ async function main() {
   const imageLock = command('docker', ['run', '--rm', '--network', 'none', 'sabre-factory-dev:local', 'cat', '/app/uv.lock'], true);
   if (!lock.equals(imageLock)) throw new Error('Rebuild the development image from this candidate lockfile.');
   const python = command('docker', ['run', '--rm', '--network', 'none', 'sabre-factory-dev:local', 'uv', 'export', '--frozen', '--no-dev', '--no-emit-project', '--format', 'cyclonedx1.5']);
-  artifacts.set('backend.cdx.json', JSON.stringify(JSON.parse(python), null, 2) + '\n');
+  const licenseProgram = `import importlib.metadata as m,json
+def names(d):
+ classifiers=[c.removeprefix('License :: ') for c in d.metadata.get_all('Classifier',[]) if c.startswith('License :: ')]
+ declared=(d.metadata.get('License') or '').strip().splitlines()
+ return classifiers or declared[:1]
+print(json.dumps([{'name':d.metadata['Name'],'version':d.version,'expression':d.metadata.get('License-Expression'),'names':names(d)} for d in m.distributions()]))`;
+  const distributions = JSON.parse(command('docker', ['run', '--rm', '--network', 'none', 'sabre-factory-dev:local',
+    'uv', 'run', '--no-sync', 'python', '-I', '-c', licenseProgram]));
+  artifacts.set('backend.cdx.json', JSON.stringify(backendInventory(JSON.parse(python), distributions), null, 2) + '\n');
   const licenses = JSON.parse(await readFile(resolve(root, 'work/web-licenses.json'), 'utf8'));
   artifacts.set('web.cdx.json', JSON.stringify(webInventory(licenses, version), null, 2) + '\n');
   artifacts.set('source.json', JSON.stringify({ version: 1, repository: 'https://github.com/Altitud-Studio-S-L-U/sabre-factory', commit, package_version: version }, null, 2) + '\n');
