@@ -1,7 +1,8 @@
 FROM node:24.22.2-bookworm-slim@sha256:c86ecead9e55a5210ac1727de38a4ca840bf03dcaf34dc9749addbf383b1920c
 COPY infra/apt-security.sh /tmp/apt-security.sh
 RUN sh /tmp/apt-security.sh && rm /tmp/apt-security.sh
-RUN npm install --global --ignore-scripts pnpm@11.19.0 && pnpm --version && \
+RUN npm install --global --ignore-scripts npm@11.21.3 && \
+    npm install --global --ignore-scripts pnpm@11.19.0 && pnpm --version && \
     mkdir /workspace && chown 10001:10001 /workspace
 ENV HOME=/tmp PNPM_HOME=/tmp/pnpm npm_config_cache=/tmp/npm-cache
 WORKDIR /workspace
