@@ -670,7 +670,7 @@ class Factory:
         work = await self.begin(state, "review")
         if any(g["exit_code"] for g in state["gates"]):
             return await self.finish(work, review="Verification did not pass", review_ok=False)
-        result = await self.role("reviewer", work, await self.repository.project(work.project_id), "Inspect the actual files and acceptance criteria independently, using the deterministic gate results in task_context.evidence. Approve only when the implementation satisfies them.",
+        result = await self.role("reviewer", work, await self.repository.project(work.project_id), "Inspect actual files and acceptance independently, using task_context.evidence. Approve only when the acceptance criteria are met.",
                                  state=state, evidence=state.get("gate_evidence"))
         if result.questions:
             work.questions += [HumanQuestion(work_id=work.id, plan_revision=work.plan_revision, prompt=q, kind="clarification") for q in result.questions]
