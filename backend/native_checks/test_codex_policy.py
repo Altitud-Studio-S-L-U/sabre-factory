@@ -135,18 +135,21 @@ def synthetic_provider(requests: list, answer=None):
                 self.wfile.write(payload)
                 return
             base = {"id": f"resp_synthetic_{number}", "object": "response"}
+            items = item if isinstance(item, list) else [item]
             events = [
                 ("response.created", {"type": "response.created", "response": {**base, "status": "in_progress", "output": []}}),
-                ("response.output_item.added", {"type": "response.output_item.added", "output_index": 0, "item": {**item, "status": "in_progress", "content": []}}),
             ]
-            if item["type"] == "message":
-                events.append(("response.output_text.delta", {"type": "response.output_text.delta", "item_id": item["id"], "output_index": 0, "content_index": 0,
-                                                              "delta": item["content"][0]["text"]}))
+            for index, output in enumerate(items):
+                events.append(("response.output_item.added", {"type": "response.output_item.added", "output_index": index,
+                                                             "item": {**output, "status": "in_progress", "content": []}}))
+                if output["type"] == "message":
+                    events.append(("response.output_text.delta", {"type": "response.output_text.delta", "item_id": output["id"],
+                                                                  "output_index": index, "content_index": 0, "delta": output["content"][0]["text"]}))
+                events.append(("response.output_item.done", {"type": "response.output_item.done", "output_index": index, "item": output}))
             usage = {"input_tokens": 100, "output_tokens": 20, "total_tokens": 120, "input_tokens_details": {"cached_tokens": 0},
                      "output_tokens_details": {"reasoning_tokens": 0}}
             events.extend([
-                ("response.output_item.done", {"type": "response.output_item.done", "output_index": 0, "item": item}),
-                ("response.completed", {"type": "response.completed", "response": {**base, "status": "completed", "output": [item], "usage": usage}}),
+                ("response.completed", {"type": "response.completed", "response": {**base, "status": "completed", "output": items, "usage": usage}}),
             ])
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
@@ -242,6 +245,20 @@ class Fixture:
         assert "SYNTHETIC_PRIVATE_BRIDGE_CANARY" not in json.dumps(requests)
         assert self.public_text.read_text() == "SYNTHETIC_PUBLIC_MATERIAL\n"
         assert all("data:image/" not in json.dumps(request.get("input")) for request in requests)
+
+
+async def test_pinned_cli_commentary_precedes_its_structured_final_answer(tmp_path):
+    fixture = Fixture(tmp_path)
+    commentary = {**final_message(), "id": "msg_commentary", "phase": "commentary",
+                  "content": [{"type": "output_text", "text": "Checking the registered verification evidence.", "annotations": []}]}
+    final = {**final_message(), "phase": "final_answer"}
+    code, raw, requests = await fixture.run(CODE_TOOL_MODEL, lambda _: [commentary, final])
+    assert code == 0
+    messages = [event["item"] for line in raw.splitlines() if (event := json.loads(line)).get("type") == "item.completed"
+                and event.get("item", {}).get("type") == "agent_message"]
+    assert len(messages) == 2 and messages[0]["text"] == commentary["content"][0]["text"]
+    assert turn_result(code, raw).result == AssistantEnvelope(content="synthetic completed", tool_calls=[])
+    fixture.untouched(requests)
 
 
 @pytest.mark.parametrize("attack", ["image", "shell", "patch", "workspace_write", "patch_read", "bridge_read", "public_read_control"])

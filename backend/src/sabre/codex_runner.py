@@ -255,6 +255,7 @@ def parse_events(raw: bytes) -> InvocationResponse:
     turn_started = False
     reason = "event_json"
     event = None
+    envelope_error: ValidationError | None = None
     try:
         for line in raw.splitlines():
             reason = "event_json"
@@ -284,8 +285,19 @@ def parse_events(raw: bytes) -> InvocationResponse:
                     if item.get("type") != "agent_message":
                         raise ValueError
                     reason = "assistant_envelope"
-                    final = AssistantEnvelope.model_validate_json(item["text"])
+                    if not isinstance(item.get("text"), str):
+                        raise ValueError
+                    # The pinned CLI emits commentary and the structured final answer with the
+                    # same item type. Commentary grants nothing; exactly one final envelope is required.
+                    try:
+                        final = AssistantEnvelope.model_validate_json(item["text"])
+                        envelope_error = None
+                    except ValidationError as failure:
+                        envelope_error = failure
                 case "turn.completed":
+                    if final is None and envelope_error is not None:
+                        reason = "assistant_envelope"
+                        raise envelope_error
                     if final is None or usage is not None:
                         raise ValueError
                     usage = event["usage"]
