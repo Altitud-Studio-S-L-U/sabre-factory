@@ -1,4 +1,6 @@
-# Flows and external communication
+# Configuration and integrations
+
+For daily use, start with [operations](operations.md). This reference covers saved configuration, specialists, launch contracts and external transports. Login and host-policy requirements are in [model providers](providers.md).
 
 ## Factory configuration and specialists
 
@@ -13,6 +15,43 @@ The read-only Supervisor tool `get_work_budget(work_id)` reads persisted run lim
 `GET /api/v1/operator/messages/{message_id}/tools` exposes bounded, secret-redacted tool calls and results from that message's persisted LangGraph checkpoint segment. The owner-authenticated endpoint returns recorded pending/completed/error status, not inferred activity, and excludes system instructions and hidden reasoning. Missing or pruned checkpoint data is explicitly unavailable; a completed reply alone does not prove a tool was invoked.
 
 `get_factory_readiness` and owner-authenticated `GET /api/v1/operator/readiness` inspect observed provider/model readiness, GitHub connection metadata and up to fifty registered MCP connections with tool counts. Saved credentials do not establish verified repository permissions; metadata inspection does not retrieve secret values or call external business tools. Successful recorded readiness results can expose fixed local navigation actions for GitHub setup, provider/model configuration and adding an MCP connection. These buttons open existing owner forms; they do not create tools, install servers, connect accounts or expand permissions. The trace projection validates the recorded result and regenerates its action allowlist rather than trusting model-generated URLs or instructions.
+
+| Specialist | Default method |
+| --- | --- |
+| PM | Requirements, observable acceptance examples and verification traceability (`requirements`) |
+| Designer | Journeys, interface states, interaction and visual-evidence limits (`product_design`) |
+| Developer | Scoped architecture and implementation using project conventions (`engineering`) |
+| QA | Independent deterministic verification and regression evidence (`verification`) |
+| Supervisor | Coordination and independent technical review in separate contexts (`review`) |
+| DevOps | Delivery preparation, operational checks and recovery (`delivery`) |
+| CISO | Independent security assessment and policy enforcement (`security`) |
+
+Effective instructions combine platform policy, role contract, published definition, capability procedure, selected skills and scoped evidence. The editable mission text is one part of this context. Skills are registered Markdown procedures selected and embedded by phase, with pinned digests; they are not dynamically discovered third-party Agent Skills packages. Progressive resource loading and executable skill resources are not implemented.
+
+New defaults apply to new installations. Existing installations retain published definitions until the owner edits, validates and publishes replacements. Preserve custom model/tool/context choices; changing a skill requires deliberately publishing definitions that adopt its digest. Longer instructions alone do not establish better outcomes.
+
+## Instance settings
+
+The ignored `.env` stores public settings only. Credentials belong in the vault; bootstrap paths identify protected files, not inline values. Prefer the panel for versioned model and factory edits.
+
+| Setting | Purpose |
+| --- | --- |
+| `SABRE_BOOTSTRAP_FILE` | Process-specific protected bootstrap path |
+| `SABRE_VAULT_MASTER_KEY_FILE` | Read-only master-key path for trusted control processes |
+| `SABRE_MODEL_PROVIDER`, `SABRE_MODEL_NAME`, `SABRE_MODEL_BASE_URL` | Initial provider/model and explicit local endpoint |
+| `SABRE_ROLE_MODELS` | Public role override JSON; secret values are forbidden |
+| `SABRE_MODEL_INPUT_USD_PER_MILLION`, `SABRE_MODEL_OUTPUT_USD_PER_MILLION` | Paid-model accounting prices |
+| `SABRE_MODEL_CACHE_READ_USD_PER_MILLION`, `SABRE_MODEL_CACHE_WRITE_USD_PER_MILLION` | Optional cached-input prices |
+| `SABRE_MONTHLY_BUDGET_USD` | Factory-wide paid API allowance |
+| `SABRE_EMBEDDING_MODEL`, `SABRE_EMBEDDING_USD_PER_MILLION` | Optional OpenAI/local embedding model and price (1536 dimensions) |
+| `SABRE_SLACK_OWNER_ID` | Explicitly linked Slack owner |
+| `SABRE_OTLP_ENDPOINT`, `SABRE_TRACE_VIEWER_URL` | Diagnostics endpoint and viewer template containing `{trace_id}` |
+| `SABRE_CONTEXT_INPUT_MAX_BYTES` | Complete measured input ceiling (default 98,304 bytes), not a tokenizer |
+| `SABRE_CONTEXT_DEDUP_ENABLED`, `SABRE_CONTEXT_ARCHIVE_ENABLED` | History projection switches (default enabled) |
+| `SABRE_CONTEXT_ARCHIVE_HIGH_WATER`, `SABRE_CONTEXT_ARCHIVE_LOW_WATER` | Archive thresholds (default 0.6 and 0.4 of input ceiling) |
+| `SABRE_CONTEXT_DEDUP_KEEP_MODEL_TURNS` | Normally protected recent turns (default 2) |
+
+Disabling projection does not remove recovery support required by a pending checkpoint. Changes never reset usage or establish cache savings. See [architecture](architecture.md#context-and-memory) for projection semantics and [operations](operations.md#configuration-and-access) for browser settings.
 
 ## Launch configuration
 

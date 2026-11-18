@@ -1,10 +1,8 @@
-# Credential storage decision
-
-Status: accepted. Owner decision: 2026-11-05.
+# Credential storage
 
 ## Decision
 
-Provider, repository, Slack and external-tool credentials move from environment variables into an encrypted control vault. It uses a separate `sabre_vault` database and role on the existing PostgreSQL instance. The project/memory role cannot connect to that database. This adds no independent database service.
+Provider, repository, Slack and external-tool credentials reside in an encrypted control vault. It uses a separate `sabre_vault` database and role on the existing PostgreSQL instance. The project/memory role cannot connect to that database. This adds no independent database service.
 
 AES-256-GCM from the maintained `cryptography` package encrypts values in the control process, with a random nonce and authenticated secret identifier/version. A protected 32-byte master-key file stays outside PostgreSQL. The owner selected automatic startup rather than a password prompt after every restart. Only API, work and control processes receive its read-only mount; project jobs, PostgreSQL, the executor and Slack gateway do not.
 
@@ -38,7 +36,7 @@ Migration reads only SABRE's own existing configuration. It verifies protected b
 
 Back up the encrypted vault database together with project/checkpoint data. Preserve the bootstrap/master material separately using an owner-controlled protected destination. A lost master key cannot be recovered from the encrypted database. Startup and writes fail closed for a missing, wrong or corrupt key; they never silently regenerate it over existing data.
 
-## Required checks
+## Validation
 
 Verify encryption/authentication and record binding, concurrent revision conflicts, disabled credentials, wrong-key refusal, project-role access denial, and plaintext absence from API responses, checkpoints, logs and container environment/configuration. Exercise migration, restart, credential update, backup/restore and the owner settings UI against real PostgreSQL and containers before live provider setup.
 
