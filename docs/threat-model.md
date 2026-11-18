@@ -16,7 +16,7 @@ What the factory protects, who it protects it from, which control answers each t
 ## 2. Who is trusted, and with what
 
 - **The owner and the host are trusted.** Anyone who can run commands on the host, read the bootstrap volumes or reach the Docker daemon controls the factory. Nothing here defends against that.
-- **The control services** (API, worker, control, Slack gateway) are trusted with the vault credential and the master key. A defect in them that an attacker can drive is a full compromise.
+- **The control services** (API, worker and control) are trusted with the vault credential and the master key. A defect in them that an attacker can drive is a full compromise. The Slack gateway uses a fixed-purpose adapter and does not receive the vault credential or master key.
 - **The executor broker** is trusted to describe sandboxes, and no further: it does not hold the Docker socket.
 - **The CLI runners** hold a vendor session. They are trusted to turn a prompt into a structured reply and with nothing else.
 - **Everything below is untrusted:** repository content, dependency code, tool output, MCP servers, remote agents, model output, memory content, and any process inside a sandbox.

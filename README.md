@@ -8,7 +8,7 @@ SABRE runs on your machine with your credentials. LangGraph owns recoverable exe
 
 Experimental source preview 0.1.0. The tested scope is the control plane: durable and resumable runs, budgets with reserves, the command sandbox, security gates, owner confirmations, and the console, which a browser suite exercises against the real API. A real-model read-only Python audit has completed with measured passing tests. No run with a real model has delivered a pull request, and the GitHub connection has only met a synthetic GitHub. Local installation and recovery evidence is limited to Windows 11 x64 with Docker Desktop.
 
-This preview shares the complete source with those limits explicit; it does not establish production readiness or broader host support. [The roadmap](docs/roadmap.md) lists the remaining work and stable-release bar, [the threat model](docs/threat-model.md) describes trust boundaries, and [the operations guide](docs/operations.md#candidate-distribution) explains candidate evidence and image-advisory review.
+This preview shares the complete source with those limits explicit; it does not establish production readiness or broader host support. [Compatibility](docs/compatibility.md) records demonstrated behavior and pending validation, and [the threat model](docs/threat-model.md) describes trust boundaries. Use the [documentation index](docs/README.md) for operation, configuration and development guides.
 
 ## Console
 
@@ -29,7 +29,7 @@ Use the complete source checkout or the source archive attached to a GitHub rele
 
 Install Node.js 24 or later and a local Linux Docker engine with Compose. Use Docker Desktop on Windows or macOS, or Docker Engine on Linux. No dedicated WSL distribution or host Python installation is required. Host web development checks additionally require the Node.js and pnpm versions declared in `web/package.json` (CI uses Node.js 24.22.2 and pnpm 11.19.0).
 
-Clone and enter the repository, or extract the release archive into an empty directory and enter it. While the repository is private, cloning requires access.
+Clone and enter the repository, or extract the release archive into an empty directory and enter it.
 
 ```sh
 git clone https://github.com/Altitud-Studio-S-L-U/sabre-factory.git
@@ -63,7 +63,7 @@ Python projects run on Python 3.14. Their `uv.lock` or hashed `requirements.txt`
 
 The Supervisor conversation is available throughout the authenticated panel and through owner MCP tools. Messages are durable and read-only by default. Grant individual action tools per message when you want the Supervisor to act; run-scoped conversations cannot modify another run. Replies use the control worker independently of execution. Each new message pins its published Supervisor definition. Conversation, run coordination and independent judging retain separate contexts. A blocked message retains its checkpoint and can be explicitly reconciled and resumed.
 
-Agents provides seven versioned specialists, with revision-checked drafts, validation and publication. Runs pin published instructions, registered procedures, skills and tool restrictions. Publishing a later version affects future launches. Tools also manages separately authenticated delegated clients and reviewed external-agent connections; external metadata and instructions cannot grant owner authority. See [configuration](docs/configuration.md) for these contracts and [implementation specs](docs/specs/README.md) for the agreed scope.
+Agents provides seven versioned specialists, with revision-checked drafts, validation and publication. Runs pin published instructions, registered procedures, skills and tool restrictions. Publishing a later version affects future launches. Tools also manages separately authenticated delegated clients and reviewed external-agent connections; external metadata and instructions cannot grant owner authority. See [configuration](docs/configuration.md) for specialist methods, skills and launch contracts.
 
 ## Flows
 
@@ -106,7 +106,7 @@ node bin/sabre.mjs build api && node infra/qa.mjs up && node infra/qa.mjs check;
 
 Backend checks run in pinned containers. `pnpm test:browser` answers every request from a mock; `node infra/qa.mjs check` runs the console against the real API and a real PostgreSQL on an isolated fixture, without a model provider. PostgreSQL integration and recovery checks require the isolated development network; see the operations guide. Dependency updates retain a seven-day release-age policy. Required checks must pass against the exact candidate commit.
 
-The target host matrix is Windows 11 x64, Linux x64/arm64, and macOS Intel/Apple Silicon. These are validation targets, not a claim of support. Windows with Docker Desktop has local evidence; full installation, real-provider execution, restart and restore on Linux x64, Linux arm64, macOS Intel and macOS Apple Silicon remain pending. Images target Linux amd64/arm64. An image build, Linux container on Windows or launcher test alone does not establish full host compatibility. The experimental source preview keeps these gaps visible. Broader host claims or a stable release require installation, execution, restart and restore evidence on every advertised host, plus the end-to-end scenarios in the [validation gate](docs/specs/09-validation.md).
+The target host matrix is Windows 11 x64, Linux x64/arm64, and macOS Intel/Apple Silicon. These are validation targets, not a claim of support. Windows with Docker Desktop has local evidence; full installation, real-provider execution, restart and restore on Linux x64, Linux arm64, macOS Intel and macOS Apple Silicon remain pending. Images target Linux amd64/arm64. An image build, Linux container on Windows or launcher test alone does not establish full host compatibility. See [compatibility and validation](docs/compatibility.md) for the evidence required before broader host claims or a stable release, and [development](docs/development.md) for checks and source distribution.
 
 ## License and inspiration
 

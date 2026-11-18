@@ -11,7 +11,7 @@ work order into a verified draft pull request, plus a console for the human owne
 - `web/`: React 19 + Vite + Tailwind 4 + shadcn console. `web/e2e/` Playwright journeys.
 - `infra/`: launcher scripts (`ops.mjs`, `dev.mjs`, `qa.mjs`, `bench.mjs`), Compose, Dockerfiles.
 - `bin/sabre.mjs`: the `sabre` command (`npm link` once to install it).
-- Specs in `docs/specs/`, operations in `docs/operations.md`, architecture in `docs/architecture.md`, threat model in `docs/threat-model.md`.
+- Documentation starts at `docs/README.md`; use the operations, configuration, architecture and threat-model guides for current behavior and limits.
 
 ## Verify
 
@@ -38,7 +38,7 @@ captures every section under `work/gallery/<label>/`.
 ## Rules
 
 - Conventional Commits with the noreply identity. One subject per commit. **No `Co-Authored-By` trailers.**
-- Branches `fix/...` and `feat/...`. Never merge, release, deploy or change repository visibility.
+- Branches use `feat/`, `fix/`, `docs/`, `ci/` or `chore/` according to the change, never `codex/`. Merge, release, deployment and visibility changes require the owner's authorization.
 - Never start a real run, change a budget or resume an existing run without the owner's explicit
   authorization. The bench and tests use synthetic models only.
 - Never ask for, print or commit secrets. Owner credentials stay in protected bootstrap volumes.
