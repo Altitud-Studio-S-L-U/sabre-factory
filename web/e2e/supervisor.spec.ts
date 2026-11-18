@@ -282,7 +282,7 @@ test('the Supervisor launcher never floats over content on wide screens', async 
     await expect(inHeader).toHaveCount(0);
     const box = await launcher.boundingBox();
     const tabs = await page.getByRole('navigation', { name: 'Main navigation' }).boundingBox();
-    expect(box && tabs && box.y + box.height <= tabs.y).toBe(true);
+    expect(box && tabs && box.y + box.height <= tabs.y, JSON.stringify({ box, tabs })).toBe(true);
   }
 });
 
