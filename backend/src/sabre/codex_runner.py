@@ -28,6 +28,7 @@ from sabre.codex_model import (
     read_bridge_token,
 )
 from sabre.framework import TELEMETRY_OFF
+from sabre.logs import log
 from sabre.models import DomainError
 from sabre.settings import reject_secret_environment
 
@@ -252,11 +253,16 @@ def parse_events(raw: bytes) -> InvocationResponse:
     usage = None
     started = False
     turn_started = False
+    reason = "event_json"
+    event = None
     try:
         for line in raw.splitlines():
+            reason = "event_json"
+            event = None
             event = json.loads(line)
             if not isinstance(event, dict):
                 raise ValueError
+            reason = "event_sequence"
             match event.get("type"):
                 case "thread.started":
                     if started or turn_started:
@@ -274,8 +280,10 @@ def parse_events(raw: bytes) -> InvocationResponse:
                         raise ValueError
                     if item.get("type") == "reasoning" and isinstance(item.get("text"), str):
                         continue
+                    reason = "item_type"
                     if item.get("type") != "agent_message":
                         raise ValueError
+                    reason = "assistant_envelope"
                     final = AssistantEnvelope.model_validate_json(item["text"])
                 case "turn.completed":
                     if final is None or usage is not None:
@@ -287,12 +295,33 @@ def parse_events(raw: bytes) -> InvocationResponse:
                     if not turn_started or usage is not None or not isinstance(message, str) or not message.startswith(RECONNECTING):
                         raise ValueError
                 case _:
+                    reason = "event_type"
                     raise ValueError
+        reason = "incomplete_turn"
         if final is None or usage is None:
             raise ValueError
+        reason = "usage_schema"
         return InvocationResponse(result=final, input_tokens=usage["input_tokens"],
             output_tokens=usage["output_tokens"], cached_input_tokens=usage["cached_input_tokens"])
-    except (ValueError, TypeError, KeyError, ValidationError):
+    except (ValueError, TypeError, KeyError, ValidationError) as error:
+        # Only a closed vocabulary leaves the runner; event bodies and validation inputs never do.
+        event_type = event.get("type") if isinstance(event, dict) else None
+        if not isinstance(event_type, str) or event_type not in {
+            "thread.started", "turn.started", "item.started", "item.updated", "item.completed", "turn.completed", "turn.failed", "error",
+        }:
+            event_type = "unknown"
+        item = event.get("item") if isinstance(event, dict) else None
+        item_type = item.get("type") if isinstance(item, dict) else None
+        if not isinstance(item_type, str) or item_type not in {
+            "agent_message", "reasoning", "command_execution", "mcp_tool_call", "web_search", "file_change", "todo_list", "error", "code_tool_call", "code_execution",
+        }:
+            item_type = "unknown"
+        if isinstance(error, ValidationError):
+            errors = error.errors(include_input=False, include_context=False, include_url=False)
+            kind = errors[0]["type"] if errors else "validation"
+            if kind in {"json_invalid", "extra_forbidden", "missing", "string_type", "list_type", "too_long", "int_type", "greater_than_equal"}:
+                reason += "." + kind
+        log("model.failed", error_code="CODEX_PROTOCOL_INVALID", kind=f"{reason}.{event_type}.{item_type}")
         raise DomainError("CODEX_PROTOCOL_INVALID", "Codex returned events incompatible with the adapter", 503) from None
 
 

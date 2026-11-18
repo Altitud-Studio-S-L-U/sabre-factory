@@ -164,6 +164,16 @@ def test_protocol_rejects_unsupported_incomplete_or_invalid_events(mutator):
     assert "sensitive" not in str(error.value)
 
 
+def test_protocol_diagnostics_name_the_failed_contract_without_event_content(capsys):
+    lines = [json.loads(line) for line in events().splitlines()]
+    lines[2]["item"]["text"] = "synthetic-private-event-content"
+    with pytest.raises(DomainError):
+        codex_runner.parse_events(b"\n".join(json.dumps(line).encode() for line in lines))
+    diagnostic = capsys.readouterr().err
+    assert json.loads(diagnostic)["kind"] == "assistant_envelope.json_invalid.item.completed.agent_message"
+    assert "synthetic-private-event-content" not in diagnostic
+
+
 def test_a_turn_the_cli_completed_after_reconnecting_is_an_answer():
     lines = [json.loads(line) for line in events().splitlines()]
     note = {"type": "error", "message": "Reconnecting... 1/5 (unexpected status 503 Service Unavailable: sensitive, url: http://provider.invalid)"}
