@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { currentBlocker, historicalError, isBudgetCode, isClosed, pendingQuestions } from '../runState';
-import type { WorkOrder } from '../api';
+import {
+  budgetCheckCovered,
+  currentBlocker,
+  historicalError,
+  isBudgetCode,
+  isClosed,
+  pendingQuestions,
+} from '../runState';
+import type { BudgetView, WorkOrder } from '../api';
 
 type Status = WorkOrder['status'];
 const statuses: Status[] = [
@@ -63,5 +70,26 @@ describe('run state semantics', () => {
     expect(isBudgetCode('CONTEXT_BUDGET_EXHAUSTED')).toBe(false);
     expect(isBudgetCode('TOOL_FAILED')).toBe(false);
     expect(isBudgetCode(null)).toBe(false);
+  });
+
+  it('distinguishes an authorization covering the saved check from another unresolved ceiling', () => {
+    const denial: NonNullable<BudgetView['denial']> = {
+      version: 1,
+      metric: 'tokens',
+      basis: 'next_reservation',
+      used: 900,
+      reserved: 100,
+      requested: 500,
+      required: 1500,
+      limit: 1200,
+    };
+    expect(budgetCheckCovered(denial, { tokens: { absolute: 1500 } })).toBe(true);
+    expect(budgetCheckCovered(denial, { tokens: { absolute: null } })).toBe(true);
+    expect(budgetCheckCovered(denial, { tokens: { absolute: 1400 } })).toBe(false);
+    expect(budgetCheckCovered(denial, { invocations: { absolute: null } })).toBe(false);
+    expect(budgetCheckCovered({ ...denial, required: null }, { tokens: { absolute: null } })).toBe(false);
+    expect(budgetCheckCovered({ ...denial, metric: 'api_spend' }, { tokens: { absolute: null } })).toBe(
+      false,
+    );
   });
 });

@@ -1,4 +1,4 @@
-import type { WorkOrder } from './api';
+import type { BudgetMetric, BudgetView, WorkOrder } from './api';
 
 /**
  * Run-state semantics shared by every console surface.
@@ -62,6 +62,19 @@ export function isBudgetCode(code: string | null | undefined): boolean {
     !!code &&
     code !== 'CONTEXT_BUDGET_EXHAUSTED' &&
     (code.startsWith('BUDGET_') || code.endsWith('_BUDGET_EXHAUSTED') || code === 'TIME_BUDGET')
+  );
+}
+
+/** Covers the saved rejection only; dispatch must still recheck every current control. */
+export function budgetCheckCovered(
+  denial: BudgetView['denial'],
+  policy: Partial<Record<BudgetMetric, { absolute: number | null }>> | null | undefined,
+): boolean {
+  if (!denial || denial.basis === 'historical_unknown' || denial.required === null || denial.limit === null)
+    return false;
+  const ceiling = policy?.[denial.metric as BudgetMetric]?.absolute;
+  return (
+    ceiling === null || (typeof ceiling === 'number' && ceiling > denial.limit && ceiling >= denial.required)
   );
 }
 

@@ -33,7 +33,14 @@ import BudgetPanel from '../../BudgetPanel';
 import ReleasesPanel from '../../ReleasesPanel';
 import RemoteTasksPanel from '../../RemoteTasksPanel';
 import useRunUsage from '../../useRunUsage';
-import { currentBlocker, historicalError, isBudgetCode, isClosed, pendingQuestions } from '../../runState';
+import {
+  budgetCheckCovered,
+  currentBlocker,
+  historicalError,
+  isBudgetCode,
+  isClosed,
+  pendingQuestions,
+} from '../../runState';
 import {
   CliProgressPolicy,
   ErrorNotice,
@@ -163,8 +170,13 @@ export default function RunDetail({
   // The status decides what is current: a code retained on a closed run is history, not a pending decision.
   const blocker = currentBlocker(order);
   const history = historicalError(order);
+  const budgetCovered =
+    isBudgetCode(blocker) && budgetCheckCovered(order.budget_denial, order.effective_budget_policy);
   const budgetDecision =
-    isBudgetCode(blocker) && ['blocked', 'paused'].includes(order.status) && order.control !== 'cancel';
+    isBudgetCode(blocker) &&
+    !budgetCovered &&
+    ['blocked', 'paused'].includes(order.status) &&
+    order.control !== 'cancel';
   const pr = externalUrl(order.evidence?.pr_url);
   const perAgent =
     order.budget.max_calls === null &&
@@ -259,8 +271,15 @@ export default function RunDetail({
           </Notice>
         )}
         {blocker && (
-          <Notice tone="warning" title={blocker}>
-            <p>{order.summary}</p>
+          <Notice
+            tone={budgetCovered ? 'neutral' : 'warning'}
+            title={budgetCovered ? 'Limits updated — run still stopped' : blocker}
+          >
+            <p>
+              {budgetCovered
+                ? 'The saved authorization covers the recorded budget check. Resume rechecks all current controls and may invoke the configured models.'
+                : order.summary}
+            </p>
             {budgetDecision && (
               <div className="mt-2 grid justify-items-start gap-3">
                 <p>

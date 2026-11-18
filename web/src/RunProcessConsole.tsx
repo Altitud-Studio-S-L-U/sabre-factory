@@ -25,7 +25,7 @@ import JsonView from './components/JsonView';
 import Button from './components/Button';
 import Disclosure from './components/Disclosure';
 import CrewAvatar from './features/crew/CrewAvatar';
-import { currentBlocker } from './runState';
+import { budgetCheckCovered, currentBlocker, isBudgetCode } from './runState';
 import type { RunUsageState } from './useRunUsage';
 import { cn } from './lib/utils';
 import {
@@ -233,6 +233,8 @@ export default function RunProcessConsole({
   // A recorded step error explains the run's current stop only while the run is stopped with that code and no
   // later step has started; otherwise it is a historical record of an earlier attempt.
   const blocker = currentBlocker(order);
+  const budgetCovered =
+    isBudgetCode(blocker) && budgetCheckCovered(order.budget_denial, order.effective_budget_policy);
   const firstSequence = (span: ObservedSpan) => span.records[0]?.sequence ?? 0;
   const lastSequence = (span: ObservedSpan) => span.records.at(-1)?.sequence ?? 0;
   const currentStop = Boolean(
@@ -240,6 +242,7 @@ export default function RunProcessConsole({
       !historicalSelection &&
       ['blocked', 'failed'].includes(order.status) &&
       blocker !== null &&
+      !budgetCovered &&
       current.event.error_code === blocker &&
       !spans.some((span) => span.event.kind === 'stage' && firstSequence(span) > lastSequence(current)),
   );

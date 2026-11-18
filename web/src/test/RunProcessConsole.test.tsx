@@ -108,6 +108,39 @@ function failed(sequence: number, name: string, correlation: string, code: strin
 describe('Recorded step errors', () => {
   const inspectorNotice = () => within(screen.getByRole('region', { name: 'Execution inspector' }));
 
+  it('retains the failed attempt as history after a saved authorization covers it', () => {
+    render(
+      <RunProcessConsole
+        order={{
+          ...order('blocked'),
+          error_code: 'BUDGET_TOKENS',
+          budget_denial: {
+            version: 1,
+            metric: 'tokens',
+            basis: 'next_reservation',
+            used: 900,
+            reserved: 0,
+            requested: 600,
+            required: 1500,
+            limit: 1000,
+          },
+          effective_budget_policy: {
+            version: 1,
+            tokens: { primary: null, reserve: 0, absolute: null },
+            invocations: { primary: 20, reserve: 0, absolute: 20 },
+            active_seconds: { primary: 900, reserve: 0, absolute: 900 },
+            repairs: { primary: 2, reserve: 0, absolute: 2 },
+            no_progress_threshold: 3,
+          },
+        }}
+        topology={topology}
+        entries={[failed(1, 'implement', 'checks', 'BUDGET_TOKENS')]}
+      />,
+    );
+    expect(inspectorNotice().getByText(/Historical record · BUDGET_TOKENS/)).toBeVisible();
+    expect(inspectorNotice().queryByText(/Current stop reason/)).not.toBeInTheDocument();
+  });
+
   it('explains only the latest failed step with the current summary while the run is blocked', async () => {
     const user = userEvent.setup();
     const blocked = {

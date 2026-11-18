@@ -13,7 +13,7 @@ import {
 } from './api';
 import Dialog from './components/Dialog';
 import Field from './components/FormField';
-import { currentBlocker, isBudgetCode, isClosed } from './runState';
+import { budgetCheckCovered, currentBlocker, isBudgetCode, isClosed } from './runState';
 import Select from './components/Select';
 import BudgetBlockReason from './BudgetBlockReason';
 import CheckField from './components/CheckField';
@@ -95,6 +95,10 @@ export default function BudgetPanel({
   const closed = isClosed(work);
   const canAmend = connected && ['paused', 'blocked'].includes(work.status) && work.control !== 'cancel';
   const budgetBlocked = work.status === 'blocked' && isBudgetCode(currentBlocker(work));
+  const covered = budgetCheckCovered(
+    budget?.denial ?? null,
+    budget && Object.fromEntries(metrics.map((metric) => [metric, budget.metrics[metric].policy])),
+  );
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -251,6 +255,20 @@ export default function BudgetPanel({
     setNotice('Inspect the saved revision and authorization history before preparing another command.');
     await load();
   };
+  const resume = async () => {
+    if (!connected || busy || !covered || budget?.unreconciled_calls) return;
+    setBusy(true);
+    setError('');
+    try {
+      onChanged?.(await api.control(work.id, 'resume'));
+      setNotice('Resume requested. All current controls will be checked again.');
+      await load();
+    } catch (reason) {
+      setError(failure(reason));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
     <section className="grid min-w-0 gap-4" aria-label="Run budget limits">
@@ -298,39 +316,67 @@ export default function BudgetPanel({
               aria-label="Budget decision"
             >
               <div className="grid gap-1.5">
-                <Eyebrow>Operator decision required</Eyebrow>
+                <Eyebrow>{covered ? 'Run still stopped' : 'Operator decision required'}</Eyebrow>
                 <h3 className="text-lg leading-snug font-semibold">
-                  Budget authorization required — choose how to continue
+                  {covered
+                    ? 'Limits updated — resume to recheck'
+                    : 'Budget authorization required — choose how to continue'}
                 </h3>
                 <p className="max-w-[78ch] text-sm text-muted-foreground">
-                  The next step was blocked by a budget check. Recorded usage can still be below a ceiling: a
-                  model call must also fit its reservation before it starts. Review the recorded reason before
-                  changing a limit. Other limits, paid API spending and factory policies still apply. Nothing
-                  changes until you review and save the authorization.
+                  {covered ? (
+                    'The saved authorization covers the recorded budget check. The run has not resumed. Resume rechecks all limits, usage and permissions and may invoke the configured models.'
+                  ) : (
+                    <>
+                      The next step was blocked by a budget check. Recorded usage can still be below a
+                      ceiling: a model call must also fit its reservation before it starts. Review the
+                      recorded reason before changing a limit. Other limits, paid API spending and factory
+                      policies still apply. Nothing changes until you review and save the authorization.
+                    </>
+                  )}
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-                <Button
-                  type="button"
-                  variant="primary"
-                  disabled={!canAmend || busy}
-                  onClick={() => open('amend', 'bounded')}
-                >
-                  Set a new limit
-                </Button>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  disabled={!canAmend || busy}
-                  onClick={() => open('amend', 'uncapped')}
-                >
-                  Remove a ceiling
-                </Button>
-                <span className={note}>Or leave this run blocked and decide later.</span>
+                {covered ? (
+                  <>
+                    <Button
+                      type="button"
+                      variant="primary"
+                      disabled={!canAmend || busy || !!budget.unreconciled_calls}
+                      onClick={() => void resume()}
+                    >
+                      {busy ? 'Requesting resume…' : 'Resume and recheck'}
+                    </Button>
+                    {budget.unreconciled_calls > 0 && (
+                      <span className={note}>Review unsettled usage before resuming.</span>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <Button
+                      type="button"
+                      variant="primary"
+                      disabled={!canAmend || busy}
+                      onClick={() => open('amend', 'bounded')}
+                    >
+                      Set a new limit
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      disabled={!canAmend || busy}
+                      onClick={() => open('amend', 'uncapped')}
+                    >
+                      Remove a ceiling
+                    </Button>
+                    <span className={note}>Or leave this run blocked and decide later.</span>
+                  </>
+                )}
               </div>
             </section>
           )}
-          {budget.denial && <BudgetBlockReason denial={budget.denial} closed={closed} />}
+          {budget.denial && (
+            <BudgetBlockReason denial={budget.denial} closed={closed} authorizationUpdated={covered} />
+          )}
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-muted-foreground">
             <span>Authorization revision {budget.revision}</span>
             <span>

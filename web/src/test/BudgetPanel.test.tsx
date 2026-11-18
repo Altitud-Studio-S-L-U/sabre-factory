@@ -382,3 +382,39 @@ it('does not suggest removing cumulative ceilings for a context-size failure', a
   await screen.findByText('Authorization revision 7');
   expect(screen.queryByRole('region', { name: 'Budget decision' })).not.toBeInTheDocument();
 });
+
+it('offers an explicit resume after a saved authorization covers the recorded reservation', async () => {
+  const user = userEvent.setup();
+  const { api, writes } = connect();
+  vi.spyOn(api, 'workBudget').mockResolvedValue({
+    ...snapshot,
+    metrics: {
+      ...snapshot.metrics,
+      tokens: { ...snapshot.metrics.tokens, policy: { primary: null, reserve: 0, absolute: null } },
+    },
+    denial: {
+      version: 1,
+      metric: 'tokens',
+      basis: 'next_reservation',
+      used: 900,
+      reserved: 100,
+      requested: 500,
+      required: 1500,
+      limit: 1200,
+    },
+    unsettled_usage_ids: [],
+    unreconciled_calls: 0,
+  });
+  const resume = vi.spyOn(api, 'control').mockResolvedValue({ ...work, status: 'queued', error_code: null });
+  const changed = vi.fn();
+  render(<BudgetPanel api={api} work={work} onChanged={changed} />);
+  const button = await screen.findByRole('button', { name: 'Resume and recheck' });
+  expect(screen.getByText('Limits updated — resume to recheck')).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Set a new limit' })).not.toBeInTheDocument();
+  expect(screen.getByText(/Next step did not fit/)).toBeInTheDocument();
+  expect(resume).not.toHaveBeenCalled();
+  await user.click(button);
+  expect(resume).toHaveBeenCalledExactlyOnceWith(work.id, 'resume');
+  expect(changed).toHaveBeenCalledWith(expect.objectContaining({ status: 'queued' }));
+  expect(writes).toHaveLength(0);
+});
