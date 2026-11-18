@@ -6,11 +6,11 @@ Written on 2026-11-14 from three audits of `main` (the previous plan against the
 
 The control plane is the strong part. Execution is durable and resumable, contracts are typed and versioned, budgets have reserves and revision-checked amendments, commands run in a brokered sandbox, secret and dependency scanners are gates, high-impact requests wait for the owner in the console, and the console shows an unknown value as unknown. That is the part that makes it safe to leave running.
 
-The part that does the work is unproven and expensive. No run with a real model has delivered a pull request. The one audit that reached its report needed three harness fixes on the way, spent 43% of its tool calls recovering text it had already read, and read 5.5% of its input from cache. Only the audit flow has run with a real model; implementation, repair, review, delivery, releases, browser checks and A2A have synthetic evidence only.
+The part that delivers changes is unproven. No run with a real model has delivered a pull request. The audit measured before the November 14 reset needed three harness fixes, spent 43% of its tool calls recovering text it had already read, and read 5.5% of its input from cache. A later read-only Python audit completed with measured passing tests and independent QA, review and security stages. That proves one audit path, not an implementation success rate, context-economy improvement or delivery through GitHub. Implementation, repair, delivery, releases, model visual review and A2A still have synthetic evidence only.
 
 So it is not yet ready to show as a factory that delivers verified pull requests. It is ready when the bar below is met.
 
-The instance was reset on 2026-11-14 at the owner's request: every project, run and record from the test period was removed, so the figures above describe runs that no longer exist on it. Those runs used the Codex CLI; the default provider is now the Claude CLI.
+The instance was reset on 2026-11-14 at the owner's request: every project, run and record from that test period was removed, so the earlier recovery/cache figures describe a run that no longer exists on it. Subsequent release evidence is retained separately in the candidate and PR. These audits used the Codex CLI; the default provider is the Claude CLI.
 
 ## The bar
 
@@ -31,7 +31,7 @@ The decision that matters is narrower: who runs the inner tool loop of the imple
 
 | # | Gap | Evidence | Answer |
 | --- | --- | --- | --- |
-| G1 | No evidence with a real model | No delivered pull request. The bench has four scripted tasks on one fixture and nothing compares its reports | [16](specs/16-evaluation.md) |
+| G1 | Delivery is unproven with a real model | A read-only Python audit completes, but no delivered pull request or fixed real-task evaluation exists. The six scripted bench cases compare mechanically against a committed baseline; they do not measure model success or quality | [16](specs/16-evaluation.md) |
 | G2 | Context economy | 43% of tool calls were recoveries and 5.5% of input came from cache in the real audit. Results now leave in batches under pressure and the pressure notice no longer edits the system prompt; in the scripted bench an audit that fits its window recovers nothing, and one that must compact is unchanged. Requests to the Anthropic API now mark what can be cached, and a call to the Claude CLI sends its prompt as blocks that only grow, from a fixed directory: before, each call wrote the whole prompt to the cache and could read none of it. A call to the Codex CLI runs from a fixed directory too, since that CLI names its directory ahead of the prompt; the cache key it sends is new on every call and is not the factory's to set. A real run to confirm any of it is still missing | [14](specs/14-context-economy.md) |
 | G3 | An audit cannot finish when the scanner cannot parse valid code | Semgrep reported a partial parse of two valid TypeScript lines in the audited repository and the factory treats any scanner error as an incomplete scan | Owner decision 1 |
 | G4 | The GitHub connection has not met github.com | A GitHub App can be registered from the console, installed on chosen repositories and used for reading and delivering with a token per operation and repository; commits made through it are signed by GitHub. All of it was exercised against a synthetic GitHub. Creating repositories still uses a pasted token | [12](specs/12-github-connection.md) |
