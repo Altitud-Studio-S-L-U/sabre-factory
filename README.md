@@ -10,7 +10,16 @@ Experimental and unreleased. What is tested is the control plane: durable and re
 
 ## Start
 
-Install Node.js 24 or later and a local Linux Docker engine with Compose. Use Docker Desktop on Windows or macOS, or Docker Engine on Linux. No dedicated WSL distribution is required.
+Use the complete source checkout or the source archive attached to a GitHub release. The Python wheel contains only the backend: it has no `sabre` command, panel, Compose services or bootstrap provisioning. `pip install sabre-factory` is not an installation of the product, and PyPI is not a distribution target for this first version.
+
+Install Node.js 24 or later and a local Linux Docker engine with Compose. Use Docker Desktop on Windows or macOS, or Docker Engine on Linux. No dedicated WSL distribution or host Python installation is required. Host web development checks additionally require the Node.js and pnpm versions declared in `web/package.json` (CI uses Node.js 24.22.2 and pnpm 11.19.0).
+
+Clone and enter the repository, or extract the release archive into an empty directory and enter it. While the repository is private, cloning requires access.
+
+```sh
+git clone https://github.com/Altitud-Studio-S-L-U/sabre-factory.git
+cd sabre-factory
+```
 
 ```sh
 node bin/sabre.mjs doctor
@@ -24,6 +33,14 @@ node bin/sabre.mjs up
 `up` opens the panel in your default browser, already signed in, on Windows, macOS and Linux. The browser stays paired while you use it and signs out after 30 days without use. To pair another browser, or after signing out, run `node bin/sabre.mjs open`. Use `up --no-open` on machines without a desktop. Run `npm link` once in this directory to use `sabre <command>` instead of `node bin/sabre.mjs <command>`. No link or token is displayed, and the panel never receives the permanent control credential.
 
 `init` creates protected, service-specific bootstrap files and a master key in Docker volumes. The ignored `.env` contains public configuration. API keys entered in the write-only panel are encrypted in a separate PostgreSQL vault. Coding and verification containers receive no integration credentials.
+
+To check the harness without an account or provider charges, run the included Python example:
+
+```sh
+node bin/sabre.mjs bench --task patch-discount
+```
+
+Expect `1/1 tasks passed (reference_policy; tokens estimated_utf8_bytes_div_4)`. This drives the real graph over `backend/bench/repos/pricing`, validates discount bounds and runs the project's `python -m unittest` checks plus a separate regression grader. The model, executor and publisher are test implementations; it does not exercise deployed containers or deliver a real GitHub pull request. The report is saved under `work/bench/`. [Operations](docs/operations.md#verification) gives the separate runtime and recovery checks.
 
 Connect a model in Config › Models. An API provider (OpenAI, Anthropic, Google, or a local OpenAI-compatible endpoint) is the path this guide assumes: its key is entered in the write-only panel and stored encrypted. A Codex or Claude CLI session (`codex-login`, `claude-login`) is an alternative for your own machine only: it signs the vendor's CLI in with your personal account inside an isolated runner, and it is not meant for anything you share or run for others. Whether your plan allows that use is for you to check with the vendor; the factory cannot. Choose the factory default in Config and explicit role overrides in Agents; external connections are managed in Tools. Select explicit model names, approved destinations, prices and limits. Add a repository in Runs › Projects › Add project (from GitHub, by address or as a new repository) with its real verification commands, then launch a flow. See [operations](docs/operations.md) for login, isolation, backup and recovery.
 
@@ -72,7 +89,7 @@ node bin/sabre.mjs build api && node infra/qa.mjs up && node infra/qa.mjs check;
 
 Backend checks run in pinned containers. `pnpm test:browser` answers every request from a mock; `node infra/qa.mjs check` runs the console against the real API and a real PostgreSQL on an isolated fixture, without a model provider. PostgreSQL integration and recovery checks require the isolated development network; see the operations guide. Dependency updates retain a seven-day release-age policy. Required checks must pass against the exact candidate commit.
 
-The target host matrix is Windows 11 x64, Linux x64/arm64, and macOS Intel/Apple Silicon. Images support Linux amd64/arm64. An image build or launcher test alone does not establish full host compatibility. A public release requires installation, execution, restart and restore evidence on every advertised host; that validation is not yet complete.
+The target host matrix is Windows 11 x64, Linux x64/arm64, and macOS Intel/Apple Silicon. These are validation targets, not a claim of support. Windows with Docker Desktop has local evidence; full installation, real-provider execution, restart and restore on Linux x64, Linux arm64, macOS Intel and macOS Apple Silicon remain pending. Images target Linux amd64/arm64. An image build, Linux container on Windows or launcher test alone does not establish full host compatibility. A public release requires installation, execution, restart and restore evidence on every advertised host; that validation is not yet complete.
 
 ## License and inspiration
 
