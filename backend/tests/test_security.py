@@ -280,7 +280,7 @@ async def test_rule_or_vulnerability_database_change_invalidates_review():
 async def test_security_analyst_can_add_but_never_remove_or_waive_findings():
     original = finding(category="secret", severity="critical")
 
-    async def analyst(work_id, findings):
+    async def analyst(work_id, findings, collection):
         findings.clear()
         return [finding(category="code", severity="low"), finding(fingerprint="agent-review").model_copy(update={"baseline": True})]
 
@@ -289,6 +289,32 @@ async def test_security_analyst_can_add_but_never_remove_or_waive_findings():
     assert report.findings[0] == original
     assert report.findings[1].fingerprint == "agent-review"
     assert report.findings[1].baseline is False
+
+
+async def test_empty_scanner_findings_reach_the_analyst_with_a_completed_collection_receipt():
+    seen = []
+
+    async def analyst(work_id, findings, collection):
+        seen.append((work_id, findings, collection))
+        return []
+
+    report = await SecurityService(Scanner([]), analyst=analyst).review("work", "a" * 64, [])
+    work_id, findings, collection = seen[0]
+    assert work_id == "work" and findings == [] and not report.blocked
+    assert collection == {"status": "completed", "snapshot_digest": report.snapshot_digest,
+                          "rules_version": report.rules_version, "finding_count": 0, "scanner_errors": 0}
+
+
+async def test_collection_receipt_does_not_turn_a_failed_scanner_into_a_clean_scan():
+    seen = []
+
+    async def analyst(work_id, findings, collection):
+        seen.append(collection)
+        return []
+
+    report = await SecurityService(Scanner([scanner_error("semgrep")]), analyst=analyst).review("work", "a" * 64, [])
+    assert seen[0]["status"] == "completed" and seen[0]["scanner_errors"] == 1
+    assert report.blocked and report.findings[0].category == "scanner_error"
 
 
 async def test_code_changed_during_analyst_review_invalidates_result():
@@ -300,7 +326,7 @@ async def test_code_changed_during_analyst_review_invalidates_result():
 
     scanner = Current([])
 
-    async def analyst(work_id, findings):
+    async def analyst(work_id, findings, collection):
         scanner.current = "b" * 64
         return []
 

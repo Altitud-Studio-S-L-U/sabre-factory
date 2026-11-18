@@ -1,4 +1,5 @@
 import asyncio
+import json
 from contextlib import AsyncExitStack, suppress
 
 import procrastinate
@@ -89,14 +90,17 @@ class Runtime:
         embeddings = BudgetedEmbeddings(self.repository, cfg, guard, credentials=self.credentials) if cfg.embedding_model else None
         memory = MemoryService(self.repository, guard, embeddings)
         team = AgentTeam(cfg, self.repository, executor, guard, checkpointer=checkpoint, credentials=self.credentials, artifacts=artifacts)
-        async def security_analyst(work_id, findings):
+        async def security_analyst(work_id, findings, collection):
             await self.credentials.refresh()
             work = await self.repository.work(work_id)
             if work.phase == "security_watch" or not cfg.for_role("security").model_ready() or any(f.category in {"secret", "scanner_error"} for f in findings):
                 return []
             result = await team.run("security", work, await self.repository.project(work.project_id),
                 "Independently review security of the actual source. Triage this scanner evidence, cite applicable files and propose remediations. "
-                "Do not waive findings. Evidence: " + str([f.model_dump(mode="json") for f in findings]))
+                "Do not waive findings. The collection receipt records the completed scanner collection for this snapshot and rules version; "
+                "scanner_errors counts failed or incomplete scans. A completed collection with zero findings is execution evidence, not a security clearance. "
+                "Functional test results belong to QA. Evidence: " + json.dumps({"collection": collection,
+                    "findings": [f.model_dump(mode="json") for f in findings]}, ensure_ascii=False))
             await self.repository.event(work, "security_review", result.summary)
             if result.accepted:
                 return []
